@@ -1,0 +1,43 @@
+import socket
+from common import csv_loaders
+from shared import protocol    
+
+class Client:
+    def __init__(self, client_id, server_address, data_dir, batch_max_amount):
+        self.client_id = client_id
+        self.server_address = server_address
+        self.data_dir = data_dir
+        self.batch_max_amount = batch_max_amount
+        self.conn = None
+
+    def create_socket(self):
+        host, port = self.server_address.split(":")
+        self.conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.conn.connect((host, int(port)))
+
+    def close(self):
+        if self.conn:
+            self.conn.close()
+    
+    def start_client_loop(self):
+        self.create_socket()
+
+        # === Iterar archivos detectados en .data ===
+        for data_type, filepath in csv_loaders.iter_csv_files(self.data_dir):
+            print(f"[INFO] Sending file {filepath} (type={data_type})")
+
+            # Enviar en batches
+            for batch in csv_loaders.load_csv_batch(filepath, self.batch_max_amount):
+                payload = "\n".join(batch).encode()
+                protocol.send_message(self.conn, protocol.MSG_TYPE_DATA, data_type, payload)
+                print(f"[INFO] Sent batch of {len(batch)} rows from {filepath.name}")
+
+            # END de este tipo
+            protocol.send_message(self.conn, protocol.MSG_TYPE_END, data_type, b"")
+            print(f"[INFO] Sent END for {filepath.name}")
+
+        # === END FINAL ===
+        protocol.send_message(self.conn, protocol.MSG_TYPE_END, protocol.DATA_END, b"")
+        print("[INFO] Sent END FINAL")
+
+        self.close()

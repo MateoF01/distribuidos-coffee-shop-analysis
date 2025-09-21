@@ -1,0 +1,42 @@
+# shared/protocol.py
+import struct
+
+# Message Types
+MSG_TYPE_DATA = 1
+MSG_TYPE_END = 2
+
+# Data Types
+DATA_TRANSACTIONS = 1
+DATA_TRANSACTIONS_ITEMS = 2
+DATA_MENU_ITEMS = 3
+DATA_USERS = 4
+DATA_STORES = 5
+DATA_END = 6
+
+
+def send_message(conn, msg_type: int, data_type: int, payload: bytes):
+    """
+    - 1 byte: message type
+    - 1 byte: data type
+    - 4 bytes: payload len
+    - N bytes: payload
+    """
+    header = struct.pack(">BBI", msg_type, data_type, len(payload))
+    conn.sendall(header + payload)
+
+
+def receive_message(conn):
+    header = _read_full(conn, 6)  # 1 type msg + 1 type dato + 4 len
+    msg_type, data_type, length = struct.unpack(">BBI", header)
+    payload = _read_full(conn, length) if length > 0 else b""
+    return msg_type, data_type, payload
+
+
+def _read_full(conn, n):
+    buf = b""
+    while len(buf) < n:
+        chunk = conn.recv(n - len(buf))
+        if not chunk:
+            raise ConnectionError("Socket closed before receiving expected data")
+        buf += chunk
+    return buf
