@@ -28,18 +28,20 @@ services:
       - coffee-net
 
   client:
-    build: ./client
+    build:
+      context: .
+      dockerfile: client/Dockerfile
     container_name: client
     depends_on:
       - gateway
     environment:
       PYTHONUNBUFFERED: 1
-      DATA_DIR: /app/.data         
-      SERVER_ADDRESS: gateway:5000  
+      DATA_DIR: /app/.data
+      SERVER_ADDRESS: gateway:5000
       CLIENT_ID: client1
       BATCH_MAX_AMOUNT: 100
     volumes:
-      - ./data:/app/.data        
+      - ./data:/app/.data
     networks:
       - coffee-net
 
