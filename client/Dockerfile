@@ -1,4 +1,9 @@
 FROM python:3.11-slim
 WORKDIR /app
-COPY client.py .
-CMD ["python", "client.py"]
+
+# Copiar código del cliente
+COPY client/ /app/
+# Copiar shared (está al mismo nivel que client/)
+COPY shared/ /app/shared/
+
+CMD ["python", "main.py"]
