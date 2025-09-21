@@ -1,10 +1,9 @@
 FROM python:3.11-slim
-
-# Crear directorio de trabajo
 WORKDIR /app
 
-# Copiar todo el código del cliente y shared
-COPY . .
+# Copiar código del cliente
+COPY client/ /app/
+# Copiar shared (está al mismo nivel que client/)
+COPY shared/ /app/shared/
 
-# Entrypoint: ejecuta el main del cliente
 CMD ["python", "main.py"]

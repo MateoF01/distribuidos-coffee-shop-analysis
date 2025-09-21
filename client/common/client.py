@@ -1,4 +1,4 @@
-import socket
+import socket, time
 from common import csv_loaders
 from shared import protocol    
 
@@ -10,10 +10,23 @@ class Client:
         self.batch_max_amount = batch_max_amount
         self.conn = None
 
+
+
     def create_socket(self):
         host, port = self.server_address.split(":")
-        self.conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.conn.connect((host, int(port)))
+        retries = 10
+        #Si el gateway no está listo espero y reintento
+        for attempt in range(retries):
+            try:
+                self.conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                self.conn.connect((host, int(port)))
+                print(f"[INFO] Connected to gateway {host}:{port}")
+                return
+            except ConnectionRefusedError:
+                print(f"[WARN] Gateway not ready, retrying ({attempt+1}/{retries})...")
+                time.sleep(3)
+        raise ConnectionError("Failed to connect to gateway after retries")
+
 
     def close(self):
         if self.conn:
