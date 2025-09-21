@@ -1,0 +1,40 @@
+services:
+  rabbitmq:
+    image: rabbitmq:management
+    container_name: rabbitmq
+    restart: always
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: secretpassword
+      RABBITMQ_LOGS: "-"  # Log to stdout
+      RABBITMQ_LOG_LEVEL: warning
+    networks:
+      - coffee-net
+
+  gateway:
+    build: ./gateway
+    container_name: gateway
+    depends_on:
+      - rabbitmq
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+    networks:
+      - coffee-net
+
+  client:
+    build: ./client
+    container_name: client
+    depends_on:
+      - gateway
+    networks:
+      - coffee-net
+
+networks:
+  coffee-net:
+    driver: bridge
