@@ -45,6 +45,85 @@ services:
     networks:
       - coffee-net
 
+  cleaner_transactions:
+    build: ./cleaner
+    container_name: cleaner_transactions
+    depends_on:
+      - gateway
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      QUEUE_IN: transactions_queue
+      QUEUE_OUT: transactions_cleaned
+      DATA_TYPE: transactions
+    networks:
+      - coffee-net
+
+  cleaner_transaction_items:
+    build: ./cleaner
+    container_name: cleaner_transaction_items
+    depends_on:
+      - gateway
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      QUEUE_IN: transaction_items_queue
+      QUEUE_OUT: transaction_items_cleaned
+      DATA_TYPE: transaction_items
+    networks:
+      - coffee-net
+
+  cleaner_users:
+    build: ./cleaner
+    container_name: cleaner_users
+    depends_on:
+      - gateway
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      QUEUE_IN: users_queue
+      QUEUE_OUT: users_cleaned
+      DATA_TYPE: users
+    networks:
+      - coffee-net
+
+  cleaner_stores:
+    build: ./cleaner
+    container_name: cleaner_stores
+    depends_on:
+      - gateway
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      QUEUE_IN: stores_queue
+      QUEUE_OUT: stores_cleaned
+      DATA_TYPE: stores
+    networks:
+      - coffee-net
+
+  cleaner_menu_items:
+    build: ./cleaner
+    container_name: cleaner_menu_items
+    depends_on:
+      - gateway
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      QUEUE_IN: menu_items_queue
+      QUEUE_OUT: menu_items_cleaned
+      DATA_TYPE: menu_items
+    networks:
+      - coffee-net
 
 networks:
   coffee-net:
