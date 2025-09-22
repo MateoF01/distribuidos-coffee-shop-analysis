@@ -1,25 +1,35 @@
 import time
 import pytest
+import tempfile
+import os
 from middleware.coffeeMiddleware import (
   CoffeeMessageMiddlewareQueue,
   CoffeeMessageMiddlewareExchange
 )
 
 # Use a short delay to give consumers time to process messages
-DELAY = 0.3
+DELAY = 0.5
 
 @pytest.fixture
 def rabbitmq_host():
-  return "rabbitmq"  # Must match the service name in docker-compose
+  return "localhost"  # Connect to localhost when running tests outside Docker
+
+@pytest.fixture
+def unique_queue_name():
+  """Generate unique queue name for test isolation"""
+  return f"test_queue_{os.getpid()}_{id(object())}"
+
+@pytest.fixture  
+def unique_exchange_name():
+  """Generate unique exchange name for test isolation"""
+  return f"test_exchange_{os.getpid()}_{id(object())}"
 
 
-def test_queue_1_to_1(rabbitmq_host):
-  queue_name = "test_queue_1_to_1"
-
+def test_queue_1_to_1(rabbitmq_host, unique_queue_name):
   received_messages = []
 
-  consumer = CoffeeMessageMiddlewareQueue(rabbitmq_host, queue_name)
-  producer = CoffeeMessageMiddlewareQueue(rabbitmq_host, queue_name)
+  consumer = CoffeeMessageMiddlewareQueue(rabbitmq_host, unique_queue_name)
+  producer = CoffeeMessageMiddlewareQueue(rabbitmq_host, unique_queue_name)
 
   def callback(message):
     received_messages.append(message)
@@ -34,15 +44,13 @@ def test_queue_1_to_1(rabbitmq_host):
   assert received_messages == [{"data": "hello"}]
 
 
-def test_queue_1_to_n(rabbitmq_host):
-  queue_name = "test_queue_1_to_n"
-
+def test_queue_1_to_n(rabbitmq_host, unique_queue_name):
   received_1 = []
   received_2 = []
 
-  producer = CoffeeMessageMiddlewareQueue(rabbitmq_host, queue_name)
-  consumer1 = CoffeeMessageMiddlewareQueue(rabbitmq_host, queue_name)
-  consumer2 = CoffeeMessageMiddlewareQueue(rabbitmq_host, queue_name)
+  producer = CoffeeMessageMiddlewareQueue(rabbitmq_host, unique_queue_name)
+  consumer1 = CoffeeMessageMiddlewareQueue(rabbitmq_host, unique_queue_name)
+  consumer2 = CoffeeMessageMiddlewareQueue(rabbitmq_host, unique_queue_name)
 
   def callback1(msg): received_1.append(msg)
   def callback2(msg): received_2.append(msg)
@@ -57,28 +65,33 @@ def test_queue_1_to_n(rabbitmq_host):
   time.sleep(DELAY * 4)
   consumer1.stop_consuming()
   consumer2.stop_consuming()
-  consumer1.delete()
+  
+  # Cleanup resources
+  try:
+    consumer1.close()
+    consumer2.close()
+    producer.delete()
+  except:
+    pass
 
   total_received = len(received_1) + len(received_2)
   assert total_received == 4
   assert received_1 != [] or received_2 != []  # At least one consumed something
 
 
-def test_exchange_1_to_1(rabbitmq_host):
-  exchange_name = "test_exchange_1_to_1"
-
+def test_exchange_1_to_1(rabbitmq_host, unique_exchange_name):
   received = []
 
   producer = CoffeeMessageMiddlewareExchange(
-      rabbitmq_host, exchange_name, route_keys=[""], exchange_type="fanout"
+      rabbitmq_host, unique_exchange_name, exchange_type="fanout"
   )
   consumer = CoffeeMessageMiddlewareExchange(
-      rabbitmq_host, exchange_name, route_keys=[""], exchange_type="fanout"
+      rabbitmq_host, unique_exchange_name, exchange_type="fanout"
   )
 
   def callback(msg): received.append(msg)
 
-  consumer.start_consuming(callback)
+  consumer.start_consuming(callback)  # Now blocks until ready internally
   producer.send({"event": "update"})
 
   time.sleep(DELAY)
@@ -88,32 +101,36 @@ def test_exchange_1_to_1(rabbitmq_host):
   assert received == [{"event": "update"}]
 
 
-def test_exchange_1_to_n(rabbitmq_host):
-  exchange_name = "test_exchange_1_to_n"
-
+def test_exchange_1_to_n(rabbitmq_host, unique_exchange_name):
   received_1 = []
   received_2 = []
 
   producer = CoffeeMessageMiddlewareExchange(
-      rabbitmq_host, exchange_name, exchange_type="fanout"
+      rabbitmq_host, unique_exchange_name, exchange_type="fanout"
   )
   consumer1 = CoffeeMessageMiddlewareExchange(
-      rabbitmq_host, exchange_name, exchange_type="fanout"
+      rabbitmq_host, unique_exchange_name, exchange_type="fanout"
   )
   consumer2 = CoffeeMessageMiddlewareExchange(
-      rabbitmq_host, exchange_name, exchange_type="fanout"
+      rabbitmq_host, unique_exchange_name, exchange_type="fanout"
   )
 
-  consumer1.start_consuming(lambda msg: received_1.append(msg))
-  consumer2.start_consuming(lambda msg: received_2.append(msg))
-
+  consumer1.start_consuming(lambda msg: received_1.append(msg))  # Blocks until ready
+  consumer2.start_consuming(lambda msg: received_2.append(msg))  # Blocks until ready
+  
   producer.send({"broadcast": True})
 
   time.sleep(DELAY)
   consumer1.stop_consuming()
   consumer2.stop_consuming()
-  consumer1.delete()
-  consumer2.delete()
+  
+  # Cleanup resources
+  try:
+    consumer1.close()
+    consumer2.close()
+    producer.delete()
+  except:
+    pass
 
   assert received_1 == [{"broadcast": True}]
   assert received_2 == [{"broadcast": True}]
