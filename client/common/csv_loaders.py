@@ -5,7 +5,7 @@ from pathlib import Path
 # Mapear nombres de archivo → tipo de dato del protocolo
 FILE_TYPE_MAP = {
     "transactions": 1,
-    "transactions_items": 2,
+    "transaction_items": 2,
     "menu_items": 3,
     "users": 4,
     "stores": 5,
@@ -16,6 +16,8 @@ def iter_csv_files(data_dir: str):
 
     for file in sorted(Path(data_dir).glob("*.csv")):
         fname = file.stem.lower()  # sin extensión
+        if '_sample' in fname:
+            fname = fname.replace('_sample', '')
         for prefix, data_type in FILE_TYPE_MAP.items():
             if fname.startswith(prefix):
                 yield data_type, file
