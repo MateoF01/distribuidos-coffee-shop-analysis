@@ -1,6 +1,9 @@
 import pika
 import os
 import time
+from middleware.coffeeMiddleware import (
+  CoffeeMessageMiddlewareQueue
+)
 
 class Cleaner:
     def __init__(self, queue_in, queue_out, columns_have, columns_want, rabbitmq_host, rabbitmq_user, rabbitmq_pass):
