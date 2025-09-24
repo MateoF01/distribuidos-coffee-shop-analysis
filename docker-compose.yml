@@ -15,9 +15,7 @@ services:
       - coffee-net
 
   gateway:
-    build:
-      context: .
-      dockerfile: gateway/Dockerfile
+    build: ./gateway
     container_name: gateway
     depends_on:
       - rabbitmq
@@ -48,9 +46,7 @@ services:
       - coffee-net
 
   cleaner_transactions:
-    build:
-      context: .
-      dockerfile: cleaner/Dockerfile
+    build: ./cleaner
     container_name: cleaner_transactions
     depends_on:
       - gateway
@@ -66,9 +62,7 @@ services:
       - coffee-net
 
   cleaner_transaction_items:
-    build:
-      context: .
-      dockerfile: cleaner/Dockerfile
+    build: ./cleaner
     container_name: cleaner_transaction_items
     depends_on:
       - gateway
@@ -84,9 +78,7 @@ services:
       - coffee-net
 
   cleaner_users:
-    build:
-      context: .
-      dockerfile: cleaner/Dockerfile
+    build: ./cleaner
     container_name: cleaner_users
     depends_on:
       - gateway
@@ -102,9 +94,7 @@ services:
       - coffee-net
 
   cleaner_stores:
-    build:
-      context: .
-      dockerfile: cleaner/Dockerfile
+    build: ./cleaner
     container_name: cleaner_stores
     depends_on:
       - gateway
@@ -120,9 +110,7 @@ services:
       - coffee-net
 
   cleaner_menu_items:
-    build:
-      context: .
-      dockerfile: cleaner/Dockerfile
+    build: ./cleaner
     container_name: cleaner_menu_items
     depends_on:
       - gateway
