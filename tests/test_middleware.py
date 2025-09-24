@@ -12,7 +12,8 @@ DELAY = 0.5
 
 @pytest.fixture
 def rabbitmq_host():
-  return "localhost"  # Connect to localhost when running tests outside Docker
+  # Use rabbitmq hostname when running in Docker, localhost otherwise
+  return os.environ.get("RABBITMQ_HOST", "localhost")
 
 @pytest.fixture
 def unique_queue_name():

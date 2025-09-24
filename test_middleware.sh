@@ -26,6 +26,8 @@ print_error() {
 cleanup() {
     print_status "Cleaning up..."
     docker compose down -v 2>/dev/null || true
+    # Remove test container if it exists
+    docker rm -f middleware-test-runner 2>/dev/null || true
     print_status "Cleanup completed"
 }
 
@@ -40,12 +42,6 @@ fi
 
 if ! docker compose version &> /dev/null; then
     print_error "Docker Compose is not available"
-    exit 1
-fi
-
-# Check if pytest is available
-if ! command -v pytest &> /dev/null; then
-    print_error "pytest is not installed. Please install it with: pip install pytest"
     exit 1
 fi
 
@@ -87,10 +83,22 @@ done
 # Give RabbitMQ a moment to fully initialize
 sleep 5
 
-print_status "Running middleware tests..."
+print_status "Running middleware tests in Docker container..."
 
-# Run the tests
-if python3 -m pytest tests/test_middleware.py -v; then
+# Get the actual network name created by docker compose
+NETWORK_NAME=$(docker network ls --format "{{.Name}}" | grep coffee-net)
+
+# Create a test container with pytest and run the tests
+# We'll use the Python image and mount the current directory
+if docker run --rm \
+    --name middleware-test-runner \
+    --network "$NETWORK_NAME" \
+    -v "$(pwd)":/app \
+    -w /app \
+    -e PYTHONPATH=/app \
+    -e RABBITMQ_HOST=rabbitmq \
+    python:3.9-slim \
+    bash -c "pip install pytest pika && python -m pytest tests/test_middleware.py -v"; then
     print_success "All middleware tests passed!"
     test_result=0
 else
