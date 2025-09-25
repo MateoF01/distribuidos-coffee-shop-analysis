@@ -29,42 +29,58 @@ class Cleaner:
             print(f"Index error processing row: {row} - {e}")
             return None
             
-        if all(x == '' for x in selected):
+        if any(x == '' for x in selected):
             return None
             
         return '|'.join(selected)
 
     def run(self):
         self._running = True
-        
+
+        import struct
+
         def on_message(message):
             if not self._running:
                 return
-                
             try:
-                # Handle raw bytes message from middleware
-                if isinstance(message, bytes):
-                    row = message.decode('utf-8')  # Convert bytes to string
-                else:
-                    row = str(message)  # Convert anything else to string
-                
-                row = row.strip()  # Remove any trailing whitespace/newlines
-                if not row:  # Skip empty messages
+                # Expect message as bytes: header (6 bytes) + payload
+                if not isinstance(message, bytes) or len(message) < 6:
+                    print(f"Invalid message format or too short: {message}")
                     return
-                
-                filtered = self._filter_row(row)
-                if filtered:
-                    self.out_queue.send(filtered)  # Send as raw string/bytes
-                    print(f"Filtered: {filtered}")
-                else:
-                    print(f"Dropped row: {row}")
-                    
+                header = message[:6]
+                msg_type, data_type, payload_len = struct.unpack('>BBI', header)
+                payload = message[6:]
+
+                if msg_type == 2 and data_type == 6:
+                    print('End-of-data signal received. Closing cleaner for this queue.')
+                    self.stop()
+                    return
+
+                # Decode payload, split into rows, filter, repack
+                try:
+                    payload_str = payload.decode('utf-8')
+                except Exception as e:
+                    print(f"Failed to decode payload: {e}")
+                    return
+                rows = payload_str.split('\n')
+                filtered_rows = [self._filter_row(row) for row in rows if row.strip()]
+                filtered_rows = [row for row in filtered_rows if row]
+                if not filtered_rows:
+                    print("No rows after filtering, nothing sent.")
+                    return
+                new_payload_str = '\n'.join(filtered_rows)
+                new_payload = new_payload_str.encode('utf-8')
+                new_payload_len = len(new_payload)
+                new_header = struct.pack('>BBI', msg_type, data_type, new_payload_len)
+                new_message = new_header + new_payload
+                self.out_queue.send(new_message)
+                print(f"Sent filtered message to {self.queue_out} (rows: {len(filtered_rows)})")
             except Exception as e:
                 print(f"Error processing message: {e} - Message: {message}")
-        
+
         print(f"Cleaner listening on {self.queue_in}, outputting to {self.queue_out}")
         self.in_queue.start_consuming(on_message)
-        
+
         # Keep the main thread alive - wait indefinitely until shutdown is signaled
         try:
             self._shutdown_event.wait()
