@@ -163,9 +163,21 @@ class CoffeeMessageMiddlewareQueue(MessageMiddlewareQueue):
         try:
           message = json.loads(body)
           on_message_callback(message)
-          ch.basic_ack(delivery_tag=method.delivery_tag)
+          # Check if channel is still open before acknowledging
+          if ch and not ch.is_closed:
+            ch.basic_ack(delivery_tag=method.delivery_tag)
         except Exception as e:
+          # Try to reject message if channel is still open
+          try:
+            if ch and not ch.is_closed:
+              ch.basic_reject(delivery_tag=method.delivery_tag, requeue=True)
+          except:
+            pass  # Ignore rejection errors
           raise MessageMiddlewareMessageError(str(e))
+
+      # Check if channel is still available before setting up
+      if not self._consumer_channel or self._consumer_channel.is_closed:
+        return
 
       self._consumer_channel.basic_qos(prefetch_count=1)
       self._consumer_channel.basic_consume(queue=self.queue_name, on_message_callback=callback)
@@ -176,6 +188,9 @@ class CoffeeMessageMiddlewareQueue(MessageMiddlewareQueue):
       # Start consuming with stop event checking
       while not self._consumer_stop_event.is_set():
         try:
+          # Check if connection is still available before processing
+          if not self._consumer_connection or self._consumer_connection.is_closed:
+            break
           self._consumer_connection.process_data_events(time_limit=TIMEOUTS["data_events_time_limit"])
         except Exception as e:
           if not self._consumer_stop_event.is_set():
@@ -186,6 +201,12 @@ class CoffeeMessageMiddlewareQueue(MessageMiddlewareQueue):
       if not self._consumer_stop_event.is_set():
         print(f"Consumer loop error: {e}")
     finally:
+      # Cancel consuming if channel is still available
+      try:
+        if self._consumer_channel and not self._consumer_channel.is_closed:
+          self._consumer_channel.stop_consuming()
+      except:
+        pass  # Ignore cleanup errors
       self._consumer_ready_event.clear()
       self._consumer_finished_event.set()
 
@@ -286,12 +307,18 @@ class CoffeeMessageMiddlewareQueue(MessageMiddlewareQueue):
       raise MessageMiddlewareDeleteError(str(e))
 
   def _cleanup_connections(self):
-    """Safe connection cleanup"""
+    """Safe connection cleanup - only after consumer is stopped"""
+    # Ensure consumer is stopped first
+    if self._consumer_thread and self._consumer_thread.is_alive():
+      self._consumer_stop_event.set()
+      self._consumer_thread.join(timeout=TIMEOUTS["consumer_thread_join"])
+    
     connections_to_close = [
       self._publisher_connection,
       self._consumer_connection
     ]
     
+    # Only nullify after ensuring consumer thread is stopped
     self._publisher_channel = None
     self._consumer_channel = None
     self._publisher_connection = None
@@ -419,9 +446,21 @@ class CoffeeMessageMiddlewareExchange(MessageMiddlewareExchange):
         try:
           message = json.loads(body)
           on_message_callback(message)
-          ch.basic_ack(delivery_tag=method.delivery_tag)
+          # Check if channel is still open before acknowledging
+          if ch and not ch.is_closed:
+            ch.basic_ack(delivery_tag=method.delivery_tag)
         except Exception as e:
+          # Try to reject message if channel is still open
+          try:
+            if ch and not ch.is_closed:
+              ch.basic_reject(delivery_tag=method.delivery_tag, requeue=True)
+          except:
+            pass  # Ignore rejection errors
           raise MessageMiddlewareMessageError(str(e))
+
+      # Check if channel is still available before setting up
+      if not self._consumer_channel or self._consumer_channel.is_closed:
+        return
 
       self._consumer_channel.basic_qos(prefetch_count=1)
       self._consumer_channel.basic_consume(queue=self._queue_name, on_message_callback=callback)
@@ -432,6 +471,9 @@ class CoffeeMessageMiddlewareExchange(MessageMiddlewareExchange):
       # Start consuming with stop event checking
       while not self._consumer_stop_event.is_set():
         try:
+          # Check if connection is still available before processing
+          if not self._consumer_connection or self._consumer_connection.is_closed:
+            break
           self._consumer_connection.process_data_events(time_limit=TIMEOUTS["data_events_time_limit"])
         except Exception as e:
           if not self._consumer_stop_event.is_set():
@@ -442,6 +484,12 @@ class CoffeeMessageMiddlewareExchange(MessageMiddlewareExchange):
       if not self._consumer_stop_event.is_set():
         print(f"Consumer loop error: {e}")
     finally:
+      # Cancel consuming if channel is still available
+      try:
+        if self._consumer_channel and not self._consumer_channel.is_closed:
+          self._consumer_channel.stop_consuming()
+      except:
+        pass  # Ignore cleanup errors
       self._consumer_ready_event.clear()
       self._consumer_finished_event.set()
 
@@ -545,12 +593,18 @@ class CoffeeMessageMiddlewareExchange(MessageMiddlewareExchange):
       raise MessageMiddlewareDeleteError(str(e))
 
   def _cleanup_connections(self):
-    """Safe connection cleanup"""
+    """Safe connection cleanup - only after consumer is stopped"""
+    # Ensure consumer is stopped first
+    if self._consumer_thread and self._consumer_thread.is_alive():
+      self._consumer_stop_event.set()
+      self._consumer_thread.join(timeout=TIMEOUTS["consumer_thread_join"])
+    
     connections_to_close = [
       self._publisher_connection,
       self._consumer_connection
     ]
     
+    # Only nullify after ensuring consumer thread is stopped
     self._publisher_channel = None
     self._consumer_channel = None
     self._publisher_connection = None
