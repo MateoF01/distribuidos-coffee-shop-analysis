@@ -29,6 +29,10 @@ def load_csv_batch(path: str, batch_size: int):
 
     with open(path, newline="") as csvfile:
         reader = csv.reader(csvfile)
+
+        # --- saltar la primera fila (headers) ---
+        next(reader, None)
+
         batch = []
         for row in reader:
             batch.append("|".join(row))
