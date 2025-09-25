@@ -2,6 +2,8 @@ import os
 import signal
 import sys
 import threading
+import struct
+import configparser
 from middleware.coffeeMiddleware import CoffeeMessageMiddlewareQueue
 
 class Cleaner:
@@ -36,8 +38,6 @@ class Cleaner:
 
     def run(self):
         self._running = True
-
-        import struct
 
         def on_message(message):
             if not self._running:
@@ -108,33 +108,14 @@ if __name__ == '__main__':
     data_type = os.environ.get('DATA_TYPE')
     rabbitmq_host = os.environ.get('RABBITMQ_HOST', 'rabbitmq')
 
-    # Define columns for each data type
-    configs = {
-        'transactions': {
-            'have': ['transaction_id','store_id','payment_method_id','voucher_id','user_id','original_amount','discount_applied','final_amount','created_at'],
-            'want': ['transaction_id','final_amount','created_at','store_id','user_id']
-        },
-        'transaction_items': {
-            'have': ['transaction_id','item_id','quantity','unit_price','subtotal','created_at'],
-            'want': ['item_id','quantity','subtotal','created_at']
-        },
-        'users': {
-            'have': ['user_id','gender','birthdate','registered_at'],
-            'want': ['user_id','birthdate']
-        },
-        'stores': {
-            'have': ['store_id','store_name','street','postal_code','city','state','latitude','longitude'],
-            'want': ['store_id','store_name']
-        },
-        'menu_items': {
-            'have': ['item_id','item_name','category','price','is_seasonal','available_from','available_to'],
-            'want': ['item_id','item_name']
-        }
-    }
-    if data_type not in configs:
+    config_path = os.path.join(os.path.dirname(__file__), 'config.ini')
+    config = configparser.ConfigParser()
+    config.read(config_path)
+
+    if data_type not in config:
         raise ValueError(f"Unknown data type: {data_type}")
-    columns_have = configs[data_type]['have']
-    columns_want = configs[data_type]['want']
+    columns_have = [col.strip() for col in config[data_type]['have'].split(',')]
+    columns_want = [col.strip() for col in config[data_type]['want'].split(',')]
 
     cleaner = Cleaner(queue_in, queue_out, columns_have, columns_want, rabbitmq_host)
     
