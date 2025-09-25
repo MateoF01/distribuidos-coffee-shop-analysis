@@ -1,37 +1,16 @@
-import pika
 import os
-import time
+from middleware.coffeeMiddleware import CoffeeMessageMiddlewareQueue
 
 class Cleaner:
-    def __init__(self, queue_in, queue_out, columns_have, columns_want, rabbitmq_host, rabbitmq_user, rabbitmq_pass):
+    def __init__(self, queue_in, queue_out, columns_have, columns_want, rabbitmq_host):
         self.queue_in = queue_in
         self.queue_out = queue_out
         self.columns_have = columns_have
         self.columns_want = columns_want
-        self.rabbitmq_host = rabbitmq_host
-        self.rabbitmq_user = rabbitmq_user
-        self.rabbitmq_pass = rabbitmq_pass
         self.keep_indices = [self.columns_have.index(col) for col in self.columns_want]
-        self._setup_rabbitmq()
-
-    def _setup_rabbitmq(self):
-        credentials = pika.PlainCredentials(self.rabbitmq_user, self.rabbitmq_pass)
-        max_retries = 10
-        for attempt in range(max_retries):
-            try:
-                self.connection = pika.BlockingConnection(
-                    pika.ConnectionParameters(self.rabbitmq_host, credentials=credentials)
-                )
-                break
-            except pika.exceptions.AMQPConnectionError:
-                print(f"RabbitMQ not ready, retrying ({attempt+1}/{max_retries})...")
-                time.sleep(3)
-        else:
-            print("Failed to connect to RabbitMQ after retries.")
-            raise RuntimeError("RabbitMQ connection failed")
-        self.channel = self.connection.channel()
-        self.channel.queue_declare(queue=self.queue_in)
-        self.channel.queue_declare(queue=self.queue_out)
+        # Use CoffeeMessageMiddlewareQueue for both input and output queues
+        self.in_queue = CoffeeMessageMiddlewareQueue(host=rabbitmq_host, queue_name=queue_in)
+        self.out_queue = CoffeeMessageMiddlewareQueue(host=rabbitmq_host, queue_name=queue_out)
 
     def _filter_row(self, row):
         items = row.split('|')
@@ -42,20 +21,20 @@ class Cleaner:
         return '|'.join(selected)
 
     def run(self):
-        def callback(ch, method, properties, body):
-            row = body.decode()
+        def on_message(row):
+            # row is already decoded (middleware sends as string)
             filtered = self._filter_row(row)
             if filtered:
-                self.channel.basic_publish(exchange='', routing_key=self.queue_out, body=filtered)
+                self.out_queue.send(filtered)
                 print(f"Filtered: {filtered}")
             else:
                 print(f"Dropped row: {row}")
-        self.channel.basic_consume(queue=self.queue_in, on_message_callback=callback, auto_ack=True)
         print(f"Cleaner listening on {self.queue_in}, outputting to {self.queue_out}")
-        self.channel.start_consuming()
+        self.in_queue.start_consuming(on_message)
 
     def close(self):
-        self.connection.close()
+        self.in_queue.close()
+        self.out_queue.close()
 
 if __name__ == '__main__':
     # Example: configure via environment variables
@@ -63,8 +42,6 @@ if __name__ == '__main__':
     queue_out = os.environ.get('QUEUE_OUT')
     data_type = os.environ.get('DATA_TYPE')
     rabbitmq_host = os.environ.get('RABBITMQ_HOST', 'rabbitmq')
-    rabbitmq_user = os.environ.get('RABBITMQ_USER', 'admin')
-    rabbitmq_pass = os.environ.get('RABBITMQ_PASS', 'secretpassword')
 
     # Define columns for each data type
     configs = {
@@ -94,7 +71,7 @@ if __name__ == '__main__':
     columns_have = configs[data_type]['have']
     columns_want = configs[data_type]['want']
 
-    cleaner = Cleaner(queue_in, queue_out, columns_have, columns_want, rabbitmq_host, rabbitmq_user, rabbitmq_pass)
+    cleaner = Cleaner(queue_in, queue_out, columns_have, columns_want, rabbitmq_host)
     try:
         cleaner.run()
     except KeyboardInterrupt:
