@@ -1,5 +1,6 @@
-FROM python:3.11-slim
+FROM python:3.9-slim
 WORKDIR /app
-COPY gateway.py .
+COPY gateway/gateway.py .
+COPY middleware/ /app/middleware/
 RUN pip install pika
 CMD ["python", "gateway.py"]

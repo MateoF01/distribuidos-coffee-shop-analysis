@@ -1,5 +1,6 @@
-FROM python:3.11-slim
+FROM python:3.9-slim
 WORKDIR /app
-COPY cleaner.py .
+COPY cleaner/cleaner.py .
+COPY middleware/ /app/middleware/
 RUN pip install pika
 CMD ["python", "cleaner.py"]

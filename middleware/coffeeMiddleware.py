@@ -89,29 +89,36 @@ class CoffeeMessageMiddlewareQueue(MessageMiddlewareQueue):
     self._initialize_connections()
 
   def _initialize_connections(self):
-    """Initialize separate connections for publisher and consumer"""
-    try:
-      credentials = pika.PlainCredentials(
-        RABBITMQ_CREDENTIALS["username"], 
-        RABBITMQ_CREDENTIALS["password"]
-      )
-      params = pika.ConnectionParameters(host=self.host, credentials=credentials)
-      
-      # Separate publisher connection (thread-safe for publishing only)
-      self._publisher_connection = pika.BlockingConnection(params)
-      self._publisher_channel = self._publisher_connection.channel()
-      self._publisher_channel.queue_declare(queue=self.queue_name, durable=True, arguments=QUEUE_ARGS)
-      
-      # Separate consumer connection (dedicated to consuming only)
-      self._consumer_connection = pika.BlockingConnection(params)
-      self._consumer_channel = self._consumer_connection.channel()
-      self._consumer_channel.queue_declare(queue=self.queue_name, durable=True, arguments=QUEUE_ARGS)
-      
-      with self._state_lock:
-        self._state = ConnectionState.CONNECTED
-        
-    except Exception as e:
-      raise MessageMiddlewareDisconnectedError(str(e))
+    """Initialize separate connections for publisher and consumer with retry logic"""
+    import time
+    credentials = pika.PlainCredentials(
+      RABBITMQ_CREDENTIALS["username"], 
+      RABBITMQ_CREDENTIALS["password"]
+    )
+    params = pika.ConnectionParameters(host=self.host, credentials=credentials)
+    max_retries = 10
+    for attempt in range(max_retries):
+      try:
+        # Separate publisher connection (thread-safe for publishing only)
+        self._publisher_connection = pika.BlockingConnection(params)
+        self._publisher_channel = self._publisher_connection.channel()
+        self._publisher_channel.queue_declare(queue=self.queue_name, durable=True, arguments=QUEUE_ARGS)
+        # Separate consumer connection (dedicated to consuming only)
+        self._consumer_connection = pika.BlockingConnection(params)
+        self._consumer_channel = self._consumer_connection.channel()
+        self._consumer_channel.queue_declare(queue=self.queue_name, durable=True, arguments=QUEUE_ARGS)
+        with self._state_lock:
+          self._state = ConnectionState.CONNECTED
+        break
+      except pika.exceptions.AMQPConnectionError as e:
+        print(f"RabbitMQ not ready, retrying ({attempt+1}/{max_retries})...")
+        time.sleep(3)
+      except Exception as e:
+        print(f"Error connecting to RabbitMQ: {e}")
+        time.sleep(3)
+    else:
+      print("Failed to connect to RabbitMQ after retries.")
+      raise MessageMiddlewareDisconnectedError("RabbitMQ connection failed after retries.")
 
   @contextmanager
   def _state_transition(self, from_states, to_state):
