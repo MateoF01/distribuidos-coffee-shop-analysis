@@ -161,8 +161,7 @@ class CoffeeMessageMiddlewareQueue(MessageMiddlewareQueue):
     try:
       def callback(ch, method, properties, body):
         try:
-          message = json.loads(body)
-          on_message_callback(message)
+          on_message_callback(body)
           # Check if channel is still open before acknowledging
           if ch and not ch.is_closed:
             ch.basic_ack(delivery_tag=method.delivery_tag)
@@ -250,7 +249,7 @@ class CoffeeMessageMiddlewareQueue(MessageMiddlewareQueue):
       self._state = ConnectionState.CONNECTED
 
   def send(self, message):
-    """Thread-safe publishing using dedicated publisher channel"""
+    """Thread-safe publishing using dedicated publisher channel - sends raw bytes"""
     with self._state_lock:
       if self._state == ConnectionState.DISCONNECTED:
         raise MessageMiddlewareDisconnectedError("Not connected")
@@ -259,10 +258,18 @@ class CoffeeMessageMiddlewareQueue(MessageMiddlewareQueue):
         raise MessageMiddlewareDisconnectedError("Publisher channel not available")
     
     try:
+      # Convert message to bytes
+      if isinstance(message, bytes):
+        body = message
+      elif isinstance(message, str):
+        body = message.encode('utf-8')
+      else:
+        body = str(message).encode('utf-8')
+        
       self._publisher_channel.basic_publish(
         exchange='',
         routing_key=self.queue_name,
-        body=json.dumps(message),
+        body=body,
         properties=pika.BasicProperties(delivery_mode=2)
       )
     except Exception as e:
@@ -444,8 +451,7 @@ class CoffeeMessageMiddlewareExchange(MessageMiddlewareExchange):
     try:
       def callback(ch, method, properties, body):
         try:
-          message = json.loads(body)
-          on_message_callback(message)
+          on_message_callback(body)
           # Check if channel is still open before acknowledging
           if ch and not ch.is_closed:
             ch.basic_ack(delivery_tag=method.delivery_tag)
@@ -542,12 +548,20 @@ class CoffeeMessageMiddlewareExchange(MessageMiddlewareExchange):
         raise MessageMiddlewareDisconnectedError("Publisher channel not available")
     
     try:
+      # Convert message to bytes
+      if isinstance(message, bytes):
+        body = message
+      elif isinstance(message, str):
+        body = message.encode('utf-8')
+      else:
+        body = str(message).encode('utf-8')
+        
       # For fanout exchanges, routing key should be empty
       routing_key = '' if self.exchange_type == 'fanout' else (self.route_keys[0] if self.route_keys else '')
       self._publisher_channel.basic_publish(
         exchange=self.exchange_name,
         routing_key=routing_key,
-        body=json.dumps(message),
+        body=body,
         properties=pika.BasicProperties(delivery_mode=2)
       )
     except Exception as e:
