@@ -69,12 +69,14 @@ class Server:
                     queue_name = queue_names.get(data_type)
                     if queue_name:
                         self.queues[queue_name].send(message)
-                        print(f"Sent entire message to queue '{queue_name}' (bytes)")
                 elif msg_type == 2:
                     if data_type == 6:
                         print('All files received. Closing connection.')
                         break
                     else:
+                        queue_name = queue_names.get(data_type)
+                        if queue_name:
+                            self.queues[queue_name].send(message)
                         print(f'Finished receiving {data_type_names.get(data_type, data_type)}.')
                 else:
                     print(f'Unknown message type: {msg_type}')

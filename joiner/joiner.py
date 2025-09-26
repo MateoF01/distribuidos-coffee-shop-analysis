@@ -8,13 +8,15 @@ import csv
 from middleware.coffeeMiddleware import CoffeeMessageMiddlewareQueue
 
 class Joiner:
-    def __init__(self, queue_in, output_file, columns_want, rabbitmq_host):
+    def __init__(self, queue_in, queue_out, output_file, columns_want, rabbitmq_host):
         self.queue_in = queue_in
+        self.queue_out = queue_out
         self.output_file = output_file
         self.columns_want = columns_want
         self._running = False
         self._shutdown_event = threading.Event()
         self.in_queue = CoffeeMessageMiddlewareQueue(host=rabbitmq_host, queue_name=queue_in)
+        self.out_queue = CoffeeMessageMiddlewareQueue(host=rabbitmq_host, queue_name=queue_out) if queue_out else None
         self._lock = threading.Lock()
         self._csv_initialized = False
         self._rows_written = 0
@@ -61,6 +63,19 @@ class Joiner:
         except Exception as e:
             print(f"Error writing rows to CSV file {self.output_file}: {e}")
 
+    def _send_sort_request(self):
+        """Send a sort request to the sorter"""
+        try:
+            if self.out_queue:
+                # Create sort signal message (msg_type=3, data_type=0)
+                header = struct.pack('>BBI', 3, 0, 0)  # Sort signal
+                self.out_queue.send(header)
+                print(f"Sent sort request for {self.output_file}")
+            else:
+                print("No output queue configured for sort requests")
+        except Exception as e:
+            print(f"Error sending sort request: {e}")
+
     def run(self):
         self._running = True
 
@@ -80,11 +95,13 @@ class Joiner:
                 header = message[:6]
                 msg_type, data_type, payload_len = struct.unpack('>BBI', header)
                 payload = message[6:]
-
+                print(f"Received message: msg_type={msg_type}, data_type={data_type}, payload_len={payload_len}")
                 # Check for end-of-data signal
-                if msg_type == 2 and data_type == 6:
-                    print(f'End-of-data signal received. Final CSV output complete with {self._rows_written} total rows.')
-                    # self.stop()
+                if msg_type == 2 and data_type == 1:
+                    print(f'End-of-data signal received. Sending sort request...')
+                    self._send_sort_request()
+                    print(f'CSV data collection complete with {self._rows_written} total rows. Sort request sent.')
+                    self.stop()
                     return
 
                 # Process regular data message
@@ -133,10 +150,13 @@ class Joiner:
 
     def close(self):
         self.in_queue.close()
+        if self.out_queue:
+            self.out_queue.close()
 
 if __name__ == '__main__':
     # Configure via environment variables
     queue_in = os.environ.get('QUEUE_IN')
+    queue_out = os.environ.get('QUEUE_OUT')
     output_file = os.environ.get('OUTPUT_FILE')
     query_type = os.environ.get('QUERY_TYPE')
     rabbitmq_host = os.environ.get('RABBITMQ_HOST', 'rabbitmq')
@@ -150,7 +170,7 @@ if __name__ == '__main__':
     
     columns_want = [col.strip() for col in config[query_type]['columns'].split(',')]
 
-    joiner = Joiner(queue_in, output_file, columns_want, rabbitmq_host)
+    joiner = Joiner(queue_in, queue_out, output_file, columns_want, rabbitmq_host)
     
     # Set up signal handlers for graceful shutdown
     def signal_handler(signum, frame):
