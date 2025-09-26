@@ -1,9 +1,8 @@
 
 import socket
 import struct
-import pika
+from middleware.coffeeMiddleware import CoffeeMessageMiddlewareQueue
 import os
-import time
 
 HOST = '0.0.0.0'  # Listen on all interfaces
 PORT = 5000       # Change as needed
@@ -35,23 +34,9 @@ class Server:
 
     def _setup_rabbitmq(self):
         rabbitmq_host = os.environ.get('RABBITMQ_HOST', 'rabbitmq')
-        rabbitmq_user = os.environ.get('RABBITMQ_USER', 'admin')
-        rabbitmq_pass = os.environ.get('RABBITMQ_PASS', 'secretpassword')
-        credentials = pika.PlainCredentials(rabbitmq_user, rabbitmq_pass)
-        max_retries = 10
-        for attempt in range(max_retries):
-            try:
-                self.connection = pika.BlockingConnection(pika.ConnectionParameters(rabbitmq_host, credentials=credentials))
-                break
-            except pika.exceptions.AMQPConnectionError:
-                print(f"RabbitMQ not ready, retrying ({attempt+1}/{max_retries})...")
-                time.sleep(3)
-        else:
-            print("Failed to connect to RabbitMQ after retries.")
-            raise RuntimeError("RabbitMQ connection failed")
-        self.channel = self.connection.channel()
+        self.queues = {}
         for q in queue_names.values():
-            self.channel.queue_declare(queue=q)
+            self.queues[q] = CoffeeMessageMiddlewareQueue(host=rabbitmq_host, queue_name=q)
 
     def _setup_socket(self):
         self._server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -75,21 +60,16 @@ class Server:
                 header = self._recv_exact(conn, 6)
                 msg_type, data_type, payload_len = struct.unpack('>BBI', header)
                 if payload_len > 0:
-                    payload = self._recv_exact(conn, payload_len).decode('utf-8')
+                    payload = self._recv_exact(conn, payload_len)
                 else:
-                    payload = ''
+                    payload = b''
+                message = header + payload
                 if msg_type == 1:
                     print(f'Received data for {data_type_names.get(data_type, data_type)}:')
                     queue_name = queue_names.get(data_type)
-                    for row in payload.split('\n'):
-                        print('  ', row)
-                        if queue_name:
-                            self.channel.basic_publish(
-                                exchange='',
-                                routing_key=queue_name,
-                                body=row
-                            )
-                            print(f"Sent to queue '{queue_name}': {row}")
+                    if queue_name:
+                        self.queues[queue_name].send(message)
+                        print(f"Sent entire message to queue '{queue_name}' (bytes)")
                 elif msg_type == 2:
                     if data_type == 6:
                         print('All files received. Closing connection.')
@@ -111,7 +91,8 @@ class Server:
         return data
 
     def close(self):
-        self.connection.close()
+        for q in self.queues.values():
+            q.close()
         self._server_socket.close()
 
 if __name__ == '__main__':

@@ -89,29 +89,36 @@ class CoffeeMessageMiddlewareQueue(MessageMiddlewareQueue):
     self._initialize_connections()
 
   def _initialize_connections(self):
-    """Initialize separate connections for publisher and consumer"""
-    try:
-      credentials = pika.PlainCredentials(
-        RABBITMQ_CREDENTIALS["username"], 
-        RABBITMQ_CREDENTIALS["password"]
-      )
-      params = pika.ConnectionParameters(host=self.host, credentials=credentials)
-      
-      # Separate publisher connection (thread-safe for publishing only)
-      self._publisher_connection = pika.BlockingConnection(params)
-      self._publisher_channel = self._publisher_connection.channel()
-      self._publisher_channel.queue_declare(queue=self.queue_name, durable=True, arguments=QUEUE_ARGS)
-      
-      # Separate consumer connection (dedicated to consuming only)
-      self._consumer_connection = pika.BlockingConnection(params)
-      self._consumer_channel = self._consumer_connection.channel()
-      self._consumer_channel.queue_declare(queue=self.queue_name, durable=True, arguments=QUEUE_ARGS)
-      
-      with self._state_lock:
-        self._state = ConnectionState.CONNECTED
-        
-    except Exception as e:
-      raise MessageMiddlewareDisconnectedError(str(e))
+    """Initialize separate connections for publisher and consumer with retry logic"""
+    import time
+    credentials = pika.PlainCredentials(
+      RABBITMQ_CREDENTIALS["username"], 
+      RABBITMQ_CREDENTIALS["password"]
+    )
+    params = pika.ConnectionParameters(host=self.host, credentials=credentials)
+    max_retries = 10
+    for attempt in range(max_retries):
+      try:
+        # Separate publisher connection (thread-safe for publishing only)
+        self._publisher_connection = pika.BlockingConnection(params)
+        self._publisher_channel = self._publisher_connection.channel()
+        self._publisher_channel.queue_declare(queue=self.queue_name, durable=True, arguments=QUEUE_ARGS)
+        # Separate consumer connection (dedicated to consuming only)
+        self._consumer_connection = pika.BlockingConnection(params)
+        self._consumer_channel = self._consumer_connection.channel()
+        self._consumer_channel.queue_declare(queue=self.queue_name, durable=True, arguments=QUEUE_ARGS)
+        with self._state_lock:
+          self._state = ConnectionState.CONNECTED
+        break
+      except pika.exceptions.AMQPConnectionError as e:
+        print(f"RabbitMQ not ready, retrying ({attempt+1}/{max_retries})...")
+        time.sleep(3)
+      except Exception as e:
+        print(f"Error connecting to RabbitMQ: {e}")
+        time.sleep(3)
+    else:
+      print("Failed to connect to RabbitMQ after retries.")
+      raise MessageMiddlewareDisconnectedError("RabbitMQ connection failed after retries.")
 
   @contextmanager
   def _state_transition(self, from_states, to_state):
@@ -154,11 +161,22 @@ class CoffeeMessageMiddlewareQueue(MessageMiddlewareQueue):
     try:
       def callback(ch, method, properties, body):
         try:
-          message = json.loads(body)
-          on_message_callback(message)
-          ch.basic_ack(delivery_tag=method.delivery_tag)
+          on_message_callback(body)
+          # Check if channel is still open before acknowledging
+          if ch and not ch.is_closed:
+            ch.basic_ack(delivery_tag=method.delivery_tag)
         except Exception as e:
+          # Try to reject message if channel is still open
+          try:
+            if ch and not ch.is_closed:
+              ch.basic_reject(delivery_tag=method.delivery_tag, requeue=True)
+          except:
+            pass  # Ignore rejection errors
           raise MessageMiddlewareMessageError(str(e))
+
+      # Check if channel is still available before setting up
+      if not self._consumer_channel or self._consumer_channel.is_closed:
+        return
 
       self._consumer_channel.basic_qos(prefetch_count=1)
       self._consumer_channel.basic_consume(queue=self.queue_name, on_message_callback=callback)
@@ -169,6 +187,9 @@ class CoffeeMessageMiddlewareQueue(MessageMiddlewareQueue):
       # Start consuming with stop event checking
       while not self._consumer_stop_event.is_set():
         try:
+          # Check if connection is still available before processing
+          if not self._consumer_connection or self._consumer_connection.is_closed:
+            break
           self._consumer_connection.process_data_events(time_limit=TIMEOUTS["data_events_time_limit"])
         except Exception as e:
           if not self._consumer_stop_event.is_set():
@@ -179,6 +200,12 @@ class CoffeeMessageMiddlewareQueue(MessageMiddlewareQueue):
       if not self._consumer_stop_event.is_set():
         print(f"Consumer loop error: {e}")
     finally:
+      # Cancel consuming if channel is still available
+      try:
+        if self._consumer_channel and not self._consumer_channel.is_closed:
+          self._consumer_channel.stop_consuming()
+      except:
+        pass  # Ignore cleanup errors
       self._consumer_ready_event.clear()
       self._consumer_finished_event.set()
 
@@ -222,7 +249,7 @@ class CoffeeMessageMiddlewareQueue(MessageMiddlewareQueue):
       self._state = ConnectionState.CONNECTED
 
   def send(self, message):
-    """Thread-safe publishing using dedicated publisher channel"""
+    """Thread-safe publishing using dedicated publisher channel - sends raw bytes"""
     with self._state_lock:
       if self._state == ConnectionState.DISCONNECTED:
         raise MessageMiddlewareDisconnectedError("Not connected")
@@ -231,10 +258,18 @@ class CoffeeMessageMiddlewareQueue(MessageMiddlewareQueue):
         raise MessageMiddlewareDisconnectedError("Publisher channel not available")
     
     try:
+      # Convert message to bytes
+      if isinstance(message, bytes):
+        body = message
+      elif isinstance(message, str):
+        body = message.encode('utf-8')
+      else:
+        body = str(message).encode('utf-8')
+        
       self._publisher_channel.basic_publish(
         exchange='',
         routing_key=self.queue_name,
-        body=json.dumps(message),
+        body=body,
         properties=pika.BasicProperties(delivery_mode=2)
       )
     except Exception as e:
@@ -279,12 +314,18 @@ class CoffeeMessageMiddlewareQueue(MessageMiddlewareQueue):
       raise MessageMiddlewareDeleteError(str(e))
 
   def _cleanup_connections(self):
-    """Safe connection cleanup"""
+    """Safe connection cleanup - only after consumer is stopped"""
+    # Ensure consumer is stopped first
+    if self._consumer_thread and self._consumer_thread.is_alive():
+      self._consumer_stop_event.set()
+      self._consumer_thread.join(timeout=TIMEOUTS["consumer_thread_join"])
+    
     connections_to_close = [
       self._publisher_connection,
       self._consumer_connection
     ]
     
+    # Only nullify after ensuring consumer thread is stopped
     self._publisher_channel = None
     self._consumer_channel = None
     self._publisher_connection = None
@@ -410,11 +451,22 @@ class CoffeeMessageMiddlewareExchange(MessageMiddlewareExchange):
     try:
       def callback(ch, method, properties, body):
         try:
-          message = json.loads(body)
-          on_message_callback(message)
-          ch.basic_ack(delivery_tag=method.delivery_tag)
+          on_message_callback(body)
+          # Check if channel is still open before acknowledging
+          if ch and not ch.is_closed:
+            ch.basic_ack(delivery_tag=method.delivery_tag)
         except Exception as e:
+          # Try to reject message if channel is still open
+          try:
+            if ch and not ch.is_closed:
+              ch.basic_reject(delivery_tag=method.delivery_tag, requeue=True)
+          except:
+            pass  # Ignore rejection errors
           raise MessageMiddlewareMessageError(str(e))
+
+      # Check if channel is still available before setting up
+      if not self._consumer_channel or self._consumer_channel.is_closed:
+        return
 
       self._consumer_channel.basic_qos(prefetch_count=1)
       self._consumer_channel.basic_consume(queue=self._queue_name, on_message_callback=callback)
@@ -425,6 +477,9 @@ class CoffeeMessageMiddlewareExchange(MessageMiddlewareExchange):
       # Start consuming with stop event checking
       while not self._consumer_stop_event.is_set():
         try:
+          # Check if connection is still available before processing
+          if not self._consumer_connection or self._consumer_connection.is_closed:
+            break
           self._consumer_connection.process_data_events(time_limit=TIMEOUTS["data_events_time_limit"])
         except Exception as e:
           if not self._consumer_stop_event.is_set():
@@ -435,6 +490,12 @@ class CoffeeMessageMiddlewareExchange(MessageMiddlewareExchange):
       if not self._consumer_stop_event.is_set():
         print(f"Consumer loop error: {e}")
     finally:
+      # Cancel consuming if channel is still available
+      try:
+        if self._consumer_channel and not self._consumer_channel.is_closed:
+          self._consumer_channel.stop_consuming()
+      except:
+        pass  # Ignore cleanup errors
       self._consumer_ready_event.clear()
       self._consumer_finished_event.set()
 
@@ -487,12 +548,20 @@ class CoffeeMessageMiddlewareExchange(MessageMiddlewareExchange):
         raise MessageMiddlewareDisconnectedError("Publisher channel not available")
     
     try:
+      # Convert message to bytes
+      if isinstance(message, bytes):
+        body = message
+      elif isinstance(message, str):
+        body = message.encode('utf-8')
+      else:
+        body = str(message).encode('utf-8')
+        
       # For fanout exchanges, routing key should be empty
       routing_key = '' if self.exchange_type == 'fanout' else (self.route_keys[0] if self.route_keys else '')
       self._publisher_channel.basic_publish(
         exchange=self.exchange_name,
         routing_key=routing_key,
-        body=json.dumps(message),
+        body=body,
         properties=pika.BasicProperties(delivery_mode=2)
       )
     except Exception as e:
@@ -538,12 +607,18 @@ class CoffeeMessageMiddlewareExchange(MessageMiddlewareExchange):
       raise MessageMiddlewareDeleteError(str(e))
 
   def _cleanup_connections(self):
-    """Safe connection cleanup"""
+    """Safe connection cleanup - only after consumer is stopped"""
+    # Ensure consumer is stopped first
+    if self._consumer_thread and self._consumer_thread.is_alive():
+      self._consumer_stop_event.set()
+      self._consumer_thread.join(timeout=TIMEOUTS["consumer_thread_join"])
+    
     connections_to_close = [
       self._publisher_connection,
       self._consumer_connection
     ]
     
+    # Only nullify after ensuring consumer thread is stopped
     self._publisher_channel = None
     self._consumer_channel = None
     self._publisher_connection = None
