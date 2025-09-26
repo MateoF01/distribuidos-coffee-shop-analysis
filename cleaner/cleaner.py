@@ -7,12 +7,13 @@ import configparser
 from middleware.coffeeMiddleware import CoffeeMessageMiddlewareQueue
 
 class Cleaner:
-    def __init__(self, queue_in, queue_out, columns_have, columns_want, rabbitmq_host):
+    def __init__(self, queue_in, queue_out, columns_have, columns_want, rabbitmq_host, keep_when_empty=None):
         self.queue_in = queue_in
         self.queue_out = queue_out
         self.columns_have = columns_have
         self.columns_want = columns_want
         self.keep_indices = [self.columns_have.index(col) for col in self.columns_want]
+        self.keep_when_empty = [self.columns_want.index(col) for col in keep_when_empty] if keep_when_empty else []
         self._running = False
         self._shutdown_event = threading.Event()
         self.in_queue = CoffeeMessageMiddlewareQueue(host=rabbitmq_host, queue_name=queue_in)
@@ -30,8 +31,8 @@ class Cleaner:
         except IndexError as e:
             print(f"Index error processing row: {row} - {e}")
             return None
-            
-        if any(x == '' for x in selected):
+
+        if any(selected[i] == '' and i not in self.keep_when_empty for i in range(len(selected))):
             return None
             
         return '|'.join(selected)
@@ -116,9 +117,11 @@ if __name__ == '__main__':
         raise ValueError(f"Unknown data type: {data_type}")
     columns_have = [col.strip() for col in config[data_type]['have'].split(',')]
     columns_want = [col.strip() for col in config[data_type]['want'].split(',')]
+    keep_when_empty_str = config[data_type].get('keep_when_empty', '').strip()
+    keep_when_empty = [col.strip() for col in keep_when_empty_str.split(',')] if keep_when_empty_str else None
 
-    cleaner = Cleaner(queue_in, queue_out, columns_have, columns_want, rabbitmq_host)
-    
+    cleaner = Cleaner(queue_in, queue_out, columns_have, columns_want, rabbitmq_host, keep_when_empty)
+
     # Set up signal handlers for graceful shutdown
     def signal_handler(signum, frame):
         print(f'Received signal {signum}, shutting down cleaner gracefully...')
