@@ -161,6 +161,29 @@ services:
     networks:
       - coffee-net
 
+  joiner_q1:
+    build:
+      context: .
+      dockerfile: joiner/Dockerfile
+    container_name: joiner_q1
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      gateway:
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      QUEUE_IN: transactions_cleaned
+      OUTPUT_FILE: /app/output/q1.csv
+      QUERY_TYPE: q1
+    volumes:
+      - ./output:/app/output
+    networks:
+      - coffee-net
+
 networks:
   coffee-net:
     driver: bridge
