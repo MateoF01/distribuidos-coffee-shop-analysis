@@ -45,6 +45,8 @@ class Filter:
                 filtered_rows = [self._filter_row(row) for row in rows if row.strip()]
                 filtered_rows = [row for row in filtered_rows if row]
 
+                print("FILTERED_ROWS: ", filtered_rows)
+
                 if not filtered_rows:
                     return
 
@@ -53,6 +55,9 @@ class Filter:
                 new_payload_len = len(new_payload)
                 new_header = struct.pack('>BBI', msg_type, data_type, new_payload_len)
                 new_message = new_header + new_payload
+
+                print("NEW_MESSAGE: ", new_message)
+
                 for q in self.out_queues:
                     q.send(new_message)
             except Exception as e:
@@ -78,7 +83,7 @@ class Filter:
 
 
 # ====================
-# Filters específicos
+# Filters
 # ====================
 
 class TemporalFilter(Filter):
@@ -91,8 +96,6 @@ class TemporalFilter(Filter):
         self.col_index = col_index
 
     def _filter_row(self, row: str):
-
-        print("[TEMPORAL FILTER] FILTRANDO LA ROW: ", row)
 
         parts = row.split('|')
         if "created_at" not in self.col_index or len(parts) <= self.col_index["created_at"]:
@@ -120,9 +123,8 @@ class AmountFilter(Filter):
 
     def _filter_row(self, row: str):
 
-        print("[AMOUNT FILTER] FILTRANDO LA ROW: ", row)
-
         parts = row.split('|')
+
         if "final_amount" not in self.col_index or len(parts) <= self.col_index["final_amount"]:
             return None
         try:
@@ -130,7 +132,7 @@ class AmountFilter(Filter):
         except Exception:
             return None
 
-        if amount >= self.min_amount:
+        if amount < self.min_amount:
             return None
         return row
 

@@ -228,9 +228,9 @@ services:
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_USER: admin
       RABBITMQ_PASS: secretpassword
-      QUEUE_IN: transactions_filtered_Q1_dasdsa
+      QUEUE_IN: transactions_filtered_Q1
       QUEUE_OUT: transactions_filtered_Q1_b
-      DATA_TYPE: transaction_items
+      DATA_TYPE: transactions
       FILTER_TYPE: amount
       MIN_AMOUNT: 75
 
@@ -252,7 +252,7 @@ services:
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_USER: admin
       RABBITMQ_PASS: secretpassword
-      QUEUE_IN: transaction_items_filtered_Q1_b
+      QUEUE_IN: transactions_filtered_Q1_b
       QUEUE_OUT: sort_q1_request
       OUTPUT_FILE: /app/output/q1_unsorted.csv
       QUERY_TYPE: q1
