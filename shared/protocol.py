@@ -6,7 +6,6 @@ MSG_TYPE_DATA = 1
 MSG_TYPE_END = 2
 MSG_TYPE_NOTI = 3
 
-
 # Data Types
 DATA_TRANSACTIONS = 1
 DATA_TRANSACTION_ITEMS = 2
@@ -14,6 +13,11 @@ DATA_MENU_ITEMS = 3
 DATA_USERS = 4
 DATA_STORES = 5
 DATA_END = 6
+
+DATA_Q1 = 7
+DATA_Q2 = 8
+DATA_Q3 = 9
+DATA_Q4 = 10
 
 def send_message(conn, msg_type: int, data_type: int, payload: bytes):
     """
