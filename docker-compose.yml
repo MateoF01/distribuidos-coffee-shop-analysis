@@ -164,15 +164,22 @@ services:
   temporal_filter_transactions:
     build:
       context: .
-      dockerfile: filters/Dockerfile
+      dockerfile: filter/Dockerfile
     container_name: temporal_filter_transactions
     depends_on:
-      - cleaner_transactions
+      rabbitmq:
+        condition: service_healthy
+      gateway:
+        condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
       RABBITMQ_HOST: rabbitmq
-      FILTER_MODE: temporal
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
       QUEUE_IN: transactions_cleaned
+      QUEUE_OUT: transactions_filtered_Q1,transactions_filtered_Q3
+      DATA_TYPE: transactions
+      FILTER_TYPE: temporal
       YEAR_START: 2024
       YEAR_END: 2025
       HOUR_START: 6
@@ -183,33 +190,52 @@ services:
   temporal_filter_transaction_items:
     build:
       context: .
-      dockerfile: filters/Dockerfile
+      dockerfile: filter/Dockerfile
     container_name: temporal_filter_transaction_items
     depends_on:
-      - cleaner_transaction_items
+      rabbitmq:
+        condition: service_healthy
+      gateway:
+        condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
       RABBITMQ_HOST: rabbitmq
-      FILTER_MODE: temporal
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
       QUEUE_IN: transaction_items_cleaned
+      QUEUE_OUT: transaction_items_filtered_Q2,transaction_items_filtered_Q4
+      DATA_TYPE: transaction_items
+      FILTER_TYPE: temporal
       YEAR_START: 2024
       YEAR_END: 2025
+      HOUR_START: 0
+      HOUR_END: 24
     networks:
       - coffee-net
 
-  amount_filter:
+  amount_filter_transactions:
     build:
       context: .
-      dockerfile: filters/Dockerfile
-    container_name: amount_filter
+      dockerfile: filter/Dockerfile
+    container_name: amount_filter_transactions
     depends_on:
-      - temporal_filter_transactions
+      rabbitmq:
+        condition: service_healthy
+      gateway:
+        condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
       RABBITMQ_HOST: rabbitmq
-      FILTER_MODE: amount
-      QUEUE_IN: Q1_transactions_filtered
-      AMOUNT_THRESHOLD: 75
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      QUEUE_IN: transactions_filtered_Q1
+      QUEUE_OUT: transactions_filtered_Q1_b
+      DATA_TYPE: transactions
+      FILTER_TYPE: amount
+      MIN_AMOUNT: 75
+
+    networks:
+      - coffee-net
 
   joiner_q1:
     build:
@@ -226,14 +252,14 @@ services:
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_USER: admin
       RABBITMQ_PASS: secretpassword
-      QUEUE_IN: transactions_cleaned
+      QUEUE_IN: transactions_filtered_Q1_b
       QUEUE_OUT: sort_q1_request
       OUTPUT_FILE: /app/output/q1_unsorted.csv
       QUERY_TYPE: q1
     volumes:
       - ./output:/app/output
-networks:
-      - coffee-net
+    networks:
+          - coffee-net
 
   sorter_q1:
     build:
