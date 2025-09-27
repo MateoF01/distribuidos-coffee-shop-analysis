@@ -4,6 +4,8 @@ import struct
 # Message Types
 MSG_TYPE_DATA = 1
 MSG_TYPE_END = 2
+MSG_TYPE_NOTI = 3
+
 
 # Data Types
 DATA_TRANSACTIONS = 1
@@ -12,7 +14,6 @@ DATA_MENU_ITEMS = 3
 DATA_USERS = 4
 DATA_STORES = 5
 DATA_END = 6
-
 
 def send_message(conn, msg_type: int, data_type: int, payload: bytes):
     """
@@ -24,6 +25,9 @@ def send_message(conn, msg_type: int, data_type: int, payload: bytes):
     header = struct.pack(">BBI", msg_type, data_type, len(payload))
     conn.sendall(header + payload)
 
+def send_notification(conn, msg_type = MSG_TYPE_NOTI):
+    header = struct.pack(">BBI", msg_type)
+    conn.sendall(header)
 
 def receive_message(conn):
     header = _read_full(conn, 6)  # 1 type msg + 1 type dato + 4 len
