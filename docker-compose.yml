@@ -13,6 +13,12 @@ services:
       RABBITMQ_LOG_LEVEL: warning
     networks:
       - coffee-net
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   gateway:
     build:
@@ -20,7 +26,8 @@ services:
       dockerfile: gateway/Dockerfile
     container_name: gateway
     depends_on:
-      - rabbitmq
+      rabbitmq:
+        condition: service_healthy
     environment:
       PYTHONUNBUFFERED: 1
       RABBITMQ_HOST: rabbitmq
@@ -36,7 +43,8 @@ services:
       dockerfile: client/Dockerfile
     container_name: client
     depends_on:
-      - gateway
+      gateway:
+        condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
       DATA_DIR: /app/.data
@@ -54,7 +62,10 @@ services:
       dockerfile: cleaner/Dockerfile
     container_name: cleaner_transactions
     depends_on:
-      - gateway
+      rabbitmq:
+        condition: service_healthy
+      gateway:
+        condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
       RABBITMQ_HOST: rabbitmq
@@ -72,7 +83,10 @@ services:
       dockerfile: cleaner/Dockerfile
     container_name: cleaner_transaction_items
     depends_on:
-      - gateway
+      rabbitmq:
+        condition: service_healthy
+      gateway:
+        condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
       RABBITMQ_HOST: rabbitmq
@@ -90,7 +104,10 @@ services:
       dockerfile: cleaner/Dockerfile
     container_name: cleaner_users
     depends_on:
-      - gateway
+      rabbitmq:
+        condition: service_healthy
+      gateway:
+        condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
       RABBITMQ_HOST: rabbitmq
@@ -108,7 +125,10 @@ services:
       dockerfile: cleaner/Dockerfile
     container_name: cleaner_stores
     depends_on:
-      - gateway
+      rabbitmq:
+        condition: service_healthy
+      gateway:
+        condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
       RABBITMQ_HOST: rabbitmq
@@ -126,7 +146,10 @@ services:
       dockerfile: cleaner/Dockerfile
     container_name: cleaner_menu_items
     depends_on:
-      - gateway
+      rabbitmq:
+        condition: service_healthy
+      gateway:
+        condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
       RABBITMQ_HOST: rabbitmq
@@ -187,7 +210,28 @@ services:
       FILTER_MODE: amount
       QUEUE_IN: Q1_transactions_filtered
       AMOUNT_THRESHOLD: 75
-    networks:
+
+  joiner_q1:
+    build:
+      context: .
+      dockerfile: joiner/Dockerfile
+    container_name: joiner_q1
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      gateway:
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      QUEUE_IN: transactions_cleaned
+      OUTPUT_FILE: /app/output/q1.csv
+      QUERY_TYPE: q1
+    volumes:
+      - ./output:/app/output
+networks:
       - coffee-net
 
 networks:
