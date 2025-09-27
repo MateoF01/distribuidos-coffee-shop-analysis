@@ -161,6 +161,56 @@ services:
     networks:
       - coffee-net
 
+  temporal_filter_transactions:
+    build:
+      context: .
+      dockerfile: filters/Dockerfile
+    container_name: temporal_filter_transactions
+    depends_on:
+      - cleaner_transactions
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      FILTER_MODE: temporal
+      QUEUE_IN: transactions_cleaned
+      YEAR_START: 2024
+      YEAR_END: 2025
+      HOUR_START: 6
+      HOUR_END: 23
+    networks:
+      - coffee-net
+
+  temporal_filter_transaction_items:
+    build:
+      context: .
+      dockerfile: filters/Dockerfile
+    container_name: temporal_filter_transaction_items
+    depends_on:
+      - cleaner_transaction_items
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      FILTER_MODE: temporal
+      QUEUE_IN: transaction_items_cleaned
+      YEAR_START: 2024
+      YEAR_END: 2025
+    networks:
+      - coffee-net
+
+  amount_filter:
+    build:
+      context: .
+      dockerfile: filters/Dockerfile
+    container_name: amount_filter
+    depends_on:
+      - temporal_filter_transactions
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      FILTER_MODE: amount
+      QUEUE_IN: Q1_transactions_filtered
+      AMOUNT_THRESHOLD: 75
+
   joiner_q1:
     build:
       context: .
@@ -181,7 +231,7 @@ services:
       QUERY_TYPE: q1
     volumes:
       - ./output:/app/output
-    networks:
+networks:
       - coffee-net
 
 networks:
