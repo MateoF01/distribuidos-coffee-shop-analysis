@@ -261,6 +261,30 @@ services:
     networks:
           - coffee-net
 
+  sorter_q1:
+    build:
+      context: .
+      dockerfile: sort/Dockerfile
+    container_name: sorter_q1
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      joiner_q1:
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      QUEUE_IN: sort_q1_request
+      INPUT_FILE: /app/output/q1_unsorted.csv
+      OUTPUT_FILE: /app/output/q1.csv
+      SORT_COLUMN_INDEX: 0
+    volumes:
+      - ./output:/app/output
+    networks:
+      - coffee-net
+
 networks:
   coffee-net:
     driver: bridge
