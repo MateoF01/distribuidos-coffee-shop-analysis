@@ -60,17 +60,16 @@ class Server:
                 header = self._recv_exact(conn, 6)
                 msg_type, data_type, payload_len = struct.unpack('>BBI', header)
                 if payload_len > 0:
-                    payload = self._recv_exact(conn, payload_len).decode('utf-8')
+                    payload = self._recv_exact(conn, payload_len)
                 else:
-                    payload = ''
+                    payload = b''
+                message = header + payload
                 if msg_type == 1:
                     print(f'Received data for {data_type_names.get(data_type, data_type)}:')
                     queue_name = queue_names.get(data_type)
-                    for row in payload.split('\n'):
-                        print('  ', row)
-                        if queue_name:
-                            self.queues[queue_name].send(row)
-                            print(f"Sent to queue '{queue_name}': {row}")
+                    if queue_name:
+                        self.queues[queue_name].send(message)
+                        print(f"Sent entire message to queue '{queue_name}' (bytes)")
                 elif msg_type == 2:
                     if data_type == 6:
                         print('All files received. Closing connection.')
