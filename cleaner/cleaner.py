@@ -52,10 +52,16 @@ class Cleaner:
                 msg_type, data_type, payload_len = struct.unpack('>BBI', header)
                 payload = message[6:]
 
-                if msg_type == 2 and data_type == 6:
-                    print('End-of-data signal received. Closing cleaner for this queue.')
-                    self.stop()
-                    return
+                if msg_type == 2:
+                    self.out_queue.send(message)
+
+                    if data_type == 6:
+                        print('End-of-data signal received. Closing cleaner for this queue.')
+                        self.stop()
+                        return
+                    else:
+                        print(f"Sent end-of-data msg_type:{msg_type} signal to {self.queue_out}")
+                        return
 
                 # Decode payload, split into rows, filter, repack
                 try:
@@ -75,7 +81,7 @@ class Cleaner:
                 new_header = struct.pack('>BBI', msg_type, data_type, new_payload_len)
                 new_message = new_header + new_payload
                 self.out_queue.send(new_message)
-                print(f"Sent filtered message to {self.queue_out} (rows: {len(filtered_rows)})")
+                print(f"Sent filtered message to {self.queue_out} (rows: {len(filtered_rows)}, msg_type: {msg_type}, data_type: {data_type})")
             except Exception as e:
                 print(f"Error processing message: {e} - Message: {message}")
 
