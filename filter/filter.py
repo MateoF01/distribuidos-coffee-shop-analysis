@@ -46,7 +46,7 @@ class Filter:
                 dic_queue_row = {}
 
                 for row in rows:
-                    rows_queues = self._filter_row(row)
+                    rows_queues = self._filter_row(row) or []
 
                     print("[ROWS_QUEUES: ] ", rows_queues)
 
@@ -118,20 +118,20 @@ class TemporalFilter(Filter):
             
             #Q1
             if(2024 <= year <= 2025 and 6<=hour<=23):
-                result.append((row, "Q1_transactions_filtered"))
+                result.append((row, "transactions_filtered_Q1"))
 
             #Q3
             if(2024 <= year <= 2025 and 6<=hour<=23):
-                result.append((row, "Q3_transactions_filtered"))
+                result.append((row, "transactions_filtered_Q3"))
 
             #Q4
             if(2024 <= year <= 2025):
-                result.append((row, "Q4_transactions_filtered"))
+                result.append((row, "transactions_filtered_Q4"))
   
         elif self.data_type == "transaction_items":
             #Q2
             if(2024 <= year <= 2025):
-                result.append((row, "Q2_transaction_items_filtered"))
+                result.append((row, "transaction_items_filtered_Q2"))
 
         return result
 
@@ -161,6 +161,8 @@ class AmountFilter(Filter):
         self.col_index = col_index
 
     def _filter_row(self, row: str):
+        
+        print("[AMOUNT FILTER] ROW: ", row)
 
         parts = row.split('|')
 
@@ -173,7 +175,7 @@ class AmountFilter(Filter):
 
         if amount < self.min_amount:
             return None
-        return row
+        return [(row, queue_out)]
 
 
 # ====================
