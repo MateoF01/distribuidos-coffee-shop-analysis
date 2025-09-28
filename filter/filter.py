@@ -134,7 +134,7 @@ class TemporalFilter(Filter):
         print(f"[TEMPORAL FILTER] Loaded rules for {self.data_type}: {self.rules}")
 
     def _route(self, row: str, year, hour):
-        result = []  # [(queue_name, row)]
+        result = []  # [(row, queue_name)]
         for rule in self.rules:
             if rule["year_start"] <= year <= rule["year_end"] and \
                rule["hour_start"] <= hour <= rule["hour_end"]:
