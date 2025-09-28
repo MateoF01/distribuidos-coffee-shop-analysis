@@ -14,15 +14,15 @@ FILE_TYPE_MAP = {
 #Itera los archivos que hay en la carpeta data
 def iter_csv_files(data_dir: str):
 
-    for file in sorted(Path(data_dir).glob("*.csv")):
-        fname = file.stem.lower()  # sin extensión
+    for file in sorted(Path(data_dir).rglob("*.csv")):   
+        fname = file.stem.lower()
         if '_sample' in fname:
             fname = fname.replace('_sample', '')
+
         for prefix, data_type in FILE_TYPE_MAP.items():
             if fname.startswith(prefix):
                 yield data_type, file
                 break
-
 
 #Lee el archivo y genera el batch sin cargar todo en memoria
 def load_csv_batch(path: str, batch_size: int):
