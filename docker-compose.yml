@@ -34,6 +34,8 @@ services:
       RABBITMQ_USER: admin
       RABBITMQ_PASS: secretpassword
       PYTHONPATH: /app
+      GATEWAY_HOST: 0.0.0.0
+      GATEWAY_PORT: 5000
     networks:
       - coffee-net
 
