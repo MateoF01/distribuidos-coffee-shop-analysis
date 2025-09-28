@@ -69,7 +69,7 @@ class SorterConfig:
                 f"sort_column_index={self.sort_column_index})")
 
 class Sorter:
-    def __init__(self, queue_in, input_file, output_file, rabbitmq_host, config: SorterConfig):
+    def __init__(self, queue_in, input_file, output_file, rabbitmq_host, config: SorterConfig, completion_queue=None):
         self.queue_in = queue_in
         self.input_file = input_file
         self.output_file = output_file
@@ -78,6 +78,7 @@ class Sorter:
         self._running = False
         self._shutdown_event = threading.Event()
         self.in_queue = CoffeeMessageMiddlewareQueue(host=rabbitmq_host, queue_name=queue_in)
+        self.completion_queue = CoffeeMessageMiddlewareQueue(host=rabbitmq_host, queue_name=completion_queue) if completion_queue else None
         self._temp_files = []
 
     def _write_sorted_chunk(self, chunk_data):
@@ -196,8 +197,24 @@ class Sorter:
             
             print(f"Successfully sorted {self.input_file} by column {self.sort_column_index} and saved to {self.output_file}")
             
+            # Send completion signal
+            self._send_completion_signal()
+            
         except Exception as e:
             print(f"Error sorting file: {e}")
+
+    def _send_completion_signal(self):
+        """Send a completion signal to notify that sorting is done"""
+        try:
+            if self.completion_queue:
+                # Create completion signal message (msg_type=3, data_type=0)
+                header = struct.pack('>BBI', 3, 0, 0)  # Completion signal
+                self.completion_queue.send(header)
+                print(f"Sent completion signal for {self.output_file}")
+            else:
+                print("No completion queue configured")
+        except Exception as e:
+            print(f"Error sending completion signal: {e}")
 
     def run(self):
         self._running = True
@@ -221,6 +238,7 @@ class Sorter:
                     self._sort_file()
                     print(f'Sort complete. Output saved to: {self.output_file}')
                     # Could send completion signal back if needed
+                    self._send_completion_signal()
                     return
                 
             except Exception as e:
@@ -247,6 +265,8 @@ class Sorter:
 
     def close(self):
         self.in_queue.close()
+        if self.completion_queue:
+            self.completion_queue.close()
 
 if __name__ == '__main__':
     # Configure via environment variables
@@ -254,6 +274,7 @@ if __name__ == '__main__':
     input_file = os.environ.get('INPUT_FILE')
     output_file = os.environ.get('OUTPUT_FILE')
     data_type = os.environ.get('DATA_TYPE')
+    completion_queue = os.environ.get('COMPLETION_QUEUE')
     rabbitmq_host = os.environ.get('RABBITMQ_HOST', 'rabbitmq')
 
     if not all([queue_in, input_file, output_file, data_type]):
@@ -268,7 +289,7 @@ if __name__ == '__main__':
     config = SorterConfig(config_parser, data_type)
     print(f"Loaded configuration: {config}")
     
-    sorter = Sorter(queue_in, input_file, output_file, rabbitmq_host, config)
+    sorter = Sorter(queue_in, input_file, output_file, rabbitmq_host, config, completion_queue)
     
     # Set up signal handlers for graceful shutdown
     def signal_handler(signum, frame):
