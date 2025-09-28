@@ -42,24 +42,42 @@ class Filter:
 
                 payload_str = payload.decode('utf-8')
                 rows = payload_str.split('\n')
-                filtered_rows = [self._filter_row(row) for row in rows if row.strip()]
-                filtered_rows = [row for row in filtered_rows if row]
 
-                print("FILTERED_ROWS: ", filtered_rows)
+                dic_queue_row = {}
 
-                if not filtered_rows:
+                for row in rows:
+                    rows_queues = self._filter_row(row)
+
+                    print("[ROWS_QUEUES: ] ", rows_queues)
+
+                    for row, queue_name in rows_queues:
+                        if queue_name not in dic_queue_row:
+                            dic_queue_row[queue_name] = []
+                        
+                        dic_queue_row[queue_name].append(row)
+                        
+
+                print("DIC_QUE_ROW: ", dic_queue_row)
+
+                if not dic_queue_row:
                     return
 
-                new_payload_str = '\n'.join(filtered_rows)
-                new_payload = new_payload_str.encode('utf-8')
-                new_payload_len = len(new_payload)
-                new_header = struct.pack('>BBI', msg_type, data_type, new_payload_len)
-                new_message = new_header + new_payload
+                for queue_name in dic_queue_row.keys():
+                    
+                    filtered_rows = dic_queue_row[queue_name]
 
-                print("NEW_MESSAGE: ", new_message)
+                    new_payload_str = '\n'.join(filtered_rows)
+                    new_payload = new_payload_str.encode('utf-8')
+                    new_payload_len = len(new_payload)
+                    new_header = struct.pack('>BBI', msg_type, data_type, new_payload_len)
+                    new_message = new_header + new_payload
 
-                for q in self.out_queues:
-                    q.send(new_message)
+                    print("NEW_MESSAGE: ", new_message)
+
+                    for q in self.out_queues:
+                        if q.queue_name == queue_name:
+                            q.send(new_message)
+
             except Exception as e:
                 print(f"Error processing message: {e} - Message: {message}")
 
@@ -87,15 +105,39 @@ class Filter:
 # ====================
 
 class TemporalFilter(Filter):
-    def __init__(self, queue_in, queue_out, rabbitmq_host, year_start, year_end, hour_start, hour_end, col_index):
+    def __init__(self, queue_in, queue_out, rabbitmq_host, data_type, col_index):
         super().__init__(queue_in, queue_out, rabbitmq_host)
-        self.year_start = int(year_start)
-        self.year_end = int(year_end)
-        self.hour_start = int(hour_start)
-        self.hour_end = int(hour_end)
+        self.data_type = data_type
         self.col_index = col_index
 
+    def _route(self, row: str, year, hour):
+
+        result = [] # [(row, queue_out)]
+
+        if self.data_type == "transactions":
+            
+            #Q1
+            if(2024 <= year <= 2025 and 6<=hour<=23):
+                result.append((row, "Q1_transactions_filtered"))
+
+            #Q3
+            if(2024 <= year <= 2025 and 6<=hour<=23):
+                result.append((row, "Q3_transactions_filtered"))
+
+            #Q4
+            if(2024 <= year <= 2025):
+                result.append((row, "Q4_transactions_filtered"))
+  
+        elif self.data_type == "transaction_items":
+            #Q2
+            if(2024 <= year <= 2025):
+                result.append((row, "Q2_transaction_items_filtered"))
+
+        return result
+
     def _filter_row(self, row: str):
+
+        print("[TEMPORAL FILTER] ROW: ", row)
 
         parts = row.split('|')
         if "created_at" not in self.col_index or len(parts) <= self.col_index["created_at"]:
@@ -108,12 +150,9 @@ class TemporalFilter(Filter):
         except Exception:
             return None
 
-        if not (self.year_start <= year <= self.year_end):
-            return None
-        if not (self.hour_start <= hour <= self.hour_end):
-            return None
-        return row
+        return self._route(row, year, hour)
 
+    
 
 class AmountFilter(Filter):
     def __init__(self, queue_in, queue_out, rabbitmq_host, min_amount, col_index):
@@ -160,11 +199,7 @@ if __name__ == '__main__':
 
 
     if filter_type == 'temporal':
-        year_start =os.environ.get('YEAR_START')
-        year_end = os.environ.get('YEAR_END')
-        hour_start = os.environ.get('HOUR_START')
-        hour_end = os.environ.get('HOUR_END')
-        f = TemporalFilter(queue_in, queue_out, rabbitmq_host, year_start, year_end, hour_start, hour_end, col_index)
+        f = TemporalFilter(queue_in, queue_out, rabbitmq_host, data_type, col_index)
 
     elif filter_type == 'amount':
         min_amount = os.environ.get('MIN_AMOUNT')
