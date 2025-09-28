@@ -180,10 +180,6 @@ services:
       QUEUE_OUT: transactions_filtered_Q1,transactions_filtered_Q3
       DATA_TYPE: transactions
       FILTER_TYPE: temporal
-      YEAR_START: 2024
-      YEAR_END: 2025
-      HOUR_START: 6
-      HOUR_END: 23
     networks:
       - coffee-net
 
@@ -206,10 +202,6 @@ services:
       QUEUE_OUT: transaction_items_filtered_Q2,transaction_items_filtered_Q4
       DATA_TYPE: transaction_items
       FILTER_TYPE: temporal
-      YEAR_START: 2024
-      YEAR_END: 2025
-      HOUR_START: 0
-      HOUR_END: 24
     networks:
       - coffee-net
 
