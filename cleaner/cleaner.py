@@ -2,9 +2,9 @@ import os
 import signal
 import sys
 import threading
-import struct
 import configparser
 from middleware.coffeeMiddleware import CoffeeMessageMiddlewareQueue
+from shared import protocol
 
 class Cleaner:
     def __init__(self, queue_in, queue_out, columns_have, columns_want, rabbitmq_host, keep_when_empty=None):
@@ -44,18 +44,15 @@ class Cleaner:
             if not self._running:
                 return
             try:
-                # Expect message as bytes: header (6 bytes) + payload
+                # Use protocol helpers for message parsing
                 if not isinstance(message, bytes) or len(message) < 6:
                     print(f"Invalid message format or too short: {message}")
                     return
-                header = message[:6]
-                msg_type, data_type, payload_len = struct.unpack('>BBI', header)
-                payload = message[6:]
+                msg_type, data_type, payload = protocol._unpack_message(message)
 
-                if msg_type == 2:
+                if msg_type == protocol.MSG_TYPE_END:
                     self.out_queue.send(message)
-
-                    if data_type == 6:
+                    if data_type == protocol.DATA_END:
                         print('End-of-data signal received. Closing cleaner for this queue.')
                         self.stop()
                         return
@@ -77,9 +74,7 @@ class Cleaner:
                     return
                 new_payload_str = '\n'.join(filtered_rows)
                 new_payload = new_payload_str.encode('utf-8')
-                new_payload_len = len(new_payload)
-                new_header = struct.pack('>BBI', msg_type, data_type, new_payload_len)
-                new_message = new_header + new_payload
+                new_message = protocol.pack_message(msg_type, data_type, new_payload)
                 self.out_queue.send(new_message)
                 print(f"Sent filtered message to {self.queue_out} (rows: {len(filtered_rows)}, msg_type: {msg_type}, data_type: {data_type})")
             except Exception as e:
