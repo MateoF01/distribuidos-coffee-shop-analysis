@@ -21,20 +21,32 @@ class Cleaner:
 
     def _filter_row(self, row):
         items = row.split('|')
-        
+
         if len(items) < max(self.keep_indices) + 1:
             print(f"Row has insufficient columns: {row} (expected {max(self.keep_indices) + 1}, got {len(items)})")
             return None
-            
+
         try:
             selected = [items[i] for i in self.keep_indices]
         except IndexError as e:
             print(f"Index error processing row: {row} - {e}")
             return None
 
+        # Convert user_id to int if present in columns_want
+        if 'user_id' in self.columns_want:
+            user_id_idx = self.columns_want.index('user_id')
+            if selected[user_id_idx] != '':
+                try:
+                    # Remove .0 if present (float to int string)
+                    float_val = float(selected[user_id_idx])
+                    int_val = int(float_val)
+                    selected[user_id_idx] = str(int_val)
+                except Exception as e:
+                    print(f"Warning: Could not convert user_id '{selected[user_id_idx]}' to int in row: {row} - {e}")
+
         if any(selected[i] == '' and i not in self.keep_when_empty for i in range(len(selected))):
             return None
-            
+
         return '|'.join(selected)
 
     def run(self):
