@@ -105,34 +105,40 @@ class Filter:
 # ====================
 
 class TemporalFilter(Filter):
-    def __init__(self, queue_in, queue_out, rabbitmq_host, data_type, col_index):
+    def __init__(self, queue_in, queue_out, rabbitmq_host, data_type, col_index, config):
         super().__init__(queue_in, queue_out, rabbitmq_host)
         self.data_type = data_type
         self.col_index = col_index
+        self.rules = []  # Each rule is a dic with the conditions
+
+        # Load rules
+        for section in config.sections():
+            rule_data_type = config[section].get("DATA_TYPE")
+            if rule_data_type != self.data_type:
+                continue
+
+            queue_out = config[section]["QUEUE_OUT"].strip()
+            year_start = int(config[section].get("YEAR_START", 0))
+            year_end = int(config[section].get("YEAR_END", 9999))
+            hour_start = int(config[section].get("HOUR_START", 0))
+            hour_end = int(config[section].get("HOUR_END", 23))
+
+            self.rules.append({
+                "queue_out": queue_out,
+                "year_start": year_start,
+                "year_end": year_end,
+                "hour_start": hour_start,
+                "hour_end": hour_end
+            })
+
+        print(f"[TEMPORAL FILTER] Loaded rules for {self.data_type}: {self.rules}")
 
     def _route(self, row: str, year, hour):
-
-        result = [] # [(row, queue_out)]
-
-        if self.data_type == "transactions":
-            
-            #Q1
-            if(2024 <= year <= 2025 and 6<=hour<=23):
-                result.append((row, "transactions_filtered_Q1"))
-
-            #Q3
-            if(2024 <= year <= 2025 and 6<=hour<=23):
-                result.append((row, "transactions_filtered_Q3"))
-
-            #Q4
-            if(2024 <= year <= 2025):
-                result.append((row, "transactions_filtered_Q4"))
-  
-        elif self.data_type == "transaction_items":
-            #Q2
-            if(2024 <= year <= 2025):
-                result.append((row, "transaction_items_filtered_Q2"))
-
+        result = []  # [(queue_name, row)]
+        for rule in self.rules:
+            if rule["year_start"] <= year <= rule["year_end"] and \
+               rule["hour_start"] <= hour <= rule["hour_end"]:
+                result.append((row, rule["queue_out"]))
         return result
 
     def _filter_row(self, row: str):
@@ -201,7 +207,10 @@ if __name__ == '__main__':
 
 
     if filter_type == 'temporal':
-        f = TemporalFilter(queue_in, queue_out, rabbitmq_host, data_type, col_index)
+        temporal_config_path = os.path.join(os.path.dirname(__file__), 'temporal_filter_config.ini')
+        temporal_config = configparser.ConfigParser()
+        temporal_config.read(temporal_config_path)
+        f = TemporalFilter(queue_in, queue_out, rabbitmq_host, data_type, col_index, temporal_config)
 
     elif filter_type == 'amount':
         min_amount = os.environ.get('MIN_AMOUNT')
