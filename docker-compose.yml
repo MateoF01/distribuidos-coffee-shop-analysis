@@ -50,7 +50,7 @@ services:
       DATA_DIR: /app/.data
       SERVER_ADDRESS: gateway:5000
       CLIENT_ID: client1
-      BATCH_MAX_AMOUNT: 100
+      BATCH_MAX_AMOUNT: 5000
     volumes:
       - ./data:/app/.data
     networks:

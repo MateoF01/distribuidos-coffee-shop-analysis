@@ -37,7 +37,8 @@ class Filter:
                     for q in self.out_queues:
                         q.send(message)
                     if data_type == 6:
-                        self.stop()
+                        q.send(message)
+                        # self.stop()
                     return
 
                 payload_str = payload.decode('utf-8')
@@ -48,16 +49,12 @@ class Filter:
                 for row in rows:
                     rows_queues = self._filter_row(row) or []
 
-                    print("[ROWS_QUEUES: ] ", rows_queues)
-
                     for row, queue_name in rows_queues:
                         if queue_name not in dic_queue_row:
                             dic_queue_row[queue_name] = []
                         
                         dic_queue_row[queue_name].append(row)
                         
-
-                print("DIC_QUE_ROW: ", dic_queue_row)
 
                 if not dic_queue_row:
                     return
@@ -71,8 +68,6 @@ class Filter:
                     new_payload_len = len(new_payload)
                     new_header = struct.pack('>BBI', msg_type, data_type, new_payload_len)
                     new_message = new_header + new_payload
-
-                    print("NEW_MESSAGE: ", new_message)
 
                     for q in self.out_queues:
                         if q.queue_name == queue_name:
@@ -131,8 +126,6 @@ class TemporalFilter(Filter):
                 "hour_end": hour_end
             })
 
-        print(f"[TEMPORAL FILTER] Loaded rules for {self.data_type}: {self.rules}")
-
     def _route(self, row: str, year, hour):
         result = []  # [(row, queue_name)]
         for rule in self.rules:
@@ -142,8 +135,6 @@ class TemporalFilter(Filter):
         return result
 
     def _filter_row(self, row: str):
-
-        print("[TEMPORAL FILTER] ROW: ", row)
 
         parts = row.split('|')
         if "created_at" not in self.col_index or len(parts) <= self.col_index["created_at"]:
@@ -168,8 +159,6 @@ class AmountFilter(Filter):
 
     def _filter_row(self, row: str):
         
-        print("[AMOUNT FILTER] ROW: ", row)
-
         parts = row.split('|')
 
         if "final_amount" not in self.col_index or len(parts) <= self.col_index["final_amount"]:
@@ -181,7 +170,7 @@ class AmountFilter(Filter):
 
         if amount < self.min_amount:
             return None
-        return [(row, queue_out)]
+        return [(row, self.queue_out[0])]
 
 
 # ====================
