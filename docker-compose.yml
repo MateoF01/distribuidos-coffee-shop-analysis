@@ -342,6 +342,29 @@ services:
     networks:
       - coffee-net
 
+  sender_q1:
+    build:
+      context: .
+      dockerfile: sender/Dockerfile
+    container_name: sender_q1
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      sorter_q1:
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      QUEUE_IN: sender_q1_signal
+      QUEUE_OUT: q1_results_queue
+      INPUT_FILE: /app/output/q1.csv
+    volumes:
+      - ./output:/app/output
+    networks:
+      - coffee-net
+
 networks:
   coffee-net:
     driver: bridge

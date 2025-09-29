@@ -5,12 +5,12 @@ import threading
 import struct
 import configparser
 import csv
-import tempfile
 import heapq
+import time
 from middleware.coffeeMiddleware import CoffeeMessageMiddlewareQueue
 
 class SorterConfig:
-    def __init__(self, config_parser):
+    def __init__(self, config_parser, data_type):
         """Initialize configuration from ConfigParser object"""
         # Sort configuration
         self.chunk_size = int(config_parser['sort']['chunk_size'])
@@ -28,6 +28,11 @@ class SorterConfig:
         
         # Sorting configuration
         self.invalid_number_fallback = float(config_parser['sorting']['invalid_number_fallback'])
+        
+        # Data type specific configuration
+        if data_type not in config_parser:
+            raise ValueError(f"Unknown data type: {data_type}")
+        self.sort_column_index = int(config_parser[data_type]['sort_column_index'])
         
         # Validate configuration
         self._validate()
@@ -48,6 +53,9 @@ class SorterConfig:
         
         if not self.encoding:
             raise ValueError("encoding cannot be empty")
+        
+        if self.sort_column_index < 0:
+            raise ValueError(f"sort_column_index must be non-negative, got {self.sort_column_index}")
     
     def __str__(self):
         """String representation for debugging"""
@@ -57,18 +65,20 @@ class SorterConfig:
                 f"header_size={self.header_size}, "
                 f"sort_signal_type={self.sort_signal_type}, "
                 f"encoding='{self.encoding}', "
-                f"invalid_number_fallback={self.invalid_number_fallback})")
+                f"invalid_number_fallback={self.invalid_number_fallback}, "
+                f"sort_column_index={self.sort_column_index})")
 
 class Sorter:
-    def __init__(self, queue_in, input_file, output_file, sort_column_index, rabbitmq_host, config: SorterConfig):
+    def __init__(self, queue_in, input_file, output_file, rabbitmq_host, config: SorterConfig, completion_queue=None):
         self.queue_in = queue_in
         self.input_file = input_file
         self.output_file = output_file
-        self.sort_column_index = sort_column_index
+        self.sort_column_index = config.sort_column_index
         self.config = config
         self._running = False
         self._shutdown_event = threading.Event()
         self.in_queue = CoffeeMessageMiddlewareQueue(host=rabbitmq_host, queue_name=queue_in)
+        self.completion_queue = CoffeeMessageMiddlewareQueue(host=rabbitmq_host, queue_name=completion_queue) if completion_queue else None
         self._temp_files = []
 
     def _write_sorted_chunk(self, chunk_data):
@@ -77,14 +87,14 @@ class Sorter:
             # Sort the chunk by the specified column (string/lexicographic sorting)
             chunk_data.sort(key=lambda row: row[self.sort_column_index])
             
-            # Create temporary file
-            temp_fd, temp_path = tempfile.mkstemp(
-                suffix=self.config.temp_file_suffix, 
-                prefix=self.config.temp_file_prefix
-            )
+            # Create temporary file manually
+            timestamp = str(int(time.time() * 1000000))  # microsecond precision
+            chunk_id = len(self._temp_files)
+            temp_path = f"{self.config.temp_file_prefix}{timestamp}_{chunk_id}{self.config.temp_file_suffix}"
+            
             self._temp_files.append(temp_path)
             
-            with os.fdopen(temp_fd, 'w', newline=self.config.newline_mode, encoding=self.config.encoding) as temp_file:
+            with open(temp_path, 'w', newline=self.config.newline_mode, encoding=self.config.encoding) as temp_file:
                 writer = csv.writer(temp_file)
                 writer.writerows(chunk_data)
             
@@ -187,8 +197,24 @@ class Sorter:
             
             print(f"Successfully sorted {self.input_file} by column {self.sort_column_index} and saved to {self.output_file}")
             
+            # Send completion signal
+            self._send_completion_signal()
+            
         except Exception as e:
             print(f"Error sorting file: {e}")
+
+    def _send_completion_signal(self):
+        """Send a completion signal to notify that sorting is done"""
+        try:
+            if self.completion_queue:
+                # Create completion signal message (msg_type=3, data_type=0)
+                header = struct.pack('>BBI', 3, 0, 0)  # Completion signal
+                self.completion_queue.send(header)
+                print(f"Sent completion signal for {self.output_file}")
+            else:
+                print("No completion queue configured")
+        except Exception as e:
+            print(f"Error sending completion signal: {e}")
 
     def run(self):
         self._running = True
@@ -212,6 +238,7 @@ class Sorter:
                     self._sort_file()
                     print(f'Sort complete. Output saved to: {self.output_file}')
                     # Could send completion signal back if needed
+                    self._send_completion_signal()
                     return
                 
             except Exception as e:
@@ -238,28 +265,31 @@ class Sorter:
 
     def close(self):
         self.in_queue.close()
+        if self.completion_queue:
+            self.completion_queue.close()
 
 if __name__ == '__main__':
+    # Configure via environment variables
+    queue_in = os.environ.get('QUEUE_IN')
+    input_file = os.environ.get('INPUT_FILE')
+    output_file = os.environ.get('OUTPUT_FILE')
+    data_type = os.environ.get('DATA_TYPE')
+    completion_queue = os.environ.get('COMPLETION_QUEUE')
+    rabbitmq_host = os.environ.get('RABBITMQ_HOST', 'rabbitmq')
+
+    if not all([queue_in, input_file, output_file, data_type]):
+        raise ValueError("Missing required environment variables: QUEUE_IN, INPUT_FILE, OUTPUT_FILE, DATA_TYPE")
+
     # Load configuration
     config_path = os.path.join(os.path.dirname(__file__), 'config.ini')
     config_parser = configparser.ConfigParser()
     config_parser.read(config_path)
     
     # Create configuration object
-    config = SorterConfig(config_parser)
+    config = SorterConfig(config_parser, data_type)
     print(f"Loaded configuration: {config}")
     
-    # Configure via environment variables
-    queue_in = os.environ.get('QUEUE_IN')
-    input_file = os.environ.get('INPUT_FILE')
-    output_file = os.environ.get('OUTPUT_FILE')
-    sort_column_index = int(os.environ.get('SORT_COLUMN_INDEX', '0'))
-    rabbitmq_host = os.environ.get('RABBITMQ_HOST', 'rabbitmq')
-
-    if not all([queue_in, input_file, output_file]):
-        raise ValueError("Missing required environment variables: QUEUE_IN, INPUT_FILE, OUTPUT_FILE")
-
-    sorter = Sorter(queue_in, input_file, output_file, sort_column_index, rabbitmq_host, config)
+    sorter = Sorter(queue_in, input_file, output_file, rabbitmq_host, config, completion_queue)
     
     # Set up signal handlers for graceful shutdown
     def signal_handler(signum, frame):
