@@ -1,26 +1,27 @@
+
 import socket
+import struct
 from middleware.coffeeMiddleware import CoffeeMessageMiddlewareQueue
 import os
-from shared import protocol
 
-HOST = os.environ.get('GATEWAY_HOST', '0.0.0.0')
-PORT = int(os.environ.get('GATEWAY_PORT', 5000))
+HOST = '0.0.0.0'  # Listen on all interfaces
+PORT = 5000       # Change as needed
 
 data_type_names = {
-    protocol.DATA_TRANSACTIONS: 'transactions',
-    protocol.DATA_TRANSACTION_ITEMS: 'transaction_items',
-    protocol.DATA_MENU_ITEMS: 'menu_items',
-    protocol.DATA_USERS: 'users',
-    protocol.DATA_STORES: 'stores',
-    protocol.DATA_END: 'end'
+    1: 'transactions',
+    2: 'transaction_items',
+    3: 'menu_items',
+    4: 'users',
+    5: 'stores',
+    6: 'end'
 }
 
 queue_names = {
-    protocol.DATA_TRANSACTIONS: 'transactions_queue',
-    protocol.DATA_TRANSACTION_ITEMS: 'transaction_items_queue',
-    protocol.DATA_MENU_ITEMS: 'menu_items_queue',
-    protocol.DATA_USERS: 'users_queue',
-    protocol.DATA_STORES: 'stores_queue'
+    1: 'transactions_queue',
+    2: 'transaction_items_queue',
+    3: 'menu_items_queue',
+    4: 'users_queue',
+    5: 'stores_queue'
 }
 
 class Server:
@@ -56,15 +57,20 @@ class Server:
     def _handle_client_connection(self, conn, addr):
         try:
             while True:
-                msg_type, data_type, payload = protocol.receive_message(conn)
-                message = protocol.pack_message(msg_type, data_type, payload)
-                if msg_type == protocol.MSG_TYPE_DATA:
+                header = self._recv_exact(conn, 6)
+                msg_type, data_type, payload_len = struct.unpack('>BBI', header)
+                if payload_len > 0:
+                    payload = self._recv_exact(conn, payload_len)
+                else:
+                    payload = b''
+                message = header + payload
+                if msg_type == 1:
                     print(f'Received data for {data_type_names.get(data_type, data_type)}:')
                     queue_name = queue_names.get(data_type)
                     if queue_name:
                         self.queues[queue_name].send(message)
-                elif msg_type == protocol.MSG_TYPE_END:
-                    if data_type == protocol.DATA_END:
+                elif msg_type == 2:
+                    if data_type == 6:
                         print('All files received. Closing connection.')
                         break
                     else:
@@ -76,6 +82,15 @@ class Server:
                     print(f'Unknown message type: {msg_type}')
         finally:
             conn.close()
+
+    def _recv_exact(self, sock, n):
+        data = b''
+        while len(data) < n:
+            packet = sock.recv(n - len(data))
+            if not packet:
+                raise ConnectionError('Socket closed prematurely')
+            data += packet
+        return data
 
     def close(self):
         for q in self.queues.values():

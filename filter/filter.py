@@ -37,7 +37,8 @@ class Filter:
                     for q in self.out_queues:
                         q.send(message)
                     if data_type == 6:
-                        self.stop()
+                        q.send(message)
+                        # self.stop()
                     return
 
                 payload_str = payload.decode('utf-8')
@@ -53,6 +54,7 @@ class Filter:
                             dic_queue_row[queue_name] = []
                         
                         dic_queue_row[queue_name].append(row)
+                        
 
                 if not dic_queue_row:
                     return
@@ -133,6 +135,7 @@ class TemporalFilter(Filter):
         return result
 
     def _filter_row(self, row: str):
+
         parts = row.split('|')
         if "created_at" not in self.col_index or len(parts) <= self.col_index["created_at"]:
             return None
@@ -155,6 +158,7 @@ class AmountFilter(Filter):
         self.col_index = col_index
 
     def _filter_row(self, row: str):
+        
         parts = row.split('|')
 
         if "final_amount" not in self.col_index or len(parts) <= self.col_index["final_amount"]:
@@ -166,7 +170,7 @@ class AmountFilter(Filter):
 
         if amount < self.min_amount:
             return None
-        return [(row, queue_out)]
+        return [(row, self.queue_out[0])]
 
 
 # ====================
