@@ -23,7 +23,6 @@ class Joiner:
 
     def _process_row(self, row):
         """Process a row and extract the required columns"""
-        print(f"Processing row: {row}")
         items = row.split('|')
         
         # For Q1, we expect: transaction_id,final_amount,created_at,store_id,user_id
