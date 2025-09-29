@@ -35,19 +35,30 @@ class Client:
     def start_client_loop(self):
         self.create_socket()
 
-        # === Iterar archivos detectados en .data ===
+        # === Group files by data type ===
+        files_by_type = {}
         for data_type, filepath in csv_loaders.iter_csv_files(self.data_dir):
-            print(f"[INFO] Sending file {filepath} (type={data_type})")
+            if data_type not in files_by_type:
+                files_by_type[data_type] = []
+            files_by_type[data_type].append(filepath)
 
-            # Enviar en batches
-            for batch in csv_loaders.load_csv_batch(filepath, self.batch_max_amount):
-                payload = "\n".join(batch).encode()
-                protocol.send_message(self.conn, protocol.MSG_TYPE_DATA, data_type, payload)
-                print(f"[INFO] Sent batch of {len(batch)} rows from {filepath.name}")
+        # === Process each data type completely before moving to next ===
+        for data_type in sorted(files_by_type.keys()):
+            print(f"[INFO] Processing data type {data_type}")
+            
+            # Send all files of this data type
+            for filepath in files_by_type[data_type]:
+                print(f"[INFO] Sending file {filepath} (type={data_type})")
 
-            # END de este tipo
+                # Enviar en batches
+                for batch in csv_loaders.load_csv_batch(filepath, self.batch_max_amount):
+                    payload = "\n".join(batch).encode()
+                    protocol.send_message(self.conn, protocol.MSG_TYPE_DATA, data_type, payload)
+                    print(f"[INFO] Sent batch of {len(batch)} rows from {filepath.name}")
+
+            # END de este tipo (only after all files of this type are sent)
             protocol.send_message(self.conn, protocol.MSG_TYPE_END, data_type, b"")
-            print(f"[INFO] Sent END for {filepath.name}")
+            print(f"[INFO] Sent END for data type {data_type}")
 
         # === END FINAL ===
         protocol.send_message(self.conn, protocol.MSG_TYPE_END, protocol.DATA_END, b"")
