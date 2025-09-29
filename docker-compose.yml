@@ -273,7 +273,8 @@ services:
       QUEUE_IN: sort_q1_request
       INPUT_FILE: /app/output/q1_unsorted.csv
       OUTPUT_FILE: /app/output/q1.csv
-      SORT_COLUMN_INDEX: 0
+      DATA_TYPE: q1
+      COMPLETION_QUEUE: sender_q1_signal
     volumes:
       - ./output:/app/output
     networks:
