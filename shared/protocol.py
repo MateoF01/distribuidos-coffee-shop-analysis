@@ -44,3 +44,13 @@ def _read_full(conn, n):
             raise ConnectionError("Socket closed before receiving expected data")
         buf += chunk
     return buf
+
+def pack_message(msg_type, data_type, payload):
+    header = struct.pack('>BBI', msg_type, data_type, len(payload))
+    return header + payload
+
+def _unpack_message(msg_bytes):
+    header = msg_bytes[:6]
+    msg_type, data_type, payload_len = struct.unpack('>BBI', header)
+    payload = msg_bytes[6:]
+    return msg_type, data_type, payload
