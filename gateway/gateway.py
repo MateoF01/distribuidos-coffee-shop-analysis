@@ -65,7 +65,14 @@ class Server:
                         self.queues[queue_name].send(message)
                 elif msg_type == protocol.MSG_TYPE_END:
                     if data_type == protocol.DATA_END:
-                        print('All files received. Closing connection.')
+                        print('All files received. Sending final END signal to all queues and closing connection.')
+                        # Send the final END signal to all queues so they know processing is complete
+                        for queue_name, queue in self.queues.items():
+                            try:
+                                queue.send(message)
+                                print(f'Sent final END signal to {queue_name}')
+                            except Exception as e:
+                                print(f'Error sending final END to {queue_name}: {e}')
                         break
                     else:
                         queue_name = queue_names.get(data_type)

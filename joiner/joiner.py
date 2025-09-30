@@ -100,7 +100,7 @@ class Joiner:
                     print(f'End-of-data signal received. Sending sort request...')
                     self._send_sort_request()
                     print(f'CSV data collection complete with {self._rows_written} total rows. Sort request sent.')
-                    self.stop()
+                    # self.stop()
                     return
 
                 # Process regular data message

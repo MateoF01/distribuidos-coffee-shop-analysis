@@ -66,7 +66,7 @@ class Cleaner:
                     self.out_queue.send(message)
                     if data_type == protocol.DATA_END:
                         print('End-of-data signal received. Closing cleaner for this queue.')
-                        self.stop()
+                        # self.stop()
                         return
                     else:
                         print(f"Sent end-of-data msg_type:{msg_type} signal to {self.queue_out}")
