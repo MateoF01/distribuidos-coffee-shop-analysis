@@ -48,8 +48,6 @@ class Grouper:
             if not self._running:
                 return
             try:
-                print(f"[Grouper:{self.query_id}] Received message from queue: {self.queue_in}")
-                print(f"Message length: {len(message) if message else 'None'}, type: {type(message)}")
                 if not isinstance(message, bytes) or len(message) < 6:
                     print(f"Invalid message format or too short: {message}")
                     return
@@ -76,7 +74,7 @@ class Grouper:
             except Exception as e:
                 print(f"Error processing message: {e} - Message: {message}")
 
-        print(f"Grouper listening on {self.queue_in}")
+        #print(f"Grouper listening on {self.queue_in}")
         self.in_queue.start_consuming(on_message)
         try:
             self._shutdown_event.wait()
@@ -121,11 +119,11 @@ def q2_agg(rows, temp_dir, columns):
     idx_created = columns.index('created_at')
     # {month: {item_id: [total_quantity, total_subtotal]}}
     grouped = defaultdict(lambda: defaultdict(lambda: [0, 0.0]))
-    print(f"[Q2 AGG] Processing {len(rows)} rows. Columns: {columns}")
+    #print(f"[Q2 AGG] Processing {len(rows)} rows. Columns: {columns}")
     for i, row in enumerate(rows):
         items = row.split('|')
         if len(items) < 4:
-            print(f"[Q2 AGG] Skipping row {i} (not enough fields): {row}")
+            #print(f"[Q2 AGG] Skipping row {i} (not enough fields): {row}")
             continue
         month = get_month_str(items[idx_created])
         item_id = items[idx_item]
@@ -133,13 +131,13 @@ def q2_agg(rows, temp_dir, columns):
             quantity = int(items[idx_quantity])
             subtotal = float(items[idx_subtotal])
         except Exception as e:
-            print(f"[Q2 AGG] Skipping row {i} (parse error): {row} | Error: {e}")
+            #print(f"[Q2 AGG] Skipping row {i} (parse error): {row} | Error: {e}")
             continue
         grouped[month][item_id][0] += quantity
         grouped[month][item_id][1] += subtotal
     for month, items_dict in grouped.items():
         fpath = os.path.join(temp_dir, f'{month}.csv')
-        print(f"[Q2 AGG] Writing to {fpath} ({len(items_dict)} items)")
+        #print(f"[Q2 AGG] Writing to {fpath} ({len(items_dict)} items)")
         # Read old data if exists
         old = {}
         if os.path.exists(fpath):
@@ -158,7 +156,7 @@ def q2_agg(rows, temp_dir, columns):
         with open(fpath, 'w') as f:
             for item_id, vals in old.items():
                 f.write(f'{item_id},{vals[0]},{vals[1]}\n')
-    print(f"[Q2 AGG] Finished writing files for {len(grouped)} months.")
+    #print(f"[Q2 AGG] Finished writing files for {len(grouped)} months.")
 
  # --- Q3: transactions_filtered_Q3, groupby semester+store_id, sum final_amount ---
 def q3_agg(rows, temp_dir, columns):
@@ -202,7 +200,7 @@ def q4_agg(rows, temp_dir, columns):
     for i, row in enumerate(rows):
         items = row.split('|')
         if len(items) < 5:
-            print(f"[Q4 AGG] Skipping row {i} (not enough fields): {row}")
+            #print(f"[Q4 AGG] Skipping row {i} (not enough fields): {row}")
             continue
         store_id = items[idx_store]
         user_id = items[idx_user]
@@ -257,13 +255,13 @@ if __name__ == '__main__':
         print('Unknown or missing GROUPER_MODE. Set GROUPER_MODE to q2, q3, or q4.')
         sys.exit(1)
     def signal_handler(signum, frame):
-        print(f'Received signal {signum}, shutting down grouper gracefully...')
+        #print(f'Received signal {signum}, shutting down grouper gracefully...')
         grouper.stop()
         sys.exit(0)
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
     try:
-        print(f"Starting grouper in mode {mode}...")
+        #print(f"Starting grouper in mode {mode}...")
         grouper.run()
     except KeyboardInterrupt:
         print('Keyboard interrupt received, shutting down grouper.')

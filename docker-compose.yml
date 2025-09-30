@@ -36,6 +36,7 @@ services:
       PYTHONPATH: /app
       GATEWAY_HOST: 0.0.0.0
       GATEWAY_PORT: 5000
+      QUEUE_IN: results
     networks:
       - coffee-net
 
@@ -409,7 +410,7 @@ services:
       RABBITMQ_USER: admin
       RABBITMQ_PASS: secretpassword
       QUEUE_IN: sender_q1_signal
-      QUEUE_OUT: q1_results_queue
+      QUEUE_OUT: results
       INPUT_FILE: /app/output/q1.csv
     volumes:
       - ./output:/app/output

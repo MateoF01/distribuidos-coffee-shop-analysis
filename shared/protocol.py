@@ -15,6 +15,11 @@ DATA_USERS = 4
 DATA_STORES = 5
 DATA_END = 6
 
+Q1_RESULT = 7
+Q2_RESULT = 8
+Q3_RESULT = 9
+Q4_RESULT = 10
+
 def send_message(conn, msg_type: int, data_type: int, payload: bytes):
     """
     - 1 byte: message type
