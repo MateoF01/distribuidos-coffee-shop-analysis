@@ -35,9 +35,10 @@ class Filter:
 
                 if msg_type == 2:
                     for q in self.out_queues:
+                        print(f"Filter sending end-of-data data_type:{data_type} to {q.queue_name}")
                         q.send(message)
-                    if data_type == 6:
-                        q.send(message)
+                    # if data_type == 6:
+                    #     q.send(message)
                         # self.stop()
                     return
 

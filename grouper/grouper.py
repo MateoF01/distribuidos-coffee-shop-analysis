@@ -23,12 +23,13 @@ def get_semester_str(dt_str):
     return f'{sem}_{year}'
 
 class Grouper:
-    def __init__(self, queue_in, groupby, agg, rabbitmq_host, columns, temp_dir=None):
+    def __init__(self, queue_in, groupby, agg, rabbitmq_host, columns, temp_dir=None, completion_queue=None):
         self.queue_in = queue_in
         self.groupby = groupby
         self.agg = agg
         self.rabbitmq_host = rabbitmq_host
         self.columns = columns
+        self.completion_queue = completion_queue
         # Use a subfolder for each query (by queue_in)
         self.query_id = queue_in
         self.temp_dir = temp_dir or os.path.join(BASE_TEMP_DIR, self.query_id)
@@ -36,6 +37,10 @@ class Grouper:
         self._running = False
         self._shutdown_event = threading.Event()
         self.in_queue = CoffeeMessageMiddlewareQueue(host=rabbitmq_host, queue_name=queue_in)
+        # Initialize completion queue if provided
+        self.out_queue = None
+        if self.completion_queue:
+            self.out_queue = CoffeeMessageMiddlewareQueue(host=rabbitmq_host, queue_name=completion_queue)
 
     def run(self):
         self._running = True
@@ -43,7 +48,6 @@ class Grouper:
             if not self._running:
                 return
             try:
-                #print(f"[Grouper:{self.query_id}] Received message from queue: {self.queue_in}")
                 if not isinstance(message, bytes) or len(message) < 6:
                     print(f"Invalid message format or too short: {message}")
                     return
@@ -52,10 +56,11 @@ class Grouper:
                 if msg_type == protocol.MSG_TYPE_END:
                     if data_type == protocol.DATA_END:
                         print('End-of-data signal received. Closing grouper for this queue.')
-                        self.stop()
+                        # self.stop()
                         return
                     else:
                         print(f"Sent end-of-data msg_type:{msg_type} signal to grouper")
+                        self._send_completion_signal()
                         return
 
                 try:
@@ -88,6 +93,19 @@ class Grouper:
 
     def close(self):
         self.in_queue.close()
+        if self.out_queue:
+            self.out_queue.close()
+
+    def _send_completion_signal(self):
+        """Send completion signal to the next stage if completion queue is configured"""
+        if self.out_queue:
+            try:
+                print(f"[Grouper:{self.query_id}] Sending completion signal to {self.completion_queue}")
+                completion_message = protocol.pack_message(protocol.MSG_TYPE_NOTI, protocol.DATA_END, b"")
+                self.out_queue.send(completion_message)
+                print(f"[Grouper:{self.query_id}] Completion signal sent successfully")
+            except Exception as e:
+                print(f"[Grouper:{self.query_id}] Error sending completion signal: {e}")
 
     def process_rows(self, rows):
         self.agg(rows, self.temp_dir, self.columns)
@@ -213,24 +231,28 @@ if __name__ == '__main__':
     config = configparser.ConfigParser()
     config.read(config_path)
     rabbitmq_host = os.environ.get('RABBITMQ_HOST', 'rabbitmq')
+    queue_in = os.environ.get('QUEUE_IN')
     mode = os.environ.get('GROUPER_MODE')
+    
+    if not queue_in:
+        print('QUEUE_IN environment variable is required.')
+        sys.exit(1)
+    
     if mode == 'q2':
         section = 'transaction_items_filtered_Q2'
-        queue_in = section
         columns = [col.strip() for col in config[section]['columns'].split(',')]
         grouper = Grouper(queue_in, groupby='month', agg=q2_agg, rabbitmq_host=rabbitmq_host, columns=columns)
     elif mode == 'q3':
         section = 'transactions_filtered_Q3'
-        queue_in = section
         columns = [col.strip() for col in config[section]['columns'].split(',')]
         grouper = Grouper(queue_in, groupby='semester_store', agg=q3_agg, rabbitmq_host=rabbitmq_host, columns=columns)
     elif mode == 'q4':
          section = 'transactions_filtered_Q4'
-         queue_in = section
          columns = [col.strip() for col in config[section]['columns'].split(',')]
-         grouper = Grouper(queue_in, groupby='store_user', agg=q4_agg, rabbitmq_host=rabbitmq_host, columns=columns)
+         completion_queue = os.environ.get('COMPLETION_QUEUE')
+         grouper = Grouper(queue_in, groupby='store_user', agg=q4_agg, rabbitmq_host=rabbitmq_host, columns=columns, completion_queue=completion_queue)
     else:
-        print('Unknown or missing GROUPER_MODE. Set GROUPER_MODE to q2 or q3.')
+        print('Unknown or missing GROUPER_MODE. Set GROUPER_MODE to q2, q3, or q4.')
         sys.exit(1)
     def signal_handler(signum, frame):
         #print(f'Received signal {signum}, shutting down grouper gracefully...')

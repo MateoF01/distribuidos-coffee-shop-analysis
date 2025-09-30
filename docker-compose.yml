@@ -232,6 +232,27 @@ services:
     networks:
       - coffee-net
 
+  cleaner_transactions_q4:
+    build:
+      context: .
+      dockerfile: cleaner/Dockerfile
+    container_name: cleaner_transactions_q4
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      temporal_filter_transactions:
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      QUEUE_IN: transactions_filtered_Q4
+      QUEUE_OUT: transactions_cleaned_Q4
+      DATA_TYPE: transactions_q4
+    networks:
+      - coffee-net
+
   joiner_q1:
     build:
       context: .
@@ -296,6 +317,7 @@ services:
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_USER: admin
       RABBITMQ_PASS: secretpassword
+      QUEUE_IN: transaction_items_filtered_Q2
       GROUPER_MODE: q2
     volumes:
       - ./grouper/temp:/app/temp
@@ -317,6 +339,7 @@ services:
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_USER: admin
       RABBITMQ_PASS: secretpassword
+      QUEUE_IN: transactions_filtered_Q3
       GROUPER_MODE: q3
     volumes:
       - ./grouper/temp:/app/temp
@@ -339,8 +362,35 @@ services:
       RABBITMQ_USER: admin
       RABBITMQ_PASS: secretpassword
       GROUPER_MODE: q4
+      QUEUE_IN: transactions_cleaned_Q4
+      COMPLETION_QUEUE: topper_q4_signal
     volumes:
       - ./grouper/temp:/app/temp
+    networks:
+      - coffee-net
+
+  topper_q4:
+    build:
+      context: .
+      dockerfile: topper/Dockerfile
+    container_name: topper_q4
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      grouper_q4:
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      QUEUE_IN: topper_q4_signal
+      INPUT_DIR: /app/temp/transactions_cleaned_Q4
+      OUTPUT_FILE: /app/output/q4_top3.csv
+      TOP_N: 3
+    volumes:
+      - ./grouper/temp:/app/temp
+      - ./output:/app/output
     networks:
       - coffee-net
 
