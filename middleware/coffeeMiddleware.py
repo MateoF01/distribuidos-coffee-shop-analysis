@@ -18,7 +18,7 @@ config = configparser.ConfigParser()
 config.read("middleware/config.ini")
 
 QUEUE_ARGS = {
-  "x-max-length": int(config["QUEUE"].get("x-max-length", 10000)),
+  "x-max-length": int(config["QUEUE"].get("x-max-length", 100000)),
   "x-message-ttl": int(config["QUEUE"].get("x-message-ttl", 60000)),
 }
 
