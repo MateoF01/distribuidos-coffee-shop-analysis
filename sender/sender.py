@@ -76,15 +76,15 @@ class Sender:
                     
                     # Send batch when it reaches configured size
                     if len(batch) >= self.config.batch_size:
-                        print(f"[INFO] Sending batch of size: {len(batch)}, batch: {batch}")
+                        #print(f"[INFO] Sending batch of size: {len(batch)}, batch: {batch}")
                         self._send_batch(batch)
                         rows_sent += len(batch)
                         batch = []
-                        print(f"[INFO] Sent batch, total rows sent: {rows_sent}")
+                        #print(f"[INFO] Sent batch, total rows sent: {rows_sent}")
                 
                 # Send remaining rows in batch
                 if batch:
-                    print(f"[INFO] Sending batch of size: {len(batch)}, batch: {batch}")
+                    #print(f"[INFO] Sending batch of size: {len(batch)}, batch: {batch}")
                     self._send_batch(batch)
                     rows_sent += len(batch)
                     print(f"[INFO] Sent final batch, total rows sent: {rows_sent}")
