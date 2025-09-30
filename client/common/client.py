@@ -35,19 +35,18 @@ class Client:
     def start_client_loop(self):
         self.create_socket()
 
-        # === Group files by data type ===
+        # Group files by data type
         files_by_type = {}
         for data_type, filepath in csv_loaders.iter_csv_files(self.data_dir):
             if data_type not in files_by_type:
                 files_by_type[data_type] = []
             files_by_type[data_type].append(filepath)
 
-        # === Process each data type completely before moving to next ===
-        for data_type in sorted(files_by_type.keys()):
-            print(f"[INFO] Processing data type {data_type}")
+        # Process all files for each data type
+        for data_type, filepaths in files_by_type.items():
+            print(f"[INFO] Processing {len(filepaths)} files for data type {data_type}")
             
-            # Send all files of this data type
-            for filepath in files_by_type[data_type]:
+            for filepath in filepaths:
                 print(f"[INFO] Sending file {filepath} (type={data_type})")
 
                 # Enviar en batches
@@ -56,9 +55,9 @@ class Client:
                     protocol.send_message(self.conn, protocol.MSG_TYPE_DATA, data_type, payload)
                     print(f"[INFO] Sent batch of {len(batch)} rows from {filepath.name}")
 
-            # END de este tipo (only after all files of this type are sent)
+            # Send END only after all files of this data type are processed
             protocol.send_message(self.conn, protocol.MSG_TYPE_END, data_type, b"")
-            print(f"[INFO] Sent END for data type {data_type}")
+            print(f"[INFO] Sent END for data type {data_type} (processed {len(filepaths)} files)")
 
         # === END FINAL ===
         protocol.send_message(self.conn, protocol.MSG_TYPE_END, protocol.DATA_END, b"")

@@ -54,7 +54,6 @@ class Filter:
                             dic_queue_row[queue_name] = []
                         
                         dic_queue_row[queue_name].append(row)
-                        
 
                 if not dic_queue_row:
                     return
@@ -135,7 +134,6 @@ class TemporalFilter(Filter):
         return result
 
     def _filter_row(self, row: str):
-
         parts = row.split('|')
         if "created_at" not in self.col_index or len(parts) <= self.col_index["created_at"]:
             return None
@@ -158,7 +156,6 @@ class AmountFilter(Filter):
         self.col_index = col_index
 
     def _filter_row(self, row: str):
-        
         parts = row.split('|')
 
         if "final_amount" not in self.col_index or len(parts) <= self.col_index["final_amount"]:

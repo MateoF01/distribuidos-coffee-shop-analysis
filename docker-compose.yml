@@ -34,6 +34,8 @@ services:
       RABBITMQ_USER: admin
       RABBITMQ_PASS: secretpassword
       PYTHONPATH: /app
+      GATEWAY_HOST: 0.0.0.0
+      GATEWAY_PORT: 5000
     networks:
       - coffee-net
 
@@ -275,6 +277,69 @@ services:
       COMPLETION_QUEUE: sender_q1_signal
     volumes:
       - ./output:/app/output
+    networks:
+      - coffee-net
+  
+  grouper_q2:
+    build:
+      context: .
+      dockerfile: grouper/Dockerfile
+    container_name: grouper_q2
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      gateway:
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      GROUPER_MODE: q2
+    volumes:
+      - ./grouper/temp:/app/temp
+    networks:
+      - coffee-net
+
+  grouper_q3:
+    build:
+      context: .
+      dockerfile: grouper/Dockerfile
+    container_name: grouper_q3
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      gateway:
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      GROUPER_MODE: q3
+    volumes:
+      - ./grouper/temp:/app/temp
+    networks:
+      - coffee-net
+
+  grouper_q4:
+    build:
+      context: .
+      dockerfile: grouper/Dockerfile
+    container_name: grouper_q4
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      gateway:
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      GROUPER_MODE: q4
+    volumes:
+      - ./grouper/temp:/app/temp
     networks:
       - coffee-net
 
