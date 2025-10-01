@@ -207,8 +207,15 @@ class Topper:
             csv_file_path = os.path.join(self.input_dir, csv_filename)
             try:
                 with open(csv_file_path, 'r', newline='', encoding='utf-8') as f:
-                    tpv = f.read().strip()
-                    if tpv:
+                    tpv_str = f.read().strip()
+                    if tpv_str:
+                        # Parse TPV as float and format to 2 decimal places
+                        try:
+                            tpv_float = float(tpv_str)
+                            tpv = f"{tpv_float:.2f}"
+                        except ValueError:
+                            print(f"[Topper-Q3] Warning: Invalid TPV value '{tpv_str}' in file {csv_filename}, using as-is")
+                            tpv = tpv_str
                         # Create row: [year_half_created_at, store_id, tpv]
                         all_rows.append([year_half, store_id, tpv])
                         print(f"[Topper-Q3] Added row: {year_half}, {store_id}, {tpv}")

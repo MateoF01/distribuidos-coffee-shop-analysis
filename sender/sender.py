@@ -7,13 +7,14 @@ from middleware.coffeeMiddleware import CoffeeMessageMiddlewareQueue
 from shared import protocol
 
 class Sender:
-    def __init__(self, queue_in, queue_out, input_file, rabbitmq_host, batch_size=5000, query_type='q1'):
+    def __init__(self, queue_in, queue_out, input_file, rabbitmq_host, batch_size=5000, query_type='q1', include_headers=False):
         self.queue_in = queue_in
         self.queue_out = queue_out
         self.input_file = input_file
         self.batch_size = batch_size
         self.query_type = query_type
         self.rabbitmq_host = rabbitmq_host
+        self.include_headers = include_headers
         self._running = False
         self._shutdown_event = threading.Event()
         self.in_queue = CoffeeMessageMiddlewareQueue(host=rabbitmq_host, queue_name=queue_in)
@@ -34,10 +35,15 @@ class Sender:
             with open(self.input_file, 'r', encoding='utf-8', newline='') as csvfile:
                 reader = csv.reader(csvfile)
                 
-                # Skip header if it exists
+                # Handle header
                 header = next(reader, None)
                 if header:
                     print(f"[INFO] Header: {header}")
+                    if self.include_headers:
+                        # Include header as first row if flag is set
+                        header_str = ','.join(header)
+                        batch.append(header_str)
+                        print(f"[INFO] Including header in output")
                 
                 for row in reader:
                     if not self._running:
@@ -178,13 +184,14 @@ if __name__ == '__main__':
     rabbitmq_host = os.environ.get('RABBITMQ_HOST', 'rabbitmq')
     batch_size = int(os.environ.get('BATCH_SIZE', '5000'))
     query_type = os.environ.get('QUERY_TYPE', 'q1')
+    include_headers = os.environ.get('INCLUDE_HEADERS', 'false').lower() == 'true'
 
     if not all([queue_in, queue_out, input_file]):
         raise ValueError("Missing required environment variables: QUEUE_IN, QUEUE_OUT, INPUT_FILE")
 
-    print(f"[INFO] Using batch_size: {batch_size}, query_type: {query_type}")
+    print(f"[INFO] Using batch_size: {batch_size}, query_type: {query_type}, include_headers: {include_headers}")
     
-    sender = Sender(queue_in, queue_out, input_file, rabbitmq_host, batch_size, query_type)
+    sender = Sender(queue_in, queue_out, input_file, rabbitmq_host, batch_size, query_type, include_headers)
     
     # Set up signal handlers for graceful shutdown
     def signal_handler(signum, frame):
