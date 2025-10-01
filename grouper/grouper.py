@@ -195,6 +195,8 @@ def q3_agg(rows, temp_dir, columns):
 
 # --- Q4: transactions_filtered_Q4, groupby store_id, count user_id ---
 def q4_agg(rows, temp_dir, columns):
+    #print("GROUPER Q4. TEMP DIR: ", temp_dir)
+
     idx_store = columns.index('store_id')
     idx_user = columns.index('user_id')
     grouped = defaultdict(lambda: defaultdict(int))  # store_id -> user_id -> count

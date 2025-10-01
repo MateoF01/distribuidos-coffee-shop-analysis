@@ -175,10 +175,10 @@ class Topper:
         all_rows = []
         for csv_filename in csv_files:
             print(f"[Topper-Q2] Processing file: {csv_filename}")
-            results = self._process_file(csv_filename, [(1, "TOP_BY_COL1"), (2, "TOP_BY_COL2")])
+            results = self._process_file(csv_filename, [(1, "quantity"), (2, "subtotal")])
             all_rows.extend(results)
 
-        self._write_output(all_rows)
+        self._write_output(all_rows, ['month_year','quantity_or_subtotal','item_id','quantity','subtotal'])
 
     def process_csv_files_Q4(self):
         print(f"[Topper-Q4] Processing CSV files from directory: {self.input_dir}")
@@ -189,10 +189,10 @@ class Topper:
         all_rows = []
         for csv_filename in csv_files:
             print(f"[Topper-Q4] Processing file: {csv_filename}")
-            results = self._process_file(csv_filename, [(1, "TOP")])
+            results = self._process_file(csv_filename, [(1, "quantity")])
             all_rows.extend([[row[0]] + row[2:] for row in results])  
 
-        self._write_output(all_rows)
+        self._write_output(all_rows, ['store_id', 'purchases_qty', 'user_id'])
 
     def stop(self):
         self._running = False
