@@ -34,6 +34,13 @@ class SorterConfig:
             raise ValueError(f"Unknown data type: {data_type}")
         self.sort_column_index = int(config_parser[data_type]['sort_column_index'])
         
+        # Multi-column sorting support
+        if 'sort_columns' in config_parser[data_type]:
+            sort_columns_str = config_parser[data_type]['sort_columns']
+            self.sort_columns = [int(col.strip()) for col in sort_columns_str.split(',')]
+        else:
+            self.sort_columns = [self.sort_column_index]
+        
         # Validate configuration
         self._validate()
     
@@ -84,8 +91,13 @@ class Sorter:
     def _write_sorted_chunk(self, chunk_data):
         """Write a sorted chunk to a temporary file"""
         try:
-            # Sort the chunk by the specified column (string/lexicographic sorting)
-            chunk_data.sort(key=lambda row: row[self.sort_column_index])
+            # Sort the chunk by the specified columns (string/lexicographic sorting)
+            if len(self.config.sort_columns) > 1:
+                # Multi-column sorting
+                chunk_data.sort(key=lambda row: tuple(row[col] for col in self.config.sort_columns))
+            else:
+                # Single column sorting (backward compatibility)
+                chunk_data.sort(key=lambda row: row[self.sort_column_index])
             
             # Create temporary file manually
             timestamp = str(int(time.time() * 1000000))  # microsecond precision
@@ -123,7 +135,12 @@ class Sorter:
             for i, (reader, f) in enumerate(file_readers):
                 try:
                     row = next(reader)
-                    sort_value = row[self.sort_column_index]
+                    if len(self.config.sort_columns) > 1:
+                        # Multi-column sorting key
+                        sort_value = tuple(row[col] for col in self.config.sort_columns)
+                    else:
+                        # Single column sorting (backward compatibility)
+                        sort_value = row[self.sort_column_index]
                     heapq.heappush(heap, (sort_value, i, row))
                 except StopIteration:
                     f.close()
@@ -143,7 +160,12 @@ class Sorter:
                     reader, f = file_readers[file_idx]
                     try:
                         next_row = next(reader)
-                        next_sort_value = next_row[self.sort_column_index]  # Use string value directly
+                        if len(self.config.sort_columns) > 1:
+                            # Multi-column sorting key
+                            next_sort_value = tuple(next_row[col] for col in self.config.sort_columns)
+                        else:
+                            # Single column sorting (backward compatibility)
+                            next_sort_value = next_row[self.sort_column_index]
                         heapq.heappush(heap, (next_sort_value, file_idx, next_row))
                     except StopIteration:
                         f.close()
@@ -195,7 +217,10 @@ class Sorter:
             # Merge all sorted chunks
             self._merge_sorted_files(header)
             
-            print(f"Successfully sorted {self.input_file} by column {self.sort_column_index} and saved to {self.output_file}")
+            if len(self.config.sort_columns) > 1:
+                print(f"Successfully sorted {self.input_file} by columns {self.config.sort_columns} and saved to {self.output_file}")
+            else:
+                print(f"Successfully sorted {self.input_file} by column {self.sort_column_index} and saved to {self.output_file}")
             
             # Send completion signal
             self._send_completion_signal()

@@ -1,9 +1,9 @@
 import socket
 import threading
+import time
 from middleware.coffeeMiddleware import CoffeeMessageMiddlewareQueue
 import os
 from shared import protocol
-import threading
 
 
 HOST = os.environ.get('GATEWAY_HOST', '0.0.0.0')
@@ -60,24 +60,43 @@ class Server:
         return conn, addr
 
     def _handle_client_connection(self, conn, addr):
-        ends_esperados = 4
-        ends_recibidos = 0
+        data_end_count = 0
+        data_end_expected = 5  # Wait for 5 DATA_END signals before sending final DATA_END
+        final_end_sent = False
 
         def on_result(message):
-            nonlocal ends_recibidos
+            nonlocal data_end_count, final_end_sent
             try:
-                conn.sendall(message)
                 msg_type, data_type, _ = protocol._unpack_message(message)
-                if msg_type == protocol.MSG_TYPE_END:
-                    ends_recibidos += 1
-                    print(f"END recibido ({ends_recibidos}/{ends_esperados})")
-                    if ends_recibidos == ends_esperados:
-                        print("Todas las queries terminaron. Cerrando conexión.")
-                        try:
-                            conn.shutdown(socket.SHUT_RDWR)
-                        except OSError:
-                            pass
-                        conn.close()
+                
+                if msg_type == protocol.MSG_TYPE_END and data_type == protocol.DATA_END:
+                    # Count DATA_END signals but don't forward them yet
+                    data_end_count += 1
+                    print(f"DATA_END received ({data_end_count}/{data_end_expected})")
+                    
+                    if data_end_count == data_end_expected and not final_end_sent:
+                        # Send final DATA_END signal to client
+                        final_message = protocol.pack_message(protocol.MSG_TYPE_END, protocol.DATA_END, b"")
+                        conn.sendall(final_message)
+                        final_end_sent = True
+                        print("All queries completed. Sent final DATA_END to client.")
+                        
+                        # Close connection after a short delay
+                        def close_connection():
+                            time.sleep(0.5)  # Small delay to ensure message is received
+                            try:
+                                conn.shutdown(socket.SHUT_RDWR)
+                            except OSError:
+                                pass
+                            conn.close()
+                        
+                        threading.Thread(target=close_connection, daemon=True).start()
+                else:
+                    # Forward all other messages (including query-specific END messages)
+                    conn.sendall(message)
+                    if msg_type == protocol.MSG_TYPE_END:
+                        print(f"Forwarded END message with data_type={data_type}")
+                        
             except (BrokenPipeError, OSError) as e:
                 print(f"[WARN] Cliente desconectado: {e}")
                 try:

@@ -56,6 +56,7 @@ services:
       BATCH_MAX_AMOUNT: 5000
     volumes:
       - ./data:/app/.data
+      - ./results:/app/results
     networks:
       - coffee-net
 
@@ -138,7 +139,7 @@ services:
       RABBITMQ_USER: admin
       RABBITMQ_PASS: secretpassword
       QUEUE_IN: stores_queue
-      QUEUE_OUT: stores_cleaned
+      QUEUE_OUT: stores_cleaned_q3,stores_cleaned_q4
       DATA_TYPE: stores
     networks:
       - coffee-net
@@ -417,6 +418,83 @@ services:
       QUERY_TYPE: q4
     volumes:
       - ./topper/temp:/app/topper_temp
+    networks:
+      - coffee-net
+
+  joiner_q4:
+    build:
+      context: .
+      dockerfile: joiner/Dockerfile
+    container_name: joiner_q4
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      cleaner_stores:
+        condition: service_started
+      cleaner_users:
+        condition: service_started
+      sender_grouper_q4:
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      MULTIPLE_QUEUES: stores_cleaned_q4,resultados_groupby_q4,users_cleaned
+      QUEUE_OUT: sort_q4_request
+      OUTPUT_FILE: /app/output/q4_unsorted.csv
+      QUERY_TYPE: q4
+    volumes:
+      - ./output:/app/output
+    networks:
+      - coffee-net
+
+  sorter_q4:
+    build:
+      context: .
+      dockerfile: sort/Dockerfile
+    container_name: sorter_q4
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      joiner_q4:
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      QUEUE_IN: sort_q4_request
+      INPUT_FILE: /app/output/q4_unsorted.csv
+      OUTPUT_FILE: /app/output/q4.csv
+      COMPLETION_QUEUE: sender_q4_signal
+      DATA_TYPE: q4
+    volumes:
+      - ./output:/app/output
+    networks:
+      - coffee-net
+
+  sender_q4:
+    build:
+      context: .
+      dockerfile: sender/Dockerfile
+    container_name: sender_q4
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      sorter_q4:
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      QUEUE_IN: sender_q4_signal
+      QUEUE_OUT: results
+      INPUT_FILE: /app/output/q4.csv
+      QUERY_TYPE: q4
+    volumes:
+      - ./output:/app/output
     networks:
       - coffee-net
 

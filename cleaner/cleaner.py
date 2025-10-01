@@ -8,6 +8,9 @@ from shared import protocol
 
 class Cleaner:
     def __init__(self, queue_in, queue_out, columns_have, columns_want, rabbitmq_host, keep_when_empty=None):
+        # Handle multiple output queues like filter does
+        if isinstance(queue_out, str):
+            queue_out = [q.strip() for q in queue_out.split(',')]
         self.queue_in = queue_in
         self.queue_out = queue_out
         self.columns_have = columns_have
@@ -17,7 +20,7 @@ class Cleaner:
         self._running = False
         self._shutdown_event = threading.Event()
         self.in_queue = CoffeeMessageMiddlewareQueue(host=rabbitmq_host, queue_name=queue_in)
-        self.out_queue = CoffeeMessageMiddlewareQueue(host=rabbitmq_host, queue_name=queue_out)
+        self.out_queues = [CoffeeMessageMiddlewareQueue(host=rabbitmq_host, queue_name=q) for q in self.queue_out]
 
     def _filter_row(self, row):
         items = row.split('|')
@@ -63,13 +66,15 @@ class Cleaner:
                 msg_type, data_type, payload = protocol._unpack_message(message)
 
                 if msg_type == protocol.MSG_TYPE_END:
-                    self.out_queue.send(message)
+                    for q in self.out_queues:
+                        q.send(message)
                     if data_type == protocol.DATA_END:
                         print('End-of-data signal received. Closing cleaner for this queue.')
                         # self.stop()
                         return
                     else:
-                        print(f"Sent end-of-data msg_type:{msg_type} signal to {self.queue_out}")
+                        queue_names = [q.queue_name for q in self.out_queues]
+                        print(f"Sent end-of-data msg_type:{msg_type} signal to {queue_names}")
                         return
 
                 # Decode payload, split into rows, filter, repack
@@ -87,12 +92,15 @@ class Cleaner:
                 new_payload_str = '\n'.join(filtered_rows)
                 new_payload = new_payload_str.encode('utf-8')
                 new_message = protocol.pack_message(msg_type, data_type, new_payload)
-                self.out_queue.send(new_message)
-                print(f"Sent filtered message to {self.queue_out} (rows: {len(filtered_rows)}, msg_type: {msg_type}, data_type: {data_type})")
+                for q in self.out_queues:
+                    q.send(new_message)
+                queue_names = [q.queue_name for q in self.out_queues]
+                print(f"Sent filtered message to {queue_names} (rows: {len(filtered_rows)}, msg_type: {msg_type}, data_type: {data_type})")
             except Exception as e:
                 print(f"Error processing message: {e} - Message: {message}")
 
-        print(f"Cleaner listening on {self.queue_in}, outputting to {self.queue_out}")
+        queue_names = [q.queue_name for q in self.out_queues]
+        print(f"Cleaner listening on {self.queue_in}, outputting to {queue_names}")
         self.in_queue.start_consuming(on_message)
 
         # Keep the main thread alive - wait indefinitely until shutdown is signaled
@@ -113,7 +121,8 @@ class Cleaner:
 
     def close(self):
         self.in_queue.close()
-        self.out_queue.close()
+        for q in self.out_queues:
+            q.close()
 
 if __name__ == '__main__':
     # Example: configure via environment variables
