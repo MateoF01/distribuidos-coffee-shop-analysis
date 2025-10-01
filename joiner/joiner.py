@@ -39,7 +39,8 @@ class Joiner:
         self.strategies = {
             "q1": self._process_q1,
             "q4": self._process_q4,
-            "q2": self._process_q2,  # Placeholder
+            "q2": self._process_q2,
+            "q3": self._process_q3
         }
 
     # =====================
@@ -171,6 +172,12 @@ class Joiner:
         print("Processing Q2 join... (TODO)")
         self._send_sort_request()
 
+    def _process_q3(self):
+        """
+        Q3: placeholder para lógica futura
+        """
+        print("Processing Q3 join... (TODO)")
+        self._send_sort_request()
     # =====================
     # Principal Loop 
     # =====================
