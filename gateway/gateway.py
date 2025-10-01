@@ -1,6 +1,8 @@
 import socket
 import threading
 import time
+import signal
+import sys
 from middleware.coffeeMiddleware import CoffeeMessageMiddlewareQueue
 import os
 from shared import protocol
@@ -33,8 +35,10 @@ class Server:
         self.host = host
         self.port = port
         self.listen_backlog = listen_backlog
+        self.shutdown_flag = False
         self._setup_rabbitmq()
         self._setup_socket()
+        self._setup_signal_handlers()
 
     def _setup_rabbitmq(self):
         rabbitmq_host = os.environ.get('RABBITMQ_HOST', 'rabbitmq')
@@ -48,11 +52,36 @@ class Server:
         self._server_socket.bind((self.host, self.port))
         self._server_socket.listen(self.listen_backlog)
 
+    def _setup_signal_handlers(self):
+        """Set up signal handlers for graceful shutdown"""
+        signal.signal(signal.SIGTERM, self._signal_handler)
+        signal.signal(signal.SIGINT, self._signal_handler)
+
+    def _signal_handler(self, signum, frame):
+        """Handle shutdown signals"""
+        print(f"Received signal {signum}, shutting down gateway gracefully...")
+        self.shutdown_flag = True
+
     def run(self):
         print(f'Server listening on {self.host}:{self.port}')
-        while True:
-            conn, addr = self._accept_new_connection()
-            self._handle_client_connection(conn, addr)
+        self._server_socket.settimeout(1.0)  # Add timeout to check shutdown flag
+        
+        while not self.shutdown_flag:
+            try:
+                conn, addr = self._accept_new_connection()
+                if not self.shutdown_flag:
+                    self._handle_client_connection(conn, addr)
+            except socket.timeout:
+                # Timeout allows us to check shutdown_flag periodically
+                continue
+            except OSError as e:
+                if self.shutdown_flag:
+                    break
+                raise e
+
+            if self.shutdown_flag:
+                print("Shutdown flag is set. Exiting...")
+                break
 
     def _accept_new_connection(self):
         conn, addr = self._server_socket.accept()
@@ -142,5 +171,9 @@ if __name__ == '__main__':
         server.run()
     except KeyboardInterrupt:
         print('Shutting down server.')
+    except Exception as e:
+        print(f'Server error: {e}')
     finally:
+        print('Gateway shutting down...')
         server.close()
+        print('Gateway shutdown complete.')
