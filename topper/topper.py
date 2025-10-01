@@ -8,16 +8,34 @@ import heapq
 from middleware.coffeeMiddleware import CoffeeMessageMiddlewareQueue
 from shared import protocol
 
+# Load configuration
+config_path = os.path.join(os.path.dirname(__file__), 'config.ini')
+config = configparser.ConfigParser()
+config.read(config_path)
+
+# Allow environment variable override for BASE_TEMP_DIR
+BASE_TEMP_DIR = os.environ.get('BASE_TEMP_DIR', config['topper']['base_temp_dir'])
+os.makedirs(BASE_TEMP_DIR, exist_ok=True)
+
 class Topper:
-    def __init__(self, queue_in, input_dir, output_file, rabbitmq_host, top_n, topper_mode):
+
+    def __init__(self, queue_in, input_dir, output_file, rabbitmq_host, top_n, topper_mode, completion_queue):
         self.queue_in = queue_in
         self.input_dir = input_dir
-        self.output_file = output_file
         self.rabbitmq_host = rabbitmq_host
         self.top_n = top_n
+        self.completion_queue = completion_queue
+        self.query_id = queue_in
+        self.output_dir = os.path.join(BASE_TEMP_DIR, self.query_id)
+        os.makedirs(self.output_dir, exist_ok=True)
+        output_filename = os.path.basename(output_file)
+        self.output_file = os.path.join(self.output_dir, output_filename)
         self._running = False
         self._shutdown_event = threading.Event()
         self.in_queue = CoffeeMessageMiddlewareQueue(host=rabbitmq_host, queue_name=queue_in)
+        self.out_queue = None
+        if self.completion_queue:
+            self.out_queue = CoffeeMessageMiddlewareQueue(host=rabbitmq_host, queue_name=completion_queue)
         self.topper_mode = topper_mode
 
     def run(self):
@@ -125,8 +143,8 @@ class Topper:
 
         return results
 
-    def _write_output(self, all_rows):
-        """Escribe las filas al archivo de salida"""
+    def _write_output(self, all_rows, header=None):
+        """Escribe las filas al archivo de salida y manda signal si corresponde"""
         if not all_rows:
             print("[Topper] No data to process")
             return
@@ -137,10 +155,16 @@ class Topper:
 
         with open(self.output_file, 'w', newline='', encoding='utf-8') as f:
             csv_writer = csv.writer(f)
+            if header:
+                csv_writer.writerow(header)
             csv_writer.writerows(all_rows)
 
         print(f"[Topper] Successfully created output file: {self.output_file}")
         print(f"[Topper] Total rows in output: {len(all_rows)}")
+
+        # Si hay cola de completion configurada → manda signal
+        self._send_completion_signal()
+
 
     def process_csv_files_Q2(self):
         print(f"[Topper-Q2] Processing CSV files from directory: {self.input_dir}")
@@ -181,6 +205,19 @@ class Topper:
 
     def close(self):
         self.in_queue.close()
+        if self.out_queue:
+            self.out_queue.close()
+
+    def _send_completion_signal(self):
+        """Send completion signal to the next stage if completion queue is configured"""
+        if self.out_queue:
+            try:
+                print(f"[Topper:{self.query_id}] Sending completion signal to {self.completion_queue}")
+                completion_message = protocol.pack_message(protocol.MSG_TYPE_NOTI, protocol.DATA_END, b"")
+                self.out_queue.send(completion_message)
+                print(f"[Topper:{self.query_id}] Completion signal sent successfully")
+            except Exception as e:
+                print(f"[Topper:{self.query_id}] Error sending completion signal: {e}")
 
 if __name__ == '__main__':
     # Configure via environment variables
@@ -191,8 +228,10 @@ if __name__ == '__main__':
     topper_mode = os.environ.get('TOPPER_MODE', 'Q2')
 
     rabbitmq_host = os.environ.get('RABBITMQ_HOST', 'rabbitmq')
+    completion_queue = os.environ.get('COMPLETION_QUEUE')
 
-    topper = Topper(queue_in, input_dir, output_file, rabbitmq_host, top_n, topper_mode)
+
+    topper = Topper(queue_in, input_dir, output_file, rabbitmq_host, top_n, topper_mode, completion_queue)
     
     # Set up signal handlers for graceful shutdown
     def signal_handler(signum, frame):

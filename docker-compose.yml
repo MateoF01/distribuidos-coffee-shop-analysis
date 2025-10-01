@@ -389,6 +389,7 @@ services:
       INPUT_DIR: /app/temp/transaction_items_filtered_Q2
       OUTPUT_FILE: /app/output/q2_topped.csv
       TOP_N: 1
+      COMPLETION_QUEUE: sender_grouper_q2_signal
       TOPPER_MODE: Q2
     volumes:
       - ./grouper/temp:/app/temp
@@ -414,12 +415,38 @@ services:
       RABBITMQ_PASS: secretpassword
       QUEUE_IN: topper_q4_signal
       INPUT_DIR: /app/temp/transactions_cleaned_Q4
-      OUTPUT_FILE: /app/output/q4_top3.csv
+      OUTPUT_FILE: /app/topper_temp/q4_top3.csv
       TOP_N: 3
+      COMPLETION_QUEUE: sender_grouper_q4_signal
       TOPPER_MODE: Q4
     volumes:
       - ./grouper/temp:/app/temp
-      - ./output:/app/output
+      - ./topper/temp:/app/topper_temp
+    networks:
+      - coffee-net
+
+  sender_grouper_q4:
+    build:
+      context: .
+      dockerfile: sender/Dockerfile
+    container_name: sender_grouper_q4
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      topper_q4:
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      QUEUE_IN: sender_grouper_q4_signal
+      QUEUE_OUT: resultados_groupby_q4
+      INPUT_FILE: /app/topper_temp/topper_q4_signal/q4_top3.csv
+      BATCH_SIZE: 5000
+      QUERY_TYPE: q4
+    volumes:
+      - ./topper/temp:/app/topper_temp
     networks:
       - coffee-net
 
@@ -441,6 +468,7 @@ services:
       QUEUE_IN: sender_q1_signal
       QUEUE_OUT: results
       INPUT_FILE: /app/output/q1.csv
+      QUERY_TYPE: q1
     volumes:
       - ./output:/app/output
     networks:
