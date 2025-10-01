@@ -318,6 +318,7 @@ services:
       RABBITMQ_USER: admin
       RABBITMQ_PASS: secretpassword
       QUEUE_IN: transaction_items_filtered_Q2
+      COMPLETION_QUEUE: topper_q2_signal
       GROUPER_MODE: q2
     volumes:
       - ./grouper/temp:/app/temp
@@ -369,6 +370,33 @@ services:
     networks:
       - coffee-net
 
+  topper_q2:
+    build:
+      context: .
+      dockerfile: topper/Dockerfile
+    container_name: topper_q2
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      grouper_q4:
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      QUEUE_IN: topper_q2_signal
+      INPUT_DIR: /app/temp/transaction_items_filtered_Q2
+      OUTPUT_FILE: /app/output/q2_topped.csv
+      TOP_N: 1
+      TOPPER_MODE: Q2
+    volumes:
+      - ./grouper/temp:/app/temp
+      - ./output:/app/output
+    networks:
+      - coffee-net
+
+
   topper_q4:
     build:
       context: .
@@ -388,6 +416,7 @@ services:
       INPUT_DIR: /app/temp/transactions_cleaned_Q4
       OUTPUT_FILE: /app/output/q4_top3.csv
       TOP_N: 3
+      TOPPER_MODE: Q4
     volumes:
       - ./grouper/temp:/app/temp
       - ./output:/app/output

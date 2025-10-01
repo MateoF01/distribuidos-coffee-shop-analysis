@@ -112,6 +112,7 @@ class Grouper:
 
  # --- Q2: transaction_items_filtered_Q2, groupby month, item_id, sum quantity/subtotal ---
 def q2_agg(rows, temp_dir, columns):
+
     # columns: item_id,quantity,subtotal,created_at
     idx_item = columns.index('item_id')
     idx_quantity = columns.index('quantity')
@@ -241,7 +242,8 @@ if __name__ == '__main__':
     if mode == 'q2':
         section = 'transaction_items_filtered_Q2'
         columns = [col.strip() for col in config[section]['columns'].split(',')]
-        grouper = Grouper(queue_in, groupby='month', agg=q2_agg, rabbitmq_host=rabbitmq_host, columns=columns)
+        completion_queue = os.environ.get('COMPLETION_QUEUE')
+        grouper = Grouper(queue_in, groupby='month', agg=q2_agg, rabbitmq_host=rabbitmq_host, columns=columns, completion_queue=completion_queue)
     elif mode == 'q3':
         section = 'transactions_filtered_Q3'
         columns = [col.strip() for col in config[section]['columns'].split(',')]
