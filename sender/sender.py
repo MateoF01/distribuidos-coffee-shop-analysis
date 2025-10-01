@@ -77,7 +77,8 @@ class Sender:
             # Map query type to protocol data type
             data_type_map = {
                 'q1': protocol.Q1_RESULT,
-                'q2': protocol.Q2_RESULT,
+                'q2_a': protocol.Q2_RESULT_a,
+                'q2_b': protocol.Q2_RESULT_b,
                 'q3': protocol.Q3_RESULT,
                 'q4': protocol.Q4_RESULT
             }
@@ -94,7 +95,8 @@ class Sender:
             # Send first END signal with query-specific result type
             data_type_map = {
                 'q1': protocol.Q1_RESULT,
-                'q2': protocol.Q2_RESULT,
+                'q2_a': protocol.Q2_RESULT_a,
+                'q2_b': protocol.Q2_RESULT_b,
                 'q3': protocol.Q3_RESULT,
                 'q4': protocol.Q4_RESULT
             }

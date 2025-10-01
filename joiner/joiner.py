@@ -10,79 +10,102 @@ from middleware.coffeeMiddleware import CoffeeMessageMiddlewareQueue
 class Joiner:
     def __init__(self, queue_in, queue_out, output_file, columns_want, rabbitmq_host, multiple_queues=None):
         self.queue_in = queue_in
-        self.queue_out = queue_out
-        self.output_file = output_file
+        self.query_type = query_type
         self.columns_want = columns_want
         self.rabbitmq_host = rabbitmq_host
+
+        # --- OUTPUT QUEUES: múltiples colas separadas por coma ---
+        if isinstance(queue_out, str):
+            queue_out = [q.strip() for q in queue_out.split(',')]
+        out_queues = [CoffeeMessageMiddlewareQueue(host=rabbitmq_host, queue_name=q)
+                      for q in (queue_out or [])]
+
+        # --- OUTPUT FILES: múltiples archivos separados por coma ---
+        if isinstance(output_file, str):
+            output_file = [f.strip() for f in output_file.split(',')]
+        output_files = output_file or []
+
+        # Validación 1–a–1
+        if len(out_queues) != len(output_files):
+            raise ValueError(
+                f"QUEUE_OUT ({len(out_queues)}) y OUTPUT_FILE ({len(output_files)}) deben tener la MISMA cantidad para mapeo 1–a–1."
+            )
+
+        # Pares (queue, file) en el mismo orden
+        self.outputs = list(zip(out_queues, output_files))
+
+        # Estado por archivo (usamos dict por file_path)
+        self._csv_initialized = {f: False for _, f in self.outputs}
+        self._rows_written = {f: 0 for _, f in self.outputs}
+
         self._running = False
         self._shutdown_event = threading.Event()
         self._lock = threading.Lock()
-        self._csv_initialized = False
-        self._rows_written = 0
-        
-        # Multiple queues support
-        self.multiple_queues = multiple_queues or [queue_in]  # Default to single queue for backward compatibility
+
+        self.multiple_queues = multiple_queues or [queue_in]
         self.in_queues = {}
-        self.out_queue = CoffeeMessageMiddlewareQueue(host=rabbitmq_host, queue_name=queue_out) if queue_out else None
-        
-        # Track end messages from each queue
         self.end_received = {queue: False for queue in self.multiple_queues}
-        
-        # Temp directory for storing data from each queue
-        self.temp_dir = os.path.join(os.path.dirname(output_file), 'temp')
+
+        # Temp dir: usar la carpeta del primer output si existe, sino CWD
+        base_for_temp = os.path.dirname(self.outputs[0][1]) if self.outputs else os.getcwd()
+        self.temp_dir = os.path.join(base_for_temp, 'temp')
         os.makedirs(self.temp_dir, exist_ok=True)
         
         # Initialize queues
         for queue_name in self.multiple_queues:
             self.in_queues[queue_name] = CoffeeMessageMiddlewareQueue(host=rabbitmq_host, queue_name=queue_name)
 
-    def _process_row(self, row, queue_name):
-        """Process a row and extract the required columns based on queue"""
-        items = row.split('|')
-        
-        # For single queue mode (Q1), we expect: transaction_id,final_amount,created_at,store_id,user_id
-        # But we only want: transaction_id,final_amount
-        if not self.multiple_queues or len(self.multiple_queues) == 1:
-            if len(items) < 2:
-                print(f"Row has insufficient columns: {row}")
-                return None
-                
-            try:
-                # Extract only the columns we want (transaction_id, final_amount)
-                transaction_id = items[0]
-                final_amount = items[1]
-                return [transaction_id, final_amount]
-            except IndexError as e:
-                print(f"Index error processing row: {row} - {e}")
-                return None
-        
-        # For multiple queue mode, return raw data to be processed later
-        return items
+        # strategies
+        self.strategies = {
+            "q1": self._process_q1,
+            "q4": self._process_q4,
+            "q2": self._process_q2,
+            "q3": self._process_q3
+        }
 
-    def _initialize_csv(self):
-        """Initialize CSV file with headers"""
+        # Delimitadores por cola (fallback a '|')
+        self.DELIMITERS = {
+            "resultados_groupby_q4": ",",
+            "resultados_groupby_q2": ",",
+        }
+
+    # =====================
+    # Utils de CSV por salida
+    # =====================
+
+    def _initialize_csv_idx(self, out_idx: int):
+        """Inicializa un archivo CSV (por índice de salida) con headers si aún no se hizo."""
+        file_path = self.outputs[out_idx][1]
         try:
-            with open(self.output_file, 'w', newline='', encoding='utf-8') as csvfile:
+            with open(file_path, 'w', newline='', encoding='utf-8') as csvfile:
                 writer = csv.writer(csvfile)
                 writer.writerow(self.columns_want)
-            self._csv_initialized = True
-            print(f"Initialized CSV file {self.output_file} with headers: {self.columns_want}")
+            self._csv_initialized[file_path] = True
+            print(f"Initialized CSV file {file_path} with headers: {self.columns_want}")
         except Exception as e:
-            print(f"Error initializing CSV file {self.output_file}: {e}")
+            print(f"Error initializing CSV file {file_path}: {e}")
 
-    def _write_rows_to_csv(self, rows_data):
-        """Append rows to CSV file"""
+    def _write_rows_to_csv_idx(self, out_idx: int, rows_data):
+        """Escribe rows SOLO en el archivo del índice dado (inicializa si hace falta)."""
+        file_path = self.outputs[out_idx][1]
         try:
-            with open(self.output_file, 'a', newline='', encoding='utf-8') as csvfile:
+            if not self._csv_initialized[file_path]:
+                self._initialize_csv_idx(out_idx)
+            with open(file_path, 'a', newline='', encoding='utf-8') as csvfile:
                 writer = csv.writer(csvfile)
                 writer.writerows(rows_data)
-            self._rows_written += len(rows_data)
-            print(f"Wrote {len(rows_data)} rows to {self.output_file}. Total rows written: {self._rows_written}")
+            self._rows_written[file_path] += len(rows_data)
+            print(f"Wrote {len(rows_data)} rows to {file_path}. Total rows: {self._rows_written[file_path]}")
         except Exception as e:
-            print(f"Error writing rows to CSV file {self.output_file}: {e}")
+            print(f"Error writing rows to CSV file {file_path}: {e}")
+
+    def _write_rows_to_csv_all(self, rows_data):
+        """Escribe rows en TODOS los archivos de salida."""
+        for i in range(len(self.outputs)):
+            self._write_rows_to_csv_idx(i, rows_data)
 
     def _save_to_temp_file(self, queue_name, rows_data):
-        """Save rows to temporary file for a specific queue"""
+        """Guarda rows crudas por cola en CSV temporales para joins posteriores."""
         temp_file = os.path.join(self.temp_dir, f"{queue_name}.csv")
         
         try:
@@ -100,7 +123,10 @@ class Joiner:
                         writer.writerow(['user_id', 'birthdate'])
                     elif queue_name == 'resultados_groupby_q4':
                         writer.writerow(['store_id', 'user_id', 'purchase_qty'])
-                
+                    elif queue_name == 'menu_items_cleaned':
+                        writer.writerow(['item_id', 'item_name'])
+                    elif queue_name == 'resultados_groupby_q2':
+                        writer.writerow(['month_year', 'metric', 'item_id', 'quantity', 'subtotal'])
                 writer.writerows(rows_data)
             
             print(f"Saved {len(rows_data)} rows to temp file: {temp_file}")
@@ -108,30 +134,180 @@ class Joiner:
             print(f"Error saving to temp file {temp_file}: {e}")
 
     def _send_sort_request(self):
-        """Send a sort request to the sorter"""
+        """Envía señal de sort/notify a CADA cola de salida, indicando su archivo asociado."""
         try:
-            if self.out_queue:
-                # Create sort signal message (msg_type=3, data_type=0)
-                header = struct.pack('>BBI', 3, 0, 0)  # Sort signal
-                self.out_queue.send(header)
-                print(f"Sent sort request for {self.output_file}")
-            else:
-                print("No output queue configured for sort requests")
+            header = struct.pack('>BBI', 3, 0, 0)
+            for out_q, out_file in self.outputs:
+                try:
+                    out_q.send(header)
+                    print(f"Sent sort request for {out_file} to {out_q.queue_name}")
+                except Exception as inner:
+                    print(f"Error sending sort to {out_q.queue_name} for {out_file}: {inner}")
         except Exception as e:
             print(f"Error sending sort request: {e}")
 
-    def _send_notification_signal(self):
-        """Send a notification signal to indicate completion"""
-        try:
-            if self.out_queue:
-                # Create notification signal message (msg_type=3, data_type=0) - MSG_TYPE_NOTI
-                header = struct.pack('>BBI', 3, 0, 0)  # Notification signal
-                self.out_queue.send(header)
-                print(f"Sent notification signal through {self.out_queue.queue_name}")
-            else:
-                print("No output queue configured for notification signals")
-        except Exception as e:
-            print(f"Error sending notification signal: {e}")
+    def _split_row(self, queue_name, row):
+        """Obtiene el delimitador según cola (o autodetecta) y hace split."""
+        delim = self.DELIMITERS.get(queue_name)
+        if not delim:
+            # Autodetección simple: priorizar ',' si aparece, sino '|'
+            delim = ',' if (',' in row and '|' not in row) else '|'
+        return row.strip().split(delim)
+
+    # =====================
+    # Dispatcher
+    # =====================
+
+    def _process_joined_data(self):
+        if self.query_type not in self.strategies:
+            raise ValueError(f"Unsupported query_type: {self.query_type}")
+        self.strategies[self.query_type]()  # Ejecuta la estrategia correspondiente
+
+    # =====================
+    # Strategies
+    # =====================
+
+    def _process_q1(self):
+        """
+        Q1: transaction_id y final_amount de una sola cola.
+        En el flujo streaming ya escribimos; aquí sólo señalizamos (a todas las salidas).
+        """
+        print("Processing Q1 join...")
+        self._send_sort_request()
+
+    def _process_q4(self):
+        """
+        Q4: join entre resultados_groupby_q4, stores_cleaned_q4 y users_cleaned
+        Salida esperada: [store_name, birthdate]
+        Escribimos el MISMO dataset en todas las salidas (si hay más de una).
+        """
+        print("Processing Q4 join...")
+
+        stores_lookup, users_lookup = {}, {}
+
+        # Stores
+        stores_file = os.path.join(self.temp_dir, 'stores_cleaned_q4.csv')
+        if os.path.exists(stores_file):
+            with open(stores_file, 'r', encoding='utf-8') as f:
+                reader = csv.reader(f); next(reader, None)
+                for row in reader:
+                    if len(row) >= 2:
+                        stores_lookup[row[0]] = row[1]
+        print(f"Loaded {len(stores_lookup)} store mappings")
+
+        # Users
+        users_file = os.path.join(self.temp_dir, 'users_cleaned.csv')
+        if os.path.exists(users_file):
+            with open(users_file, 'r', encoding='utf-8') as f:
+                reader = csv.reader(f); next(reader, None)
+                for row in reader:
+                    if len(row) >= 2:
+                        users_lookup[row[0]] = row[1]
+        print(f"Loaded {len(users_lookup)} user mappings")
+
+        # Main
+        main_file = os.path.join(self.temp_dir, 'resultados_groupby_q4.csv')
+        if not os.path.exists(main_file):
+            print("Main file for Q4 not found")
+            return
+
+        processed_rows = []
+        with open(main_file, 'r', encoding='utf-8') as f:
+            reader = csv.reader(f); next(reader, None)
+            for row in reader:
+                if len(row) >= 3:
+                    store_id, user_id, _purchase_qty = row[0], row[1], row[2]
+                    store_name = stores_lookup.get(store_id, store_id)
+                    birthdate = users_lookup.get(user_id, user_id)
+                    processed_rows.append([store_name, birthdate])
+
+        if processed_rows:
+            # mismo dataset a todas las salidas
+            self._write_rows_to_csv_all(processed_rows)
+
+        self._send_sort_request()
+        print(f"Q4 join complete. {len(processed_rows)} rows written across {len(self.outputs)} output(s).")
+
+    def _process_q2(self):
+        """
+        Q2: join con menú e items agrupados.
+        Espera 'menu_items_cleaned.csv' y 'resultados_groupby_q2.csv' en temp/.
+        Mapeo 1–a–1:
+          - si hay 2 outputs: outputs[0] ← quantity, outputs[1] ← subtotal
+          - si hay 1 output: todo va al mismo
+          - si hay >2: quantity→0, subtotal→1 y el resto reciben el dataset completo (fallback)
+        """
+        print("Processing Q2 join...")
+
+        items_lookup = {}
+
+        # Menu Items
+        menu_file = os.path.join(self.temp_dir, 'menu_items_cleaned.csv')
+        if os.path.exists(menu_file):
+            with open(menu_file, 'r', encoding='utf-8') as f:
+                reader = csv.reader(f); next(reader, None)
+                for row in reader:
+                    if len(row) >= 2:
+                        items_lookup[row[0]] = row[1]
+        print(f"Loaded {len(items_lookup)} item mappings")
+
+        # Main
+        main_file = os.path.join(self.temp_dir, 'resultados_groupby_q2.csv')
+        if not os.path.exists(main_file):
+            print("Main file for Q2 not found")
+            return
+
+        rows_quantity = []
+        rows_subtotal = []
+        rows_all = []  # por si hay 1 output o fallback
+
+        with open(main_file, 'r', encoding='utf-8') as f:
+            reader = csv.reader(f); next(reader, None)
+            for row in reader:
+                # Esperado: month_year, metric('quantity'|'subtotal'), item_id, quantity, subtotal
+                if len(row) >= 5:
+                    month_year, metric, item_id, quantity, subtotal = row[0], row[1], row[2], row[3], row[4]
+                    item_name = items_lookup.get(item_id, item_id)
+                    if metric == 'quantity':
+                        rows_quantity.append([month_year, item_name, quantity])
+                        rows_all.append([month_year, item_name, quantity])
+                    elif metric == 'subtotal':
+                        rows_subtotal.append([month_year, item_name, subtotal])
+                        rows_all.append([month_year, item_name, subtotal])
+
+        out_count = len(self.outputs)
+        if out_count == 0:
+            print("No outputs configured; skipping CSV write.")
+        elif out_count == 1:
+            # todo junto al único output
+            if rows_all:
+                self._write_rows_to_csv_idx(0, rows_all)
+        else:
+            # out_count >= 2: mapeo explícito
+            if rows_quantity:
+                self._write_rows_to_csv_idx(0, rows_quantity)
+            if rows_subtotal and out_count >= 2:
+                self._write_rows_to_csv_idx(1, rows_subtotal)
+            # si hay más de 2 salidas, opcionalmente replicamos todo en las restantes
+            if out_count > 2 and rows_all:
+                for i in range(2, out_count):
+                    self._write_rows_to_csv_idx(i, rows_all)
+
+        self._send_sort_request()
+        print(f"Q2 join complete. "
+              f"quantity rows: {len(rows_quantity)}, subtotal rows: {len(rows_subtotal)} "
+              f"across {len(self.outputs)} output(s).")
+
+    def _process_q3(self):
+        """
+        Q3: placeholder para lógica futura
+        """
+        print("Processing Q3 join... (TODO)")
+        self._send_sort_request()
+
+    # =====================
+    # Principal Loop 
+    # =====================
 
     def run(self):
         self._running = True
@@ -190,36 +366,24 @@ class Joiner:
                     
                     for row in rows:
                         if row.strip():
-                            if queue_name == 'resultados_groupby_q4':
-                                # Sender data (separated by ,)
-                                items = row.strip().split(',')
-                                if len(items) >= 3:  # store_id, user_id, purchase_qty
-                                    processed_rows.append(items)
-                            else:
-                                # All other data including Q1 (separated by |)
-                                items = row.strip().split('|')
-                                if len(items) >= 2:
-                                    processed_rows.append(items)
-                    
-                    # Handle rows based on mode
+                            items = self._split_row(queue_name, row)
+                            if len(items) >= 2:
+                                processed_rows.append(items)
+
                     if processed_rows:
                         with self._lock:
                             if len(self.multiple_queues) > 1:
-                                # Save to temp files for joining later
+                                # modo "join later": guardamos crudo por cola
                                 self._save_to_temp_file(queue_name, processed_rows)
                             else:
-                                # Single queue mode - extract required columns and write to CSV
-                                final_rows = []
-                                for row_items in processed_rows:
-                                    # For Q1: extract transaction_id, final_amount from items
-                                    if len(row_items) >= 2:
-                                        transaction_id = row_items[0]
-                                        final_amount = row_items[1]
-                                        final_rows.append([transaction_id, final_amount])
-                                
+                                # modo "single queue": escribimos directamente
+                                # por diseño, Q1 escribiría transaction_id, final_amount
+                                final_rows = [[r[0], r[1]] for r in processed_rows if len(r) >= 2]
                                 if final_rows:
-                                    self._write_rows_to_csv(final_rows)
-                    
+                                    # como no sabemos a cuál salida corresponde,
+                                    # en single-queue replicamos el dataset a TODAS
+                                    for i in range(len(self.outputs)):
+                                        self._write_rows_to_csv_idx(i, final_rows)
                 except Exception as e:
                     print(f"Error processing message from {queue_name}: {e} - Message: {message}")
             
@@ -327,25 +491,22 @@ class Joiner:
         self.close()
 
     def close(self):
-        # Close all queue connections
-        for queue_name, queue in self.in_queues.items():
-            try:
-                queue.close()
-            except Exception as e:
-                print(f"Error closing queue {queue_name}: {e}")
-        
-        if self.out_queue:
-            self.out_queue.close()
+        for q in self.in_queues.values():
+            try: q.close()
+            except: pass
+        for out_q, _ in self.outputs:
+            try: out_q.close()
+            except: pass
 
 if __name__ == '__main__':
     # Configure via environment variables
     queue_in = os.environ.get('QUEUE_IN')
-    queue_out = os.environ.get('QUEUE_OUT')
-    output_file = os.environ.get('OUTPUT_FILE')
+    queue_out_env = os.environ.get('QUEUE_OUT')           # puede tener múltiples, coma
+    output_file_env = os.environ.get('OUTPUT_FILE')       # puede tener múltiples, coma
     query_type = os.environ.get('QUERY_TYPE')
     rabbitmq_host = os.environ.get('RABBITMQ_HOST', 'rabbitmq')
-    
-    # Support for multiple input queues (comma-separated)
+
+    # múltiples input queues (para join)
     multiple_queues_str = os.environ.get('MULTIPLE_QUEUES')
     multiple_queues = None
     if multiple_queues_str:
@@ -362,11 +523,18 @@ if __name__ == '__main__':
     
     columns_want = [col.strip() for col in config[query_type]['columns'].split(',')]
 
-    joiner = Joiner(queue_in, queue_out, output_file, columns_want, rabbitmq_host, multiple_queues)
-    
-    # Set up signal handlers for graceful shutdown
+    joiner = Joiner(
+        queue_in=queue_in,
+        queue_out=queue_out_env,
+        output_file=output_file_env,
+        columns_want=columns_want,
+        rabbitmq_host=rabbitmq_host,
+        query_type=query_type,
+        multiple_queues=multiple_queues
+    )
+
     def signal_handler(signum, frame):
-        print(f'Received signal {signum}, shutting down joiner gracefully...')
+        print(f"Received signal {signum}, shutting down joiner gracefully...")
         joiner.stop()
         sys.exit(0)
     
@@ -377,10 +545,7 @@ if __name__ == '__main__':
         print(f"Starting joiner for {query_type} query...")
         joiner.run()
     except KeyboardInterrupt:
-        print('Keyboard interrupt received, shutting down joiner.')
-        joiner.stop()
-    except Exception as e:
-        print(f'Error in joiner: {e}')
+        print("Keyboard interrupt received.")
         joiner.stop()
     finally:
         print('Joiner shutdown complete.')

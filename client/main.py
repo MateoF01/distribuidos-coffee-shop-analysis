@@ -11,7 +11,6 @@ def main():
     data_dir = os.getenv("DATA_DIR", "/app/.data")
     batch_max_amount = int(os.getenv("BATCH_MAX_AMOUNT", "100"))
 
-
     client = Client(
         client_id=client_id,
         server_address=server_address,
