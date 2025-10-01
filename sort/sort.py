@@ -222,8 +222,7 @@ class Sorter:
             else:
                 print(f"Successfully sorted {self.input_file} by column {self.sort_column_index} and saved to {self.output_file}")
             
-            # Send completion signal
-            self._send_completion_signal()
+# Completion signal will be sent by the message handler
             
         except Exception as e:
             print(f"Error sorting file: {e}")

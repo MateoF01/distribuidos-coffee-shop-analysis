@@ -56,6 +56,8 @@ class Topper:
                     print('[Topper] Received completion signal, starting CSV processing...')
                     if(self.topper_mode == 'Q2'):
                         self.process_csv_files_Q2()
+                    if(self.topper_mode == 'Q3'):
+                        self.process_csv_files_Q3()
                     if(self.topper_mode == 'Q4'):
                         self.process_csv_files_Q4()
                     return
@@ -179,6 +181,41 @@ class Topper:
             all_rows.extend(results)
 
         self._write_output(all_rows, ['month_year','quantity_or_subtotal','item_id','quantity','subtotal'])
+
+    def process_csv_files_Q3(self):
+        print(f"[Topper-Q3] Processing CSV files from directory: {self.input_dir}")
+        csv_files = self._get_csv_files()
+        if not csv_files:
+            return
+
+        all_rows = []
+        for csv_filename in csv_files:
+            print(f"[Topper-Q3] Processing file: {csv_filename}")
+            # Parse filename: format is like "2024-H1_6.csv"
+            filename_without_ext = os.path.splitext(csv_filename)[0]  # "2024-H1_6"
+            
+            # Split by underscore to get year_half and store_id
+            parts = filename_without_ext.split('_')
+            if len(parts) < 2:
+                print(f"[Topper-Q3] Skipping file with invalid name format: {csv_filename}")
+                continue
+                
+            year_half = parts[0]  # "2024-H1"
+            store_id = parts[1]   # "6"
+            
+            # Read the TPV value from the file
+            csv_file_path = os.path.join(self.input_dir, csv_filename)
+            try:
+                with open(csv_file_path, 'r', newline='', encoding='utf-8') as f:
+                    tpv = f.read().strip()
+                    if tpv:
+                        # Create row: [year_half_created_at, store_id, tpv]
+                        all_rows.append([year_half, store_id, tpv])
+                        print(f"[Topper-Q3] Added row: {year_half}, {store_id}, {tpv}")
+            except Exception as e:
+                print(f"[Topper-Q3] Error reading file {csv_filename}: {e}")
+
+        self._write_output(all_rows, ['year_half_created_at', 'store_id', 'tpv'])
 
     def process_csv_files_Q4(self):
         print(f"[Topper-Q4] Processing CSV files from directory: {self.input_dir}")

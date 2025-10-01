@@ -343,6 +343,7 @@ services:
       RABBITMQ_PASS: secretpassword
       QUEUE_IN: transactions_filtered_Q3
       GROUPER_MODE: q3
+      COMPLETION_QUEUE: topper_q3_signal
     volumes:
       - ./grouper/temp:/app/temp
     networks:
@@ -398,6 +399,33 @@ services:
     networks:
       - coffee-net
 
+
+  topper_q3:
+    build:
+      context: .
+      dockerfile: topper/Dockerfile
+    container_name: topper_q3
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      grouper_q3:
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      QUEUE_IN: topper_q3_signal
+      INPUT_DIR: /app/temp/transactions_filtered_Q3
+      OUTPUT_FILE: /app/topper_temp/q3_top1.csv
+      TOP_N: 1
+      COMPLETION_QUEUE: sender_grouper_q3_signal
+      TOPPER_MODE: Q3
+    volumes:
+      - ./grouper/temp:/app/temp
+      - ./topper/temp:/app/topper_temp
+    networks:
+      - coffee-net
 
   topper_q4:
     build:
@@ -487,9 +515,7 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
-      cleaner_stores:
-        condition: service_started
-      cleaner_users:
+      cleaner_menu_items:
         condition: service_started
       sender_grouper_q2:
         condition: service_started
@@ -499,8 +525,8 @@ services:
       RABBITMQ_USER: admin
       RABBITMQ_PASS: secretpassword
       MULTIPLE_QUEUES: resultados_groupby_q2,menu_items_cleaned
-      QUEUE_OUT: sort_q2_request
-      OUTPUT_FILE: /app/output/q4_unsorted.csv
+      QUEUE_OUT: sender_q2_a_signal, sender_q2_b_signal
+      OUTPUT_FILE: /app/output/q2_a.csv, /app/output/q2_b.csv
       QUERY_TYPE: q2
     volumes:
       - ./output:/app/output
@@ -533,28 +559,76 @@ services:
       - coffee-net
       
   sender_q4:
-      build:
-        context: .
-        dockerfile: sender/Dockerfile
-      container_name: sender_q4
-      depends_on:
-        rabbitmq:
-          condition: service_healthy
-        sorter_q4:
-          condition: service_started
-      environment:
-        PYTHONUNBUFFERED: 1
-        RABBITMQ_HOST: rabbitmq
-        RABBITMQ_USER: admin
-        RABBITMQ_PASS: secretpassword
-        QUEUE_IN: sender_q4_signal
-        QUEUE_OUT: results
-        INPUT_FILE: /app/output/q4.csv
-        QUERY_TYPE: q4
-      volumes:
-        - ./output:/app/output
-      networks:
-        - coffee-net
+    build:
+      context: .
+      dockerfile: sender/Dockerfile
+    container_name: sender_q4
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      sorter_q4:
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      QUEUE_IN: sender_q4_signal
+      QUEUE_OUT: results
+      INPUT_FILE: /app/output/q4.csv
+      QUERY_TYPE: q4
+    volumes:
+      - ./output:/app/output
+    networks:
+      - coffee-net
+    
+  sender_q2_a:
+    build:
+      context: .
+      dockerfile: sender/Dockerfile
+    container_name: sender_q2_a
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      sorter_q4:
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      QUEUE_IN: sender_q2_a_signal
+      QUEUE_OUT: results
+      INPUT_FILE: /app/output/q2_a.csv
+      QUERY_TYPE: q2_a
+    volumes:
+      - ./output:/app/output
+    networks:
+      - coffee-net
+
+  sender_q2_b:
+    build:
+      context: .
+      dockerfile: sender/Dockerfile
+    container_name: sender_q2_b
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      sorter_q4:
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      QUEUE_IN: sender_q2_b_signal
+      QUEUE_OUT: results
+      INPUT_FILE: /app/output/q2_b.csv
+      QUERY_TYPE: q2_b
+    volumes:
+      - ./output:/app/output
+    networks:
+      - coffee-net
 
   sender_grouper_q2:
     build:
@@ -576,6 +650,31 @@ services:
       INPUT_FILE: /app/topper_temp/topper_q2_signal/q2_top1.csv
       BATCH_SIZE: 5000
       QUERY_TYPE: q2
+    volumes:
+      - ./topper/temp:/app/topper_temp
+    networks:
+      - coffee-net
+
+  sender_grouper_q3:
+    build:
+      context: .
+      dockerfile: sender/Dockerfile
+    container_name: sender_grouper_q3
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      topper_q3:
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      QUEUE_IN: sender_grouper_q3_signal
+      QUEUE_OUT: resultados_groupby_q3
+      INPUT_FILE: /app/topper_temp/topper_q3_signal/q3_top1.csv
+      BATCH_SIZE: 5000
+      QUERY_TYPE: q3
     volumes:
       - ./topper/temp:/app/topper_temp
     networks:
@@ -606,6 +705,81 @@ services:
       - coffee-net
   
 
+  joiner_q3:
+    build:
+      context: .
+      dockerfile: joiner/Dockerfile
+    container_name: joiner_q3
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      cleaner_stores:
+        condition: service_started
+      sender_grouper_q3:
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      MULTIPLE_QUEUES: resultados_groupby_q3,stores_cleaned_q3
+      QUEUE_OUT: sort_q3_request
+      OUTPUT_FILE: /app/output/q3_unsorted.csv
+      QUERY_TYPE: q3
+    volumes:
+      - ./output:/app/output
+    networks:
+      - coffee-net
+
+  sorter_q3:
+    build:
+      context: .
+      dockerfile: sort/Dockerfile
+    container_name: sorter_q3
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      joiner_q3:
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      QUEUE_IN: sort_q3_request
+      INPUT_FILE: /app/output/q3_unsorted.csv
+      OUTPUT_FILE: /app/output/q3.csv
+      COMPLETION_QUEUE: sender_q3_signal
+      DATA_TYPE: q3
+    volumes:
+      - ./output:/app/output
+    networks:
+      - coffee-net
+  
+  sender_q3:
+    build:
+      context: .
+      dockerfile: sender/Dockerfile
+    container_name: sender_q3
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      sorter_q3:
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      QUEUE_IN: sender_q3_signal
+      QUEUE_OUT: results
+      INPUT_FILE: /app/output/q3.csv
+      QUERY_TYPE: q3
+    volumes:
+      - ./output:/app/output
+    networks:
+      - coffee-net
+    
 networks:
   coffee-net:
     driver: bridge

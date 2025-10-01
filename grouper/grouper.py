@@ -13,14 +13,14 @@ os.makedirs(BASE_TEMP_DIR, exist_ok=True)
 
 def get_month_str(dt_str):
     dt = datetime.strptime(dt_str[:7], '%Y-%m')
-    return dt.strftime('%b%y').lower()  # e.g., jan24
+    return dt.strftime('%Y-%m')  # e.g., 2024-01
 
 def get_semester_str(dt_str):
     dt = datetime.strptime(dt_str[:7], '%Y-%m')
-    year = dt.strftime('%y')
+    year = dt.strftime('%Y')
     month = dt.month
-    sem = '1sem' if 1 <= month <= 6 else '2sem'
-    return f'{sem}_{year}'
+    sem = 'H1' if 1 <= month <= 6 else 'H2'
+    return f'{year}-{sem}'
 
 class Grouper:
     def __init__(self, queue_in, groupby, agg, rabbitmq_host, columns, temp_dir=None, completion_queue=None):
@@ -249,7 +249,8 @@ if __name__ == '__main__':
     elif mode == 'q3':
         section = 'transactions_filtered_Q3'
         columns = [col.strip() for col in config[section]['columns'].split(',')]
-        grouper = Grouper(queue_in, groupby='semester_store', agg=q3_agg, rabbitmq_host=rabbitmq_host, columns=columns)
+        completion_queue = os.environ.get('COMPLETION_QUEUE')
+        grouper = Grouper(queue_in, groupby='semester_store', agg=q3_agg, rabbitmq_host=rabbitmq_host, columns=columns, completion_queue=completion_queue)
     elif mode == 'q4':
          section = 'transactions_filtered_Q4'
          columns = [col.strip() for col in config[section]['columns'].split(',')]

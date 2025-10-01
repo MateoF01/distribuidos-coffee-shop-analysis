@@ -26,7 +26,7 @@ class Client:
         
         # Track query results received
         self.queries_received = set()
-        self.expected_queries = {protocol.Q1_RESULT, protocol.Q4_RESULT}  # Add more as needed
+        self.expected_queries = {protocol.Q1_RESULT, protocol.Q2_RESULT_a, protocol.Q2_RESULT_b, protocol.Q3_RESULT, protocol.Q4_RESULT}
         self.final_end_received = False
         
         print(f"[INFO] Client expecting query results: {self.expected_queries}")
@@ -129,7 +129,8 @@ class Client:
         # Map data_type to query names for output files
         query_names = {
             protocol.Q1_RESULT: 'Q1',
-            protocol.Q2_RESULT: 'Q2', 
+            protocol.Q2_RESULT_a: 'Q2_A', 
+            protocol.Q2_RESULT_b: 'Q2_B', 
             protocol.Q3_RESULT: 'Q3',
             protocol.Q4_RESULT: 'Q4'
         }
@@ -170,7 +171,8 @@ class Client:
         """Create a completion marker file for the query result"""
         query_names = {
             protocol.Q1_RESULT: 'Q1',
-            protocol.Q2_RESULT: 'Q2',
+            protocol.Q2_RESULT_a: 'Q2_A', 
+            protocol.Q2_RESULT_b: 'Q2_B',             
             protocol.Q3_RESULT: 'Q3', 
             protocol.Q4_RESULT: 'Q4'
         }
