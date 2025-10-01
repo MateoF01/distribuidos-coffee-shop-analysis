@@ -8,7 +8,7 @@ import csv
 from middleware.coffeeMiddleware import CoffeeMessageMiddlewareQueue
 
 class Joiner:
-    def __init__(self, queue_in, queue_out, output_file, columns_want, rabbitmq_host, multiple_queues=None):
+    def __init__(self, queue_in, queue_out, output_file, columns_want, rabbitmq_host, query_type, multiple_queues=None):
         self.queue_in = queue_in
         self.query_type = query_type
         self.columns_want = columns_want
@@ -67,30 +67,32 @@ class Joiner:
         self.DELIMITERS = {
             "resultados_groupby_q4": ",",
             "resultados_groupby_q2": ",",
+            "resultados_groupby_q3": ",",
         }
 
     # =====================
     # Utils de CSV por salida
     # =====================
 
-    def _initialize_csv_idx(self, out_idx: int):
+    def _initialize_csv_idx(self, out_idx: int, custom_headers=None):
         """Inicializa un archivo CSV (por índice de salida) con headers si aún no se hizo."""
         file_path = self.outputs[out_idx][1]
         try:
             with open(file_path, 'w', newline='', encoding='utf-8') as csvfile:
                 writer = csv.writer(csvfile)
-                writer.writerow(self.columns_want)
+                headers = custom_headers if custom_headers else self.columns_want
+                writer.writerow(headers)
             self._csv_initialized[file_path] = True
-            print(f"Initialized CSV file {file_path} with headers: {self.columns_want}")
+            print(f"Initialized CSV file {file_path} with headers: {headers}")
         except Exception as e:
             print(f"Error initializing CSV file {file_path}: {e}")
 
-    def _write_rows_to_csv_idx(self, out_idx: int, rows_data):
+    def _write_rows_to_csv_idx(self, out_idx: int, rows_data, custom_headers=None):
         """Escribe rows SOLO en el archivo del índice dado (inicializa si hace falta)."""
         file_path = self.outputs[out_idx][1]
         try:
             if not self._csv_initialized[file_path]:
-                self._initialize_csv_idx(out_idx)
+                self._initialize_csv_idx(out_idx, custom_headers)
             with open(file_path, 'a', newline='', encoding='utf-8') as csvfile:
                 writer = csv.writer(csvfile)
                 writer.writerows(rows_data)
@@ -126,7 +128,11 @@ class Joiner:
                     elif queue_name == 'menu_items_cleaned':
                         writer.writerow(['item_id', 'item_name'])
                     elif queue_name == 'resultados_groupby_q2':
-                        writer.writerow(['month_year', 'metric', 'item_id', 'quantity', 'subtotal'])
+                        writer.writerow(['month_year', 'quantity_or_subtotal', 'item_id', 'quantity', 'subtotal'])
+                    elif queue_name == 'stores_cleaned_q3':
+                        writer.writerow(['store_id', 'store_name'])
+                    elif queue_name == 'resultados_groupby_q3':
+                        writer.writerow(['year_half_created_at', 'store_id', 'tpv'])
                 writer.writerows(rows_data)
             
             print(f"Saved {len(rows_data)} rows to temp file: {temp_file}")
@@ -233,7 +239,7 @@ class Joiner:
         Q2: join con menú e items agrupados.
         Espera 'menu_items_cleaned.csv' y 'resultados_groupby_q2.csv' en temp/.
         Mapeo 1–a–1:
-          - si hay 2 outputs: outputs[0] ← quantity, outputs[1] ← subtotal
+          - si hay 2 outputs: outputs[0] ← quantity (Q2_a), outputs[1] ← subtotal (Q2_b)
           - si hay 1 output: todo va al mismo
           - si hay >2: quantity→0, subtotal→1 y el resto reciben el dataset completo (fallback)
         """
@@ -264,14 +270,14 @@ class Joiner:
         with open(main_file, 'r', encoding='utf-8') as f:
             reader = csv.reader(f); next(reader, None)
             for row in reader:
-                # Esperado: month_year, metric('quantity'|'subtotal'), item_id, quantity, subtotal
+                # Esperado: month_year, quantity_or_subtotal('quantity'|'subtotal'), item_id, quantity, subtotal
                 if len(row) >= 5:
-                    month_year, metric, item_id, quantity, subtotal = row[0], row[1], row[2], row[3], row[4]
+                    month_year, quantity_or_subtotal, item_id, quantity, subtotal = row[0], row[1], row[2], row[3], row[4]
                     item_name = items_lookup.get(item_id, item_id)
-                    if metric == 'quantity':
+                    if quantity_or_subtotal == 'quantity':
                         rows_quantity.append([month_year, item_name, quantity])
                         rows_all.append([month_year, item_name, quantity])
-                    elif metric == 'subtotal':
+                    elif quantity_or_subtotal == 'subtotal':
                         rows_subtotal.append([month_year, item_name, subtotal])
                         rows_all.append([month_year, item_name, subtotal])
 
@@ -284,10 +290,14 @@ class Joiner:
                 self._write_rows_to_csv_idx(0, rows_all)
         else:
             # out_count >= 2: mapeo explícito
+            # Q2_a (quantity) goes to first output with specific headers
             if rows_quantity:
-                self._write_rows_to_csv_idx(0, rows_quantity)
+                q2a_headers = ['month_year', 'item_name', 'quantity']
+                self._write_rows_to_csv_idx(0, rows_quantity, q2a_headers)
+            # Q2_b (subtotal) goes to second output with specific headers
             if rows_subtotal and out_count >= 2:
-                self._write_rows_to_csv_idx(1, rows_subtotal)
+                q2b_headers = ['month_year', 'item_name', 'subtotal']
+                self._write_rows_to_csv_idx(1, rows_subtotal, q2b_headers)
             # si hay más de 2 salidas, opcionalmente replicamos todo en las restantes
             if out_count > 2 and rows_all:
                 for i in range(2, out_count):
@@ -295,15 +305,52 @@ class Joiner:
 
         self._send_sort_request()
         print(f"Q2 join complete. "
-              f"quantity rows: {len(rows_quantity)}, subtotal rows: {len(rows_subtotal)} "
+              f"Q2_a (quantity) rows: {len(rows_quantity)} written to {self.outputs[0][1] if out_count > 0 else 'N/A'}"
+              f"{f', Q2_b (subtotal) rows: {len(rows_subtotal)} written to {self.outputs[1][1]}' if out_count >= 2 else ''} "
               f"across {len(self.outputs)} output(s).")
 
     def _process_q3(self):
         """
-        Q3: placeholder para lógica futura
+        Q3: join con stores para obtener store names de los resultados agrupados.
+        Espera 'stores_cleaned_q3.csv' y 'resultados_groupby_q3.csv' en temp/.
+        Salida esperada: [year_half_created_at, store_name, tpv]
         """
-        print("Processing Q3 join... (TODO)")
+        print("Processing Q3 join...")
+
+        stores_lookup = {}
+
+        # Stores
+        stores_file = os.path.join(self.temp_dir, 'stores_cleaned_q3.csv')
+        if os.path.exists(stores_file):
+            with open(stores_file, 'r', encoding='utf-8') as f:
+                reader = csv.reader(f); next(reader, None)
+                for row in reader:
+                    if len(row) >= 2:
+                        stores_lookup[row[0]] = row[1]  # store_id -> store_name
+        print(f"Loaded {len(stores_lookup)} store mappings")
+
+        # Main
+        main_file = os.path.join(self.temp_dir, 'resultados_groupby_q3.csv')
+        if not os.path.exists(main_file):
+            print("Main file for Q3 not found")
+            return
+
+        processed_rows = []
+        with open(main_file, 'r', encoding='utf-8') as f:
+            reader = csv.reader(f); next(reader, None)
+            for row in reader:
+                # Esperado: year_half_created_at, store_id, tpv
+                if len(row) >= 3:
+                    year_half, store_id, tpv = row[0], row[1], row[2]
+                    store_name = stores_lookup.get(store_id, store_id)
+                    processed_rows.append([year_half, store_name, tpv])
+
+        if processed_rows:
+            # escribir a todas las salidas (normalmente solo una para Q3)
+            self._write_rows_to_csv_all(processed_rows)
+
         self._send_sort_request()
+        print(f"Q3 join complete. {len(processed_rows)} rows written across {len(self.outputs)} output(s).")
 
     # =====================
     # Principal Loop 
@@ -317,9 +364,12 @@ class Joiner:
                 if not self._running:
                     return
                 try:
-                    # For single queue mode, initialize CSV file on first message
-                    if len(self.multiple_queues) == 1 and not self._csv_initialized:
-                        self._initialize_csv()
+                    # For single queue mode, initialize CSV files on first message
+                    if len(self.multiple_queues) == 1:
+                        for i in range(len(self.outputs)):
+                            file_path = self.outputs[i][1]
+                            if not self._csv_initialized.get(file_path, False):
+                                self._initialize_csv_idx(i)
 
                     # All messages have protocol headers
                     if not isinstance(message, bytes) or len(message) < 6:
@@ -348,7 +398,8 @@ class Joiner:
                                         self._process_joined_data()
                                     else:
                                         self._send_sort_request()
-                                        print(f'CSV data collection complete with {self._rows_written} total rows. Sort request sent.')
+                                        total_rows = sum(self._rows_written.values())
+                                        print(f'CSV data collection complete with {total_rows} total rows. Sort request sent.')
                             else:
                                 print(f'Already received END signal from {queue_name}, ignoring duplicate')
                         return
@@ -395,7 +446,8 @@ class Joiner:
             print(f"Joiner listening on {queue_name}")
             self.in_queues[queue_name].start_consuming(handler)
 
-        print(f"Joiner will output to {self.output_file}")
+        output_files = [f for _, f in self.outputs]
+        print(f"Joiner will output to {', '.join(output_files)}")
 
         # Keep the main thread alive - wait indefinitely until shutdown is signaled
         try:
@@ -404,77 +456,7 @@ class Joiner:
             print("Keyboard interrupt received, shutting down...")
             self.stop()
 
-    def _process_joined_data(self):
-        """Process and join data from multiple temp files"""
-        try:
-            # Load lookup tables from temp files
-            stores_lookup = {}
-            users_lookup = {}
-            
-            # Load stores data (store_id -> store_name)
-            stores_file = os.path.join(self.temp_dir, 'stores_cleaned_q4.csv')
-            if os.path.exists(stores_file):
-                with open(stores_file, 'r', newline='', encoding='utf-8') as f:
-                    reader = csv.reader(f)
-                    next(reader, None)  # Skip header
-                    for row in reader:
-                        if len(row) >= 2:
-                            stores_lookup[row[0]] = row[1]  # store_id -> store_name
-                print(f"Loaded {len(stores_lookup)} store mappings")
-            
-            # Load users data (user_id -> birthdate)
-            users_file = os.path.join(self.temp_dir, 'users_cleaned.csv')
-            if os.path.exists(users_file):
-                with open(users_file, 'r', newline='', encoding='utf-8') as f:
-                    reader = csv.reader(f)
-                    next(reader, None)  # Skip header
-                    for row in reader:
-                        if len(row) >= 2:
-                            users_lookup[row[0]] = row[1]  # user_id -> birthdate
-                print(f"Loaded {len(users_lookup)} user mappings")
-            
-            # Process main data from resultados_groupby_q4
-            main_file = os.path.join(self.temp_dir, 'resultados_groupby_q4.csv')
-            if not os.path.exists(main_file):
-                print("Error: Main data file (resultados_groupby_q4.csv) not found")
-                return
-            
-            # Initialize output CSV
-            self._initialize_csv()
-            
-            processed_rows = []
-            with open(main_file, 'r', newline='', encoding='utf-8') as f:
-                reader = csv.reader(f)
-                next(reader, None)  # Skip header
-                
-                for row in reader:
-                    # Expected format: store_id, user_id, purchase_qty
-                    if len(row) >= 3:
-                        store_id = row[0]
-                        user_id = row[1]
-                        purchase_qty = row[2]
-                        
-                        # Replace store_id with store_name
-                        store_name = stores_lookup.get(store_id, store_id)  # Fallback to store_id if not found
-                        
-                        # Replace user_id with birthdate
-                        birthdate = users_lookup.get(user_id, user_id)  # Fallback to user_id if not found
-                        
-                        # Create joined row: store_name, birthdate (no purchase_qty)
-                        processed_row = [store_name, birthdate]
-                        processed_rows.append(processed_row)
-            
-            # Write all processed rows
-            if processed_rows:
-                self._write_rows_to_csv(processed_rows)
-                print(f"Successfully joined and wrote {len(processed_rows)} rows")
-            
-            # Send sort request signal 
-            self._send_sort_request()
-            print(f'Joined data processing complete. Sort request sent.')
-            
-        except Exception as e:
-            print(f"Error processing joined data: {e}")
+
 
     def stop(self):
         self._running = False

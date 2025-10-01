@@ -26,7 +26,7 @@ class Client:
         
         # Track query results received
         self.queries_received = set()
-        self.expected_queries = {protocol.Q1_RESULT, protocol.Q4_RESULT}  # Add more as needed
+        self.expected_queries = {protocol.Q1_RESULT, protocol.Q2_RESULT_a, protocol.Q2_RESULT_b, protocol.Q3_RESULT, protocol.Q4_RESULT}
         self.final_end_received = False
         
         print(f"[INFO] Client expecting query results: {self.expected_queries}")
