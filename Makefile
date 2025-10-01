@@ -10,7 +10,7 @@ help:
 	@echo "  down    - Stop all services and clean up files"
 	@echo "  restart - Stop, clean up, and start services"
 	@echo "  logs    - Show logs from all services"
-	@echo "  clean   - Clean up output and temp files only"
+	@echo "  clean   - Clean up output and temp files from all components"
 	@echo "  build   - Build all Docker images"
 
 .PHONY: build
@@ -25,7 +25,7 @@ up: build
 down:
 	docker compose down
 	@echo "Cleaning up output and temp directories..."
-	@docker run --rm -v ./output:/tmp/output -v ./grouper/temp:/tmp/temp alpine:latest sh -c "rm -rf /tmp/output/* /tmp/temp/* 2>/dev/null || true"
+	@docker run --rm -v ./output:/tmp/output -v ./grouper/temp:/tmp/grouper_temp -v ./topper/temp:/tmp/topper_temp alpine:latest sh -c "rm -rf /tmp/output/* /tmp/grouper_temp/* /tmp/topper_temp/* 2>/dev/null || true"
 	@echo "All services stopped and cleanup completed!"
 
 .PHONY: restart
@@ -39,7 +39,7 @@ logs:
 .PHONY: clean
 clean:
 	@echo "Cleaning up output and temp directories..."
-	@docker run --rm -v ./output:/tmp/output -v ./grouper/temp:/tmp/temp alpine:latest sh -c "rm -rf /tmp/output/* /tmp/temp/* 2>/dev/null || true"
+	@docker run --rm -v ./output:/tmp/output -v ./grouper/temp:/tmp/grouper_temp -v ./topper/temp:/tmp/topper_temp alpine:latest sh -c "rm -rf /tmp/output/* /tmp/grouper_temp/* /tmp/topper_temp/* 2>/dev/null || true"
 	@echo "Cleanup completed!"
 
 .PHONY: status

@@ -2,44 +2,18 @@ import os
 import signal
 import sys
 import threading
-import struct
-import configparser
 import csv
 from middleware.coffeeMiddleware import CoffeeMessageMiddlewareQueue
-
-class SenderConfig:
-    def __init__(self, config_parser):
-        """Initialize configuration from ConfigParser object"""
-        # Sender configuration
-        self.batch_size = int(config_parser['sender']['batch_size'])
-        self.encoding = config_parser['sender']['encoding']
-        
-        # Message configuration
-        self.header_size = int(config_parser['messages']['header_size'])
-        self.completion_signal_type = int(config_parser['messages']['completion_signal_type'])
-        self.completion_signal_data_type = int(config_parser['messages']['completion_signal_data_type'])
-        
-        # File configuration
-        self.file_encoding = config_parser['files']['encoding']
-        self.newline_mode = config_parser['files']['newline_mode'] or None
-        
-        # Validate configuration
-        self._validate()
-    
-    def _validate(self):
-        """Validate configuration parameters"""
-        if self.batch_size <= 0:
-            raise ValueError(f"batch_size must be positive, got {self.batch_size}")
-        
-        if self.header_size <= 0:
-            raise ValueError(f"header_size must be positive, got {self.header_size}")
+from shared import protocol
 
 class Sender:
-    def __init__(self, queue_in, queue_out, input_file, rabbitmq_host, config):
+    def __init__(self, queue_in, queue_out, input_file, rabbitmq_host, batch_size=5000, query_type='q1'):
         self.queue_in = queue_in
         self.queue_out = queue_out
         self.input_file = input_file
-        self.config = config
+        self.batch_size = batch_size
+        self.query_type = query_type
+        self.rabbitmq_host = rabbitmq_host
         self._running = False
         self._shutdown_event = threading.Event()
         self.in_queue = CoffeeMessageMiddlewareQueue(host=rabbitmq_host, queue_name=queue_in)
@@ -57,7 +31,7 @@ class Sender:
             
             print(f"[INFO] Starting to send file {self.input_file}")
             
-            with open(self.input_file, 'r', encoding=self.config.file_encoding, newline=self.config.newline_mode) as csvfile:
+            with open(self.input_file, 'r', encoding='utf-8', newline='') as csvfile:
                 reader = csv.reader(csvfile)
                 
                 # Skip header if it exists
@@ -75,7 +49,7 @@ class Sender:
                     batch.append(row_str)
                     
                     # Send batch when it reaches configured size
-                    if len(batch) >= self.config.batch_size:
+                    if len(batch) >= self.batch_size:
                         #print(f"[INFO] Sending batch of size: {len(batch)}, batch: {batch}")
                         self._send_batch(batch)
                         rows_sent += len(batch)
@@ -99,10 +73,16 @@ class Sender:
     def _send_batch(self, batch):
         """Send a batch of rows to output queue"""
         try:
-            payload = "\n".join(batch).encode(self.config.encoding)
-            # Create message with header: msg_type=1 (DATA), data_type=1 (TRANSACTIONS)
-            header = struct.pack('>BBI', 1, 1, len(payload))
-            message = header + payload
+            payload = "\n".join(batch).encode('utf-8')
+            # Map query type to protocol data type
+            data_type_map = {
+                'q1': protocol.Q1_RESULT,
+                'q2': protocol.Q2_RESULT,
+                'q3': protocol.Q3_RESULT,
+                'q4': protocol.Q4_RESULT
+            }
+            data_type = data_type_map.get(self.query_type, protocol.Q1_RESULT)
+            message = protocol.pack_message(protocol.MSG_TYPE_DATA, data_type, payload)
             self.out_queue.send(message)
         except Exception as e:
             print(f"[ERROR] Error sending batch: {e}")
@@ -111,9 +91,8 @@ class Sender:
     def _send_end_signal(self):
         """Send END signal to output queue"""
         try:
-            # Create END message: msg_type=2 (END), data_type=6 (DATA_END)
-            header = struct.pack('>BBI', 2, 6, 0)
-            self.out_queue.send(header)
+            message = protocol.pack_message(protocol.MSG_TYPE_END, protocol.DATA_END, b"")
+            self.out_queue.send(message)
         except Exception as e:
             print(f"[ERROR] Error sending END signal: {e}")
 
@@ -125,23 +104,19 @@ class Sender:
             if not self._running:
                 return
             try:
-                # Expect message as bytes: header (configured size) + payload
-                if not isinstance(message, bytes) or len(message) < self.config.header_size:
+                if not isinstance(message, bytes) or len(message) < 6:
                     print(f"[WARN] Invalid message format or too short: {message}")
                     return
                 
-                header = message[:self.config.header_size]
-                msg_type, data_type, payload_len = struct.unpack('>BBI', header)
-                payload = message[self.config.header_size:] if payload_len > 0 else b""
+                msg_type, data_type, payload = protocol._unpack_message(message)
 
                 print(f"[INFO] Received message: msg_type={msg_type}, data_type={data_type}")
 
-                # Check for completion signal from sorter
-                if msg_type == self.config.completion_signal_type and data_type == self.config.completion_signal_data_type:
+                # Check for completion signal (like grouper uses MSG_TYPE_NOTI)
+                if msg_type == protocol.MSG_TYPE_NOTI:
                     print(f'[INFO] Completion signal received. Starting to send file: {self.input_file}')
                     self._send_csv_file()
                     print(f'[INFO] File transmission complete')
-                    # self.stop()
                     return
                 else:
                     print(f"[WARN] Received unexpected message type: {msg_type}/{data_type}")
@@ -184,20 +159,15 @@ if __name__ == '__main__':
     queue_out = os.environ.get('QUEUE_OUT')
     input_file = os.environ.get('INPUT_FILE')
     rabbitmq_host = os.environ.get('RABBITMQ_HOST', 'rabbitmq')
+    batch_size = int(os.environ.get('BATCH_SIZE', '5000'))
+    query_type = os.environ.get('QUERY_TYPE', 'q1')
 
     if not all([queue_in, queue_out, input_file]):
         raise ValueError("Missing required environment variables: QUEUE_IN, QUEUE_OUT, INPUT_FILE")
 
-    # Load configuration
-    config_path = os.path.join(os.path.dirname(__file__), 'config.ini')
-    config_parser = configparser.ConfigParser()
-    config_parser.read(config_path)
+    print(f"[INFO] Using batch_size: {batch_size}, query_type: {query_type}")
     
-    # Create configuration object
-    config = SenderConfig(config_parser)
-    print(f"[INFO] Loaded sender configuration")
-    
-    sender = Sender(queue_in, queue_out, input_file, rabbitmq_host, config)
+    sender = Sender(queue_in, queue_out, input_file, rabbitmq_host, batch_size, query_type)
     
     # Set up signal handlers for graceful shutdown
     def signal_handler(signum, frame):
