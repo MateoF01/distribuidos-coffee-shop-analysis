@@ -18,7 +18,8 @@ BASE_TEMP_DIR = os.environ.get('BASE_TEMP_DIR', config['topper']['base_temp_dir'
 os.makedirs(BASE_TEMP_DIR, exist_ok=True)
 
 class Topper:
-    def __init__(self, queue_in, input_dir, output_file, rabbitmq_host, top_n=3, completion_queue=None):
+
+    def __init__(self, queue_in, input_dir, output_file, rabbitmq_host, top_n, topper_mode, completion_queue):
         self.queue_in = queue_in
         self.input_dir = input_dir
         self.rabbitmq_host = rabbitmq_host
@@ -35,6 +36,7 @@ class Topper:
         self.out_queue = None
         if self.completion_queue:
             self.out_queue = CoffeeMessageMiddlewareQueue(host=rabbitmq_host, queue_name=completion_queue)
+        self.topper_mode = topper_mode
 
     def run(self):
         self._running = True
@@ -52,7 +54,10 @@ class Topper:
                 
                 if msg_type == protocol.MSG_TYPE_NOTI:
                     print('[Topper] Received completion signal, starting CSV processing...')
-                    self.process_csv_files()
+                    if(self.topper_mode == 'Q2'):
+                        self.process_csv_files_Q2()
+                    if(self.topper_mode == 'Q4'):
+                        self.process_csv_files_Q4()
                     return
                 else:
                     print(f"[Topper] Received unknown message type: {msg_type}")
@@ -69,105 +74,125 @@ class Topper:
             print("Keyboard interrupt received, shutting down...")
             self.stop()
 
-    def process_csv_files(self):
-        """Process all CSV files in the input directory and create combined output"""
-        print(f"[Topper] Processing CSV files from directory: {self.input_dir}")
-        
+    def _get_csv_files(self):
+        """Devuelve lista ordenada de archivos CSV en input_dir"""
         if not os.path.exists(self.input_dir):
             print(f"[Topper] Input directory does not exist: {self.input_dir}")
-            return
-        
+            return []
+
         try:
             all_files = os.listdir(self.input_dir)
             csv_files = [f for f in all_files if f.lower().endswith('.csv')]
         except OSError as e:
             print(f"[Topper] Error reading directory {self.input_dir}: {e}")
-            return
-        
+            return []
+
         if not csv_files:
             print(f"[Topper] No CSV files found in {self.input_dir}")
-            return
-        
-        print(f"[Topper] Found {len(csv_files)} CSV files to process")
-        
-        all_rows = []
-        
-        # Sort CSV files numerically by filename (assuming filenames are numbers)
+            return []
+
+        # Orden numérica de archivos
         def numeric_sort_key(filename):
             try:
                 return int(os.path.splitext(filename)[0])
             except ValueError:
                 return float('inf'), filename
-        
+
         csv_files.sort(key=numeric_sort_key)
-        
-        for csv_filename in csv_files:
-            filename_without_ext = os.path.splitext(csv_filename)[0]
-            
-            csv_file_path = os.path.join(self.input_dir, csv_filename)
-            
-            try:
-                print(f"[Topper] Processing file: {csv_filename}")
-                
-                with open(csv_file_path, 'r', newline='', encoding='utf-8') as f:
-                    csv_reader = csv.reader(f)
-                    
-                    min_heap = []
-                    
-                    for row in csv_reader:
-                        # Skip rows that don't have at least 2 columns
-                        if len(row) < 2:
+        print(f"[Topper] Found {len(csv_files)} CSV files to process")
+        return csv_files
+
+    def _process_file(self, csv_filename, columns):
+        """
+        Procesa un CSV y devuelve las filas top N para cada columna en `columns`.
+        columns: lista de (index_col, etiqueta) → ej: [(1, "TOP_BY_COL1"), (2, "TOP_BY_COL2")]
+        """
+        filename_without_ext = os.path.splitext(csv_filename)[0]
+        csv_file_path = os.path.join(self.input_dir, csv_filename)
+        results = []
+
+        try:
+            with open(csv_file_path, 'r', newline='', encoding='utf-8') as f:
+                csv_reader = csv.reader(f)
+                heaps = {col: [] for col, _ in columns}
+
+                for row in csv_reader:
+                    for col, _ in columns:
+                        if len(row) <= col:
                             continue
-                        
-                        # Try to parse the second column as a number for comparison
                         try:
-                            current_value = float(row[1])
-                        except (ValueError, IndexError):
+                            val = float(row[col])
+                            heap = heaps[col]
+                            if len(heap) < self.top_n:
+                                heapq.heappush(heap, (val, row))
+                            else:
+                                if val > heap[0][0]:
+                                    heapq.heapreplace(heap, (val, row))
+                        except ValueError:
                             continue
-                        
-                        if len(min_heap) < self.top_n:
-                            heapq.heappush(min_heap, (current_value, row))
-                        else:
-                            if current_value > min_heap[0][0]:
-                                heapq.heapreplace(min_heap, (current_value, row))
-                    
-                    if not min_heap:
-                        print(f"[Topper] Skipping file with no valid numeric rows: {csv_filename}")
-                        continue
-                    
-                    top_rows = [item[1] for item in sorted(min_heap, reverse=True)]
-                    
+
+                # convertir heaps en listas de top rows
+                for col, tag in columns:
+                    top_rows = [item[1] for item in sorted(heaps[col], reverse=True)]
                     for row in top_rows:
-                        new_row = [filename_without_ext] + row
-                        all_rows.append(new_row)
-                    
-                    print(f"[Topper] Added {len(top_rows)} rows from {csv_filename}")
-                
-            except Exception as e:
-                print(f"[Topper] Error processing file {csv_filename}: {e}")
-                continue
-        
-        if all_rows:
-            # Create output directory if it doesn't exist
-            output_dir = os.path.dirname(self.output_file)
-            if output_dir:
-                os.makedirs(output_dir, exist_ok=True)
-            
-            # Write all rows to output file
-            with open(self.output_file, 'w', newline='', encoding='utf-8') as f:
-                csv_writer = csv.writer(f)
-                # Write header
-                csv_writer.writerow(['store_id', 'user_id', 'purchases_qty'])
-                # Write data rows
-                csv_writer.writerows(all_rows)
-            
-            print(f"[Topper] Successfully created output file: {self.output_file}")
-            print(f"[Topper] Total rows in output: {len(all_rows)}")
-            
-            # Send completion signal if completion queue is configured
-            self._send_completion_signal()
-        else:
+                        new_row = [filename_without_ext, tag] + row
+                        results.append(new_row)
+
+        except Exception as e:
+            print(f"[Topper] Error processing file {csv_filename}: {e}")
+
+        return results
+
+    def _write_output(self, all_rows, header=None):
+        """Escribe las filas al archivo de salida y manda signal si corresponde"""
+        if not all_rows:
             print("[Topper] No data to process")
+            return
+
+        output_dir = os.path.dirname(self.output_file)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+
+        with open(self.output_file, 'w', newline='', encoding='utf-8') as f:
+            csv_writer = csv.writer(f)
+            if header:
+                csv_writer.writerow(header)
+            csv_writer.writerows(all_rows)
+
+        print(f"[Topper] Successfully created output file: {self.output_file}")
+        print(f"[Topper] Total rows in output: {len(all_rows)}")
+
+        # Si hay cola de completion configurada → manda signal
+        self._send_completion_signal()
+
+
+    def process_csv_files_Q2(self):
+        print(f"[Topper-Q2] Processing CSV files from directory: {self.input_dir}")
+        csv_files = self._get_csv_files()
+        if not csv_files:
+            return
+
+        all_rows = []
+        for csv_filename in csv_files:
+            print(f"[Topper-Q2] Processing file: {csv_filename}")
+            results = self._process_file(csv_filename, [(1, "quantity"), (2, "subtotal")])
+            all_rows.extend(results)
+
+        self._write_output(all_rows, ['month_year','quantity_or_subtotal','item_id','quantity','subtotal'])
+
+    def process_csv_files_Q4(self):
+        print(f"[Topper-Q4] Processing CSV files from directory: {self.input_dir}")
+        csv_files = self._get_csv_files()
+        if not csv_files:
+            return
+
+        all_rows = []
+        for csv_filename in csv_files:
+            print(f"[Topper-Q4] Processing file: {csv_filename}")
+            results = self._process_file(csv_filename, [(1, "quantity")])
+            all_rows.extend([[row[0]] + row[2:] for row in results])  
+
+        self._write_output(all_rows, ['store_id', 'purchases_qty', 'user_id'])
 
     def stop(self):
         self._running = False
@@ -200,10 +225,13 @@ if __name__ == '__main__':
     input_dir = os.environ.get('INPUT_DIR', '/app/temp/transactions_filtered_Q4')
     output_file = os.environ.get('OUTPUT_FILE', '/app/output/q4_top3.csv')
     top_n = int(os.environ.get('TOP_N', '3'))
+    topper_mode = os.environ.get('TOPPER_MODE', 'Q2')
+
     rabbitmq_host = os.environ.get('RABBITMQ_HOST', 'rabbitmq')
     completion_queue = os.environ.get('COMPLETION_QUEUE')
 
-    topper = Topper(queue_in, input_dir, output_file, rabbitmq_host, top_n, completion_queue)
+
+    topper = Topper(queue_in, input_dir, output_file, rabbitmq_host, top_n, topper_mode, completion_queue)
     
     # Set up signal handlers for graceful shutdown
     def signal_handler(signum, frame):
