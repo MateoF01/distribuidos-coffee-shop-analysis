@@ -89,12 +89,27 @@ class Sender:
             raise
 
     def _send_end_signal(self):
-        """Send END signal to output queue"""
+        """Send END signals to output queue"""
         try:
-            message = protocol.pack_message(protocol.MSG_TYPE_END, protocol.DATA_END, b"")
-            self.out_queue.send(message)
+            # Send first END signal with query-specific result type
+            data_type_map = {
+                'q1': protocol.Q1_RESULT,
+                'q2': protocol.Q2_RESULT,
+                'q3': protocol.Q3_RESULT,
+                'q4': protocol.Q4_RESULT
+            }
+            query_result_type = data_type_map.get(self.query_type, protocol.Q1_RESULT)
+            message1 = protocol.pack_message(protocol.MSG_TYPE_END, query_result_type, b"")
+            self.out_queue.send(message1)
+            print(f"[INFO] Sent MSG_TYPE_END with {self.query_type.upper()}_RESULT ({query_result_type})")
+            
+            # Send second END signal with DATA_END
+            message2 = protocol.pack_message(protocol.MSG_TYPE_END, protocol.DATA_END, b"")
+            self.out_queue.send(message2)
+            print(f"[INFO] Sent MSG_TYPE_END with DATA_END")
+            
         except Exception as e:
-            print(f"[ERROR] Error sending END signal: {e}")
+            print(f"[ERROR] Error sending END signals: {e}")
 
     def run(self):
         """Main run loop - listen for completion signals"""
