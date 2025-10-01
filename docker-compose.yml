@@ -557,7 +557,7 @@ services:
       - ./output:/app/output
     networks:
       - coffee-net
-
+      
   sender_q4:
     build:
       context: .
@@ -629,7 +629,6 @@ services:
       - ./output:/app/output
     networks:
       - coffee-net
-
 
   sender_grouper_q2:
     build:
@@ -704,6 +703,7 @@ services:
       - ./output:/app/output
     networks:
       - coffee-net
+  
 
   joiner_q3:
     build:

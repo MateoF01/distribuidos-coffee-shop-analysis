@@ -7,6 +7,7 @@ import configparser
 import csv
 from middleware.coffeeMiddleware import CoffeeMessageMiddlewareQueue
 
+
 class Joiner:
     def __init__(self, queue_in, queue_out, output_file, columns_want, rabbitmq_host, query_type, multiple_queues=None):
         self.queue_in = queue_in
@@ -50,8 +51,7 @@ class Joiner:
         base_for_temp = os.path.dirname(self.outputs[0][1]) if self.outputs else os.getcwd()
         self.temp_dir = os.path.join(base_for_temp, 'temp')
         os.makedirs(self.temp_dir, exist_ok=True)
-        
-        # Initialize queues
+
         for queue_name in self.multiple_queues:
             self.in_queues[queue_name] = CoffeeMessageMiddlewareQueue(host=rabbitmq_host, queue_name=queue_name)
 
@@ -90,6 +90,7 @@ class Joiner:
     def _write_rows_to_csv_idx(self, out_idx: int, rows_data, custom_headers=None):
         """Escribe rows SOLO en el archivo del índice dado (inicializa si hace falta)."""
         file_path = self.outputs[out_idx][1]
+
         try:
             if not self._csv_initialized[file_path]:
                 self._initialize_csv_idx(out_idx, custom_headers)
@@ -108,16 +109,12 @@ class Joiner:
 
     def _save_to_temp_file(self, queue_name, rows_data):
         """Guarda rows crudas por cola en CSV temporales para joins posteriores."""
+
         temp_file = os.path.join(self.temp_dir, f"{queue_name}.csv")
-        
         try:
-            # Check if file exists to determine if we need headers
             file_exists = os.path.exists(temp_file)
-            
             with open(temp_file, 'a', newline='', encoding='utf-8') as csvfile:
                 writer = csv.writer(csvfile)
-                
-                # Write headers only for the first write
                 if not file_exists:
                     if queue_name == 'stores_cleaned_q4':
                         writer.writerow(['store_id', 'store_name'])
@@ -134,7 +131,6 @@ class Joiner:
                     elif queue_name == 'resultados_groupby_q3':
                         writer.writerow(['year_half_created_at', 'store_id', 'tpv'])
                 writer.writerows(rows_data)
-            
             print(f"Saved {len(rows_data)} rows to temp file: {temp_file}")
         except Exception as e:
             print(f"Error saving to temp file {temp_file}: {e}")
@@ -176,7 +172,6 @@ class Joiner:
     def _process_q1(self):
         """
         Q1: transaction_id y final_amount de una sola cola.
-        En el flujo streaming ya escribimos; aquí sólo señalizamos (a todas las salidas).
         """
         print("Processing Q1 join...")
         self._send_sort_request()
@@ -218,11 +213,13 @@ class Joiner:
             return
 
         processed_rows = []
+
         with open(main_file, 'r', encoding='utf-8') as f:
             reader = csv.reader(f); next(reader, None)
             for row in reader:
                 if len(row) >= 3:
                     store_id, user_id, _purchase_qty = row[0], row[1], row[2]
+
                     store_name = stores_lookup.get(store_id, store_id)
                     birthdate = users_lookup.get(user_id, user_id)
                     processed_rows.append([store_name, birthdate])
@@ -373,25 +370,16 @@ class Joiner:
 
                     # All messages have protocol headers
                     if not isinstance(message, bytes) or len(message) < 6:
-                        print(f"Invalid message format from {queue_name}: {message}")
                         return
-                    
+
                     header = message[:6]
                     msg_type, data_type, payload_len = struct.unpack('>BBI', header)
                     payload = message[6:]
-                    print(f"Received message from {queue_name}: msg_type={msg_type}, data_type={data_type}, payload_len={payload_len}")
-                    
-                    # Check for end-of-data signal
-                    if msg_type == 2:  # MSG_TYPE_END - accept any data_type
-                        print(f'End-of-data signal received from {queue_name} (data_type={data_type})')
-                        
-                        # Only process the first END signal from each queue
+
+                    if msg_type == 2:  # END
                         with self._lock:
                             if not self.end_received[queue_name]:
                                 self.end_received[queue_name] = True
-                                print(f'Marked {queue_name} as completed')
-                                
-                                # Check if all queues have sent end signals
                                 if all(self.end_received.values()):
                                     print("All queues have sent end signals. Processing joined data...")
                                     if len(self.multiple_queues) > 1:
@@ -404,17 +392,14 @@ class Joiner:
                                 print(f'Already received END signal from {queue_name}, ignoring duplicate')
                         return
 
-                    # Process regular data message
                     try:
                         payload_str = payload.decode('utf-8')
                     except Exception as e:
-                        print(f"Failed to decode payload from {queue_name}: {e}")
+                        print(f"Decode error: {e}")
                         return
 
-                    # Process rows based on queue type
                     rows = payload_str.split('\n')
                     processed_rows = []
-                    
                     for row in rows:
                         if row.strip():
                             items = self._split_row(queue_name, row)
@@ -436,11 +421,10 @@ class Joiner:
                                     for i in range(len(self.outputs)):
                                         self._write_rows_to_csv_idx(i, final_rows)
                 except Exception as e:
-                    print(f"Error processing message from {queue_name}: {e} - Message: {message}")
-            
+                    print(f"Error processing message: {e}")
+
             return on_message
 
-        # Start consuming from all queues
         for queue_name in self.multiple_queues:
             handler = create_message_handler(queue_name)
             print(f"Joiner listening on {queue_name}")
@@ -456,20 +440,14 @@ class Joiner:
             print("Keyboard interrupt received, shutting down...")
             self.stop()
 
-
-
     def stop(self):
         self._running = False
         self._shutdown_event.set()
-        try:
-            # Stop all queue consumers
-            for queue_name, queue in self.in_queues.items():
-                try:
-                    queue.stop_consuming()
-                except Exception as e:
-                    print(f"Error stopping consumer for {queue_name}: {e}")
-        except Exception as e:
-            print(f"Error stopping consumers: {e}")
+        for q in self.in_queues.values():
+            try:
+                q.stop_consuming()
+            except:
+                pass
         self.close()
 
     def close(self):
@@ -480,8 +458,8 @@ class Joiner:
             try: out_q.close()
             except: pass
 
+
 if __name__ == '__main__':
-    # Configure via environment variables
     queue_in = os.environ.get('QUEUE_IN')
     queue_out_env = os.environ.get('QUEUE_OUT')           # puede tener múltiples, coma
     output_file_env = os.environ.get('OUTPUT_FILE')       # puede tener múltiples, coma
@@ -490,11 +468,7 @@ if __name__ == '__main__':
 
     # múltiples input queues (para join)
     multiple_queues_str = os.environ.get('MULTIPLE_QUEUES')
-    multiple_queues = None
-    if multiple_queues_str:
-        multiple_queues = [q.strip() for q in multiple_queues_str.split(',')]
-    elif queue_in:
-        multiple_queues = [queue_in]
+    multiple_queues = [q.strip() for q in multiple_queues_str.split(',')] if multiple_queues_str else [queue_in]
 
     config_path = os.path.join(os.path.dirname(__file__), 'config.ini')
     config = configparser.ConfigParser()
@@ -502,7 +476,7 @@ if __name__ == '__main__':
 
     if query_type not in config:
         raise ValueError(f"Unknown query type: {query_type}")
-    
+
     columns_want = [col.strip() for col in config[query_type]['columns'].split(',')]
 
     joiner = Joiner(
@@ -519,10 +493,10 @@ if __name__ == '__main__':
         print(f"Received signal {signum}, shutting down joiner gracefully...")
         joiner.stop()
         sys.exit(0)
-    
+
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
-    
+
     try:
         print(f"Starting joiner for {query_type} query...")
         joiner.run()
@@ -530,4 +504,4 @@ if __name__ == '__main__':
         print("Keyboard interrupt received.")
         joiner.stop()
     finally:
-        print('Joiner shutdown complete.')
+        print("Joiner shutdown complete.")
