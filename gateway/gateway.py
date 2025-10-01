@@ -1,27 +1,31 @@
-
 import socket
-import struct
+import threading
 from middleware.coffeeMiddleware import CoffeeMessageMiddlewareQueue
 import os
+from shared import protocol
+import threading
 
-HOST = '0.0.0.0'  # Listen on all interfaces
-PORT = 5000       # Change as needed
+
+HOST = os.environ.get('GATEWAY_HOST', '0.0.0.0')
+PORT = int(os.environ.get('GATEWAY_PORT', 5000))
+RESULTS_QUEUE = os.environ.get('QUEUE_IN', 'results')
+
 
 data_type_names = {
-    1: 'transactions',
-    2: 'transaction_items',
-    3: 'menu_items',
-    4: 'users',
-    5: 'stores',
-    6: 'end'
+    protocol.DATA_TRANSACTIONS: 'transactions',
+    protocol.DATA_TRANSACTION_ITEMS: 'transaction_items',
+    protocol.DATA_MENU_ITEMS: 'menu_items',
+    protocol.DATA_USERS: 'users',
+    protocol.DATA_STORES: 'stores',
+    protocol.DATA_END: 'end'
 }
 
 queue_names = {
-    1: 'transactions_queue',
-    2: 'transaction_items_queue',
-    3: 'menu_items_queue',
-    4: 'users_queue',
-    5: 'stores_queue'
+    protocol.DATA_TRANSACTIONS: 'transactions_queue',
+    protocol.DATA_TRANSACTION_ITEMS: 'transaction_items_queue',
+    protocol.DATA_MENU_ITEMS: 'menu_items_queue',
+    protocol.DATA_USERS: 'users_queue',
+    protocol.DATA_STORES: 'stores_queue'
 }
 
 class Server:
@@ -37,6 +41,7 @@ class Server:
         self.queues = {}
         for q in queue_names.values():
             self.queues[q] = CoffeeMessageMiddlewareQueue(host=rabbitmq_host, queue_name=q)
+        self.results_queue = CoffeeMessageMiddlewareQueue(host=rabbitmq_host, queue_name=RESULTS_QUEUE)
 
     def _setup_socket(self):
         self._server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -55,42 +60,57 @@ class Server:
         return conn, addr
 
     def _handle_client_connection(self, conn, addr):
+        ends_esperados = 4
+        ends_recibidos = 0
+
+        def on_result(message):
+            nonlocal ends_recibidos
+            try:
+                conn.sendall(message)
+                msg_type, data_type, _ = protocol._unpack_message(message)
+                if msg_type == protocol.MSG_TYPE_END:
+                    ends_recibidos += 1
+                    print(f"END recibido ({ends_recibidos}/{ends_esperados})")
+                    if ends_recibidos == ends_esperados:
+                        print("Todas las queries terminaron. Cerrando conexión.")
+                        try:
+                            conn.shutdown(socket.SHUT_RDWR)
+                        except OSError:
+                            pass
+                        conn.close()
+            except (BrokenPipeError, OSError) as e:
+                print(f"[WARN] Cliente desconectado: {e}")
+                try:
+                    conn.close()
+                except:
+                    pass
+
+        # Lanza hilo que escucha resultados
+        threading.Thread(
+            target=lambda: self.results_queue.start_consuming(on_result),
+            daemon=True
+        ).start()
+
+        # Mientras tanto recibe del cliente y encola
         try:
             while True:
-                header = self._recv_exact(conn, 6)
-                msg_type, data_type, payload_len = struct.unpack('>BBI', header)
-                if payload_len > 0:
-                    payload = self._recv_exact(conn, payload_len)
-                else:
-                    payload = b''
-                message = header + payload
-                if msg_type == 1:
-                    print(f'Received data for {data_type_names.get(data_type, data_type)}:')
-                    queue_name = queue_names.get(data_type)
-                    if queue_name:
-                        self.queues[queue_name].send(message)
-                elif msg_type == 2:
-                    if data_type == 6:
-                        print('All files received. Closing connection.')
-                        break
-                    else:
-                        queue_name = queue_names.get(data_type)
-                        if queue_name:
-                            self.queues[queue_name].send(message)
-                        print(f'Finished receiving {data_type_names.get(data_type, data_type)}.')
-                else:
-                    print(f'Unknown message type: {msg_type}')
-        finally:
-            conn.close()
+                msg_type, data_type, payload = protocol.receive_message(conn)
+                if not msg_type:   # cliente cerró
+                    break
 
-    def _recv_exact(self, sock, n):
-        data = b''
-        while len(data) < n:
-            packet = sock.recv(n - len(data))
-            if not packet:
-                raise ConnectionError('Socket closed prematurely')
-            data += packet
-        return data
+                message = protocol.pack_message(msg_type, data_type, payload)
+
+                if msg_type == protocol.MSG_TYPE_DATA:
+                    self.queues[queue_names[data_type]].send(message)
+                elif msg_type == protocol.MSG_TYPE_END:
+                    self.queues[queue_names[data_type]].send(message)
+                else:
+                    print(f"Unknown message type: {msg_type}")
+        except Exception as e:
+            print(f"Error en la conexión con {addr}: {e}")
+        finally:
+            # 👇 no cerramos conn acá
+            pass
 
     def close(self):
         for q in self.queues.values():

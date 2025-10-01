@@ -4,6 +4,8 @@ import struct
 # Message Types
 MSG_TYPE_DATA = 1
 MSG_TYPE_END = 2
+MSG_TYPE_NOTI = 3
+
 
 # Data Types
 DATA_TRANSACTIONS = 1
@@ -13,6 +15,10 @@ DATA_USERS = 4
 DATA_STORES = 5
 DATA_END = 6
 
+Q1_RESULT = 7
+Q2_RESULT = 8
+Q3_RESULT = 9
+Q4_RESULT = 10
 
 def send_message(conn, msg_type: int, data_type: int, payload: bytes):
     """
@@ -24,6 +30,9 @@ def send_message(conn, msg_type: int, data_type: int, payload: bytes):
     header = struct.pack(">BBI", msg_type, data_type, len(payload))
     conn.sendall(header + payload)
 
+def send_notification(conn, msg_type = MSG_TYPE_NOTI):
+    header = struct.pack(">BBI", msg_type)
+    conn.sendall(header)
 
 def receive_message(conn):
     header = _read_full(conn, 6)  # 1 type msg + 1 type dato + 4 len
@@ -40,3 +49,13 @@ def _read_full(conn, n):
             raise ConnectionError("Socket closed before receiving expected data")
         buf += chunk
     return buf
+
+def pack_message(msg_type, data_type, payload):
+    header = struct.pack('>BBI', msg_type, data_type, len(payload))
+    return header + payload
+
+def _unpack_message(msg_bytes):
+    header = msg_bytes[:6]
+    msg_type, data_type, payload_len = struct.unpack('>BBI', header)
+    payload = msg_bytes[6:]
+    return msg_type, data_type, payload

@@ -23,7 +23,6 @@ class Joiner:
 
     def _process_row(self, row):
         """Process a row and extract the required columns"""
-        print(f"Processing row: {row}")
         items = row.split('|')
         
         # For Q1, we expect: transaction_id,final_amount,created_at,store_id,user_id
@@ -101,7 +100,7 @@ class Joiner:
                     print(f'End-of-data signal received. Sending sort request...')
                     self._send_sort_request()
                     print(f'CSV data collection complete with {self._rows_written} total rows. Sort request sent.')
-                    self.stop()
+                    # self.stop()
                     return
 
                 # Process regular data message
