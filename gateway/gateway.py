@@ -6,6 +6,8 @@ import sys
 from middleware.coffeeMiddleware import CoffeeMessageMiddlewareQueue
 import os
 from shared import protocol
+import logging
+from shared.logging_config import initialize_log
 
 
 HOST = os.environ.get('GATEWAY_HOST', '0.0.0.0')
@@ -59,33 +61,29 @@ class Server:
 
     def _signal_handler(self, signum, frame):
         """Handle shutdown signals"""
-        print(f"Received signal {signum}, shutting down gateway gracefully...")
+        logging.info(f"Received signal {signum}, shutting down gateway gracefully...")
         self.shutdown_flag = True
 
     def run(self):
-        print(f'Server listening on {self.host}:{self.port}')
-        self._server_socket.settimeout(1.0)  # Add timeout to check shutdown flag
+        logging.info(f'Server listening on {self.host}:{self.port}')
         
         while not self.shutdown_flag:
             try:
                 conn, addr = self._accept_new_connection()
                 if not self.shutdown_flag:
                     self._handle_client_connection(conn, addr)
-            except socket.timeout:
-                # Timeout allows us to check shutdown_flag periodically
-                continue
             except OSError as e:
                 if self.shutdown_flag:
                     break
                 raise e
 
             if self.shutdown_flag:
-                print("Shutdown flag is set. Exiting...")
+                logging.info("Shutdown flag is set. Exiting...")
                 break
 
     def _accept_new_connection(self):
         conn, addr = self._server_socket.accept()
-        print(f'Connected by {addr}')
+        logging.info(f'Connected by {addr}')
         return conn, addr
 
     def _handle_client_connection(self, conn, addr):
@@ -101,14 +99,14 @@ class Server:
                 if msg_type == protocol.MSG_TYPE_END and data_type == protocol.DATA_END:
                     # Count DATA_END signals but don't forward them yet
                     data_end_count += 1
-                    print(f"DATA_END received ({data_end_count}/{data_end_expected})")
+                    logging.debug(f"DATA_END received ({data_end_count}/{data_end_expected})")
                     
                     if data_end_count == data_end_expected and not final_end_sent:
                         # Send final DATA_END signal to client
                         final_message = protocol.pack_message(protocol.MSG_TYPE_END, protocol.DATA_END, b"")
                         conn.sendall(final_message)
                         final_end_sent = True
-                        print("All queries completed. Sent final DATA_END to client.")
+                        logging.info("All queries completed. Sent final DATA_END to client.")
                         
                         # Close connection after a short delay
                         def close_connection():
@@ -124,10 +122,10 @@ class Server:
                     # Forward all other messages (including query-specific END messages)
                     conn.sendall(message)
                     if msg_type == protocol.MSG_TYPE_END:
-                        print(f"Forwarded END message with data_type={data_type}")
+                        logging.debug(f"Forwarded END message with data_type={data_type}")
                         
             except (BrokenPipeError, OSError) as e:
-                print(f"[WARN] Cliente desconectado: {e}")
+                logging.warning(f"Cliente desconectado: {e}")
                 try:
                     conn.close()
                 except:
@@ -149,13 +147,29 @@ class Server:
                 message = protocol.pack_message(msg_type, data_type, payload)
 
                 if msg_type == protocol.MSG_TYPE_DATA:
-                    self.queues[queue_names[data_type]].send(message)
+                    if data_type in queue_names:
+                        self.queues[queue_names[data_type]].send(message)
+                        logging.debug(f"Sent {data_type_names.get(data_type, data_type)} data to queue")
+                    else:
+                        logging.warning(f"Unknown data type: {data_type}")
                 elif msg_type == protocol.MSG_TYPE_END:
-                    self.queues[queue_names[data_type]].send(message)
+                    if data_type == protocol.DATA_END:
+                        # Special handling for DATA_END - send to all data queues
+                        logging.info("Received DATA_END from client, broadcasting to all queues")
+                        for queue_name in queue_names.values():
+                            self.queues[queue_name].send(message)
+                            logging.debug(f"Sent DATA_END to {queue_name}")
+                    elif data_type in queue_names:
+                        self.queues[queue_names[data_type]].send(message)
+                        logging.debug(f"Sent END message for {data_type_names.get(data_type, data_type)} to queue")
+                    else:
+                        logging.warning(f"Unknown data type in END message: {data_type}")
                 else:
-                    print(f"Unknown message type: {msg_type}")
+                    logging.warning(f"Unknown message type: {msg_type}")
         except Exception as e:
-            print(f"Error en la conexión con {addr}: {e}")
+            logging.error(f"Error in connection with {addr}: {type(e).__name__}: {e}")
+            import traceback
+            logging.debug(f"Traceback: {traceback.format_exc()}")
         finally:
             # 👇 no cerramos conn acá
             pass
@@ -166,14 +180,15 @@ class Server:
         self._server_socket.close()
 
 if __name__ == '__main__':
+    initialize_log(logging.INFO)
     server = Server(HOST, PORT)
     try:
         server.run()
     except KeyboardInterrupt:
-        print('Shutting down server.')
+        logging.info('Shutting down server.')
     except Exception as e:
-        print(f'Server error: {e}')
+        logging.error(f'Server error: {e}')
     finally:
-        print('Gateway shutting down...')
+        logging.info('Gateway shutting down...')
         server.close()
-        print('Gateway shutdown complete.')
+        logging.info('Gateway shutdown complete.')

@@ -1,4 +1,3 @@
-# shared/protocol.py
 import struct
 
 # Message Types

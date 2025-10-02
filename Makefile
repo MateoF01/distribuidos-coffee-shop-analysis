@@ -23,6 +23,7 @@ up: build
 
 .PHONY: down
 down:
+	docker compose stop -t 5
 	docker compose down
 	@echo "Cleaning up output and temp directories..."
 	@docker run --rm -v ./output:/tmp/output -v ./grouper/temp:/tmp/grouper_temp -v ./topper/temp:/tmp/topper_temp alpine:latest sh -c "rm -rf /tmp/output/* /tmp/grouper_temp/* /tmp/topper_temp/* 2>/dev/null || true"
@@ -34,7 +35,7 @@ restart: down up
 
 .PHONY: logs
 logs:
-	docker compose logs --timestamps -f
+	docker compose logs -f
 
 .PHONY: clean
 clean:

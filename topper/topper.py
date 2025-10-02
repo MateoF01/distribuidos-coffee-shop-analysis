@@ -5,8 +5,10 @@ import threading
 import configparser
 import csv
 import heapq
+import logging
 from middleware.coffeeMiddleware import CoffeeMessageMiddlewareQueue
 from shared import protocol
+from shared.logging_config import initialize_log
 
 # Load configuration
 config_path = os.path.join(os.path.dirname(__file__), 'config.ini')
@@ -45,15 +47,15 @@ class Topper:
             if not self._running:
                 return
             try:
-                print(f"[Topper] Received signal from queue: {self.queue_in}")
+                logging.debug(f"[Topper] Received signal from queue: {self.queue_in}")
                 if not isinstance(message, bytes) or len(message) < 6:
-                    print(f"Invalid message format or too short: {message}")
+                    logging.warning(f"Invalid message format or too short: {message}")
                     return
                 
                 msg_type, data_type, payload = protocol._unpack_message(message)
                 
                 if msg_type == protocol.MSG_TYPE_NOTI:
-                    print('[Topper] Received completion signal, starting CSV processing...')
+                    logging.info('[Topper] Received completion signal, starting CSV processing...')
                     if(self.topper_mode == 'Q2'):
                         self.process_csv_files_Q2()
                     if(self.topper_mode == 'Q3'):
@@ -65,9 +67,9 @@ class Topper:
                     print(f"[Topper] Received unknown message type: {msg_type}")
                     
             except Exception as e:
-                print(f"Error processing message: {e} - Message: {message}")
+                logging.error(f"Error processing message: {e} - Message: {message}")
 
-        print(f"Topper listening on {self.queue_in}")
+        logging.info(f"Topper listening on {self.queue_in}")
         self.in_queue.start_consuming(on_message)
         
         try:
@@ -277,9 +279,13 @@ if __name__ == '__main__':
 
     topper = Topper(queue_in, input_dir, output_file, rabbitmq_host, top_n, topper_mode, completion_queue)
     
+    # Initialize logging
+    logging_level = os.environ.get('LOGGING_LEVEL', config.get('DEFAULT', 'LOGGING_LEVEL', fallback='INFO'))
+    initialize_log(logging_level)
+
     # Set up signal handlers for graceful shutdown
     def signal_handler(signum, frame):
-        print(f'Received signal {signum}, shutting down topper gracefully...')
+        logging.info(f'Received signal {signum}, shutting down topper gracefully...')
         topper.stop()
         sys.exit(0)
     
@@ -287,13 +293,13 @@ if __name__ == '__main__':
     signal.signal(signal.SIGTERM, signal_handler)
     
     try:
-        print(f"Starting topper...")
+        logging.info(f"Starting topper...")
         topper.run()
     except KeyboardInterrupt:
-        print('Keyboard interrupt received, shutting down topper.')
+        logging.info('Keyboard interrupt received, shutting down topper.')
         topper.stop()
     except Exception as e:
-        print(f'Error in topper: {e}')
+        logging.error(f'Error in topper: {e}')
         topper.stop()
     finally:
-        print('Topper shutdown complete.')
+        logging.info('Topper shutdown complete.')

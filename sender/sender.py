@@ -3,8 +3,10 @@ import signal
 import sys
 import threading
 import csv
+import logging
 from middleware.coffeeMiddleware import CoffeeMessageMiddlewareQueue
 from shared import protocol
+from shared.logging_config import initialize_log
 
 class Sender:
     def __init__(self, queue_in, queue_out, input_file, rabbitmq_host, batch_size=5000, query_type='q1', include_headers=False):

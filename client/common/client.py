@@ -37,7 +37,6 @@ class Client:
         for attempt in range(retries):
             try:
                 self.conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                self.conn.settimeout(120)  # 2 minute timeout
                 self.conn.connect((host, int(port)))
                 print(f"[INFO] Connected to gateway {host}:{port}")
                 return
@@ -80,9 +79,6 @@ class Client:
             while True:
                 try:
                     msg_type, data_type, payload = protocol.receive_message(self.conn)
-                except socket.timeout:
-                    print("[WARN] Socket timeout waiting for message, continuing...")
-                    continue
                 except Exception as e:
                     print(f"[ERROR] Failed to receive message: {e}")
                     break
@@ -233,15 +229,11 @@ class Client:
             protocol.send_message(self.conn, protocol.MSG_TYPE_END, protocol.DATA_END, b"")
             print("[INFO] Sent END FINAL - waiting for query results...")
 
-            # Wait for listener thread with timeout
+            # Wait for listener thread to complete
             print(f"[INFO] Waiting for results from queries: {self.expected_queries}")
-            listener_thread.join(timeout=180)  # 3 minute timeout
+            listener_thread.join()
             
-            if listener_thread.is_alive():
-                print("[WARN] Listener thread still running after timeout")
-                self.close()
-            else:
-                print("[INFO] All query results received successfully")
+            print("[INFO] All query results received successfully")
                 
         except Exception as e:
             print(f"[ERROR] Client loop failed: {e}")

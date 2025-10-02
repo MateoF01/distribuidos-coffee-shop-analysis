@@ -5,6 +5,8 @@ import threading
 import struct
 import configparser
 import csv
+import logging
+from shared.logging_config import initialize_log
 from middleware.coffeeMiddleware import CoffeeMessageMiddlewareQueue
 
 
@@ -83,9 +85,9 @@ class Joiner:
                 headers = custom_headers if custom_headers else self.columns_want
                 writer.writerow(headers)
             self._csv_initialized[file_path] = True
-            print(f"Initialized CSV file {file_path} with headers: {headers}")
+            logging.debug(f"Initialized CSV file {file_path} with headers: {headers}")
         except Exception as e:
-            print(f"Error initializing CSV file {file_path}: {e}")
+            logging.error(f"Error initializing CSV file {file_path}: {e}")
 
     def _write_rows_to_csv_idx(self, out_idx: int, rows_data, custom_headers=None):
         """Escribe rows SOLO en el archivo del índice dado (inicializa si hace falta)."""
@@ -98,9 +100,9 @@ class Joiner:
                 writer = csv.writer(csvfile)
                 writer.writerows(rows_data)
             self._rows_written[file_path] += len(rows_data)
-            print(f"Wrote {len(rows_data)} rows to {file_path}. Total rows: {self._rows_written[file_path]}")
+            logging.debug(f"Wrote {len(rows_data)} rows to {file_path}. Total rows: {self._rows_written[file_path]}")
         except Exception as e:
-            print(f"Error writing rows to CSV file {file_path}: {e}")
+            logging.error(f"Error writing rows to CSV file {file_path}: {e}")
 
     def _write_rows_to_csv_all(self, rows_data):
         """Escribe rows en TODOS los archivos de salida."""
@@ -131,9 +133,9 @@ class Joiner:
                     elif queue_name == 'resultados_groupby_q3':
                         writer.writerow(['year_half_created_at', 'store_id', 'tpv'])
                 writer.writerows(rows_data)
-            print(f"Saved {len(rows_data)} rows to temp file: {temp_file}")
+            logging.debug(f"Saved {len(rows_data)} rows to temp file: {temp_file}")
         except Exception as e:
-            print(f"Error saving to temp file {temp_file}: {e}")
+            logging.error(f"Error saving to temp file {temp_file}: {e}")
 
     def _send_sort_request(self):
         """Envía señal de sort/notify a CADA cola de salida, indicando su archivo asociado."""
@@ -142,11 +144,11 @@ class Joiner:
             for out_q, out_file in self.outputs:
                 try:
                     out_q.send(header)
-                    print(f"Sent sort request for {out_file} to {out_q.queue_name}")
+                    logging.debug(f"Sent sort request for {out_file} to {out_q.queue_name}")
                 except Exception as inner:
-                    print(f"Error sending sort to {out_q.queue_name} for {out_file}: {inner}")
+                    logging.error(f"Error sending sort to {out_q.queue_name} for {out_file}: {inner}")
         except Exception as e:
-            print(f"Error sending sort request: {e}")
+            logging.error(f"Error sending sort request: {e}")
 
     def _split_row(self, queue_name, row):
         """Obtiene el delimitador según cola (o autodetecta) y hace split."""
@@ -173,7 +175,7 @@ class Joiner:
         """
         Q1: transaction_id y final_amount de una sola cola.
         """
-        print("Processing Q1 join...")
+        logging.info("Processing Q1 join...")
         self._send_sort_request()
 
     def _process_q4(self):
@@ -182,7 +184,7 @@ class Joiner:
         Salida esperada: [store_name, birthdate]
         Escribimos el MISMO dataset en todas las salidas (si hay más de una).
         """
-        print("Processing Q4 join...")
+        logging.info("Processing Q4 join...")
 
         stores_lookup, users_lookup = {}, {}
 
@@ -194,7 +196,7 @@ class Joiner:
                 for row in reader:
                     if len(row) >= 2:
                         stores_lookup[row[0]] = row[1]
-        print(f"Loaded {len(stores_lookup)} store mappings")
+        logging.debug(f"Loaded {len(stores_lookup)} store mappings")
 
         # Users
         users_file = os.path.join(self.temp_dir, 'users_cleaned.csv')
@@ -204,12 +206,12 @@ class Joiner:
                 for row in reader:
                     if len(row) >= 2:
                         users_lookup[row[0]] = row[1]
-        print(f"Loaded {len(users_lookup)} user mappings")
+        logging.debug(f"Loaded {len(users_lookup)} user mappings")
 
         # Main
         main_file = os.path.join(self.temp_dir, 'resultados_groupby_q4.csv')
         if not os.path.exists(main_file):
-            print("Main file for Q4 not found")
+            logging.warning("Main file for Q4 not found")
             return
 
         processed_rows = []
@@ -229,7 +231,7 @@ class Joiner:
             self._write_rows_to_csv_all(processed_rows)
 
         self._send_sort_request()
-        print(f"Q4 join complete. {len(processed_rows)} rows written across {len(self.outputs)} output(s).")
+        logging.info(f"Q4 join complete. {len(processed_rows)} rows written across {len(self.outputs)} output(s).")
 
     def _process_q2(self):
         """
@@ -240,7 +242,7 @@ class Joiner:
           - si hay 1 output: todo va al mismo
           - si hay >2: quantity→0, subtotal→1 y el resto reciben el dataset completo (fallback)
         """
-        print("Processing Q2 join...")
+        logging.info("Processing Q2 join...")
 
         items_lookup = {}
 
@@ -312,7 +314,7 @@ class Joiner:
         Espera 'stores_cleaned_q3.csv' y 'resultados_groupby_q3.csv' en temp/.
         Salida esperada: [year_half_created_at, store_name, tpv]
         """
-        print("Processing Q3 join...")
+        logging.info("Processing Q3 join...")
 
         stores_lookup = {}
 
@@ -489,8 +491,15 @@ if __name__ == '__main__':
         multiple_queues=multiple_queues
     )
 
+    # Initialize logging
+    config_path = os.path.join(os.path.dirname(__file__), 'config.ini')
+    config = configparser.ConfigParser()
+    config.read(config_path)
+    logging_level = os.environ.get('LOGGING_LEVEL', config.get('DEFAULT', 'LOGGING_LEVEL', fallback='INFO'))
+    initialize_log(logging_level)
+
     def signal_handler(signum, frame):
-        print(f"Received signal {signum}, shutting down joiner gracefully...")
+        logging.info(f"Received signal {signum}, shutting down joiner gracefully...")
         joiner.stop()
         sys.exit(0)
 
@@ -498,10 +507,10 @@ if __name__ == '__main__':
     signal.signal(signal.SIGTERM, signal_handler)
 
     try:
-        print(f"Starting joiner for {query_type} query...")
+        logging.info(f"Starting joiner for {query_type} query...")
         joiner.run()
     except KeyboardInterrupt:
-        print("Keyboard interrupt received.")
+        logging.info("Keyboard interrupt received.")
         joiner.stop()
     finally:
-        print("Joiner shutdown complete.")
+        logging.info("Joiner shutdown complete.")

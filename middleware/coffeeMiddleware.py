@@ -29,7 +29,8 @@ EXCHANGE_QUEUE_ARGS = {
 RABBITMQ_CREDENTIALS = {
   "username": config["RABBITMQ"].get("username", "guest"),
   "password": config["RABBITMQ"].get("password", "guest"),
-  "host": config["RABBITMQ"].get("host", "localhost")
+  "host": config["RABBITMQ"].get("host", "localhost"),
+  "heartbeat": int(config["RABBITMQ"].get("heartbeat", 300))
 }
 
 # Read all timeout configurations
@@ -95,7 +96,11 @@ class CoffeeMessageMiddlewareQueue(MessageMiddlewareQueue):
       RABBITMQ_CREDENTIALS["username"], 
       RABBITMQ_CREDENTIALS["password"]
     )
-    params = pika.ConnectionParameters(host=self.host, credentials=credentials)
+    params = pika.ConnectionParameters(
+        host=self.host, 
+        credentials=credentials,
+        heartbeat=RABBITMQ_CREDENTIALS["heartbeat"]
+    )
     max_retries = 10
     for attempt in range(max_retries):
       try:
@@ -372,7 +377,11 @@ class CoffeeMessageMiddlewareExchange(MessageMiddlewareExchange):
         RABBITMQ_CREDENTIALS["username"], 
         RABBITMQ_CREDENTIALS["password"]
       )
-      params = pika.ConnectionParameters(host=self.host, credentials=credentials)
+      params = pika.ConnectionParameters(
+          host=self.host, 
+          credentials=credentials,
+          heartbeat=RABBITMQ_CREDENTIALS["heartbeat"]
+      )
       
       # Separate publisher connection
       self._publisher_connection = pika.BlockingConnection(params)

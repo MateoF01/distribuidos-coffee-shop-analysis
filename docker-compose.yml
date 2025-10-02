@@ -11,6 +11,7 @@ services:
       RABBITMQ_DEFAULT_PASS: secretpassword
       RABBITMQ_LOGS: "-"  # Log to stdout
       RABBITMQ_LOG_LEVEL: warning
+      RABBITMQ_HEARTBEAT: 300  # 5 minutes instead of default 60s
     networks:
       - coffee-net
     healthcheck:

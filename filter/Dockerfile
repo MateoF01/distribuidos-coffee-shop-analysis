@@ -4,5 +4,6 @@ COPY filter/filter.py .
 COPY filter/config.ini .
 COPY filter/temporal_filter_config.ini .
 COPY middleware/ /app/middleware/
+COPY shared/ /app/shared/
 RUN pip install pika
 CMD ["python", "filter.py"]

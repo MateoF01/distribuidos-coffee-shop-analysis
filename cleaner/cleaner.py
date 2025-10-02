@@ -5,6 +5,8 @@ import threading
 import configparser
 from middleware.coffeeMiddleware import CoffeeMessageMiddlewareQueue
 from shared import protocol
+import logging
+from shared.logging_config import initialize_log
 
 class Cleaner:
     def __init__(self, queue_in, queue_out, columns_have, columns_want, rabbitmq_host, keep_when_empty=None):
@@ -26,13 +28,13 @@ class Cleaner:
         items = row.split('|')
 
         if len(items) < max(self.keep_indices) + 1:
-            print(f"Row has insufficient columns: {row} (expected {max(self.keep_indices) + 1}, got {len(items)})")
+            logging.warning(f"Row has insufficient columns: {row} (expected {max(self.keep_indices) + 1}, got {len(items)})")
             return None
 
         try:
             selected = [items[i] for i in self.keep_indices]
         except IndexError as e:
-            print(f"Index error processing row: {row} - {e}")
+            logging.error(f"Index error processing row: {row} - {e}")
             return None
 
         # Convert user_id to int if present in columns_want
@@ -45,7 +47,7 @@ class Cleaner:
                     int_val = int(float_val)
                     selected[user_id_idx] = str(int_val)
                 except Exception as e:
-                    print(f"Warning: Could not convert user_id '{selected[user_id_idx]}' to int in row: {row} - {e}")
+                    logging.warning(f"Could not convert user_id '{selected[user_id_idx]}' to int in row: {row} - {e}")
 
         if any(selected[i] == '' and i not in self.keep_when_empty for i in range(len(selected))):
             return None
@@ -61,7 +63,7 @@ class Cleaner:
             try:
                 # Use protocol helpers for message parsing
                 if not isinstance(message, bytes) or len(message) < 6:
-                    print(f"Invalid message format or too short: {message}")
+                    logging.warning(f"Invalid message format or too short: {message}")
                     return
                 msg_type, data_type, payload = protocol._unpack_message(message)
 
@@ -69,25 +71,25 @@ class Cleaner:
                     for q in self.out_queues:
                         q.send(message)
                     if data_type == protocol.DATA_END:
-                        print('End-of-data signal received. Closing cleaner for this queue.')
+                        logging.info('End-of-data signal received. Closing cleaner for this queue.')
                         # self.stop()
                         return
                     else:
                         queue_names = [q.queue_name for q in self.out_queues]
-                        print(f"Sent end-of-data msg_type:{msg_type} signal to {queue_names}")
+                        logging.debug(f"Sent end-of-data msg_type:{msg_type} signal to {queue_names}")
                         return
 
                 # Decode payload, split into rows, filter, repack
                 try:
                     payload_str = payload.decode('utf-8')
                 except Exception as e:
-                    print(f"Failed to decode payload: {e}")
+                    logging.error(f"Failed to decode payload: {e}")
                     return
                 rows = payload_str.split('\n')
                 filtered_rows = [self._filter_row(row) for row in rows if row.strip()]
                 filtered_rows = [row for row in filtered_rows if row]
                 if not filtered_rows:
-                    print("No rows after filtering, nothing sent.")
+                    logging.debug("No rows after filtering, nothing sent.")
                     return
                 new_payload_str = '\n'.join(filtered_rows)
                 new_payload = new_payload_str.encode('utf-8')
@@ -95,19 +97,19 @@ class Cleaner:
                 for q in self.out_queues:
                     q.send(new_message)
                 queue_names = [q.queue_name for q in self.out_queues]
-                print(f"Sent filtered message to {queue_names} (rows: {len(filtered_rows)}, msg_type: {msg_type}, data_type: {data_type})")
+                logging.debug(f"Sent filtered message to {queue_names} (rows: {len(filtered_rows)}, msg_type: {msg_type}, data_type: {data_type})")
             except Exception as e:
-                print(f"Error processing message: {e} - Message: {message}")
+                logging.error(f"Error processing message: {e} - Message: {message}")
 
         queue_names = [q.queue_name for q in self.out_queues]
-        print(f"Cleaner listening on {self.queue_in}, outputting to {queue_names}")
+        logging.info(f"Cleaner listening on {self.queue_in}, outputting to {queue_names}")
         self.in_queue.start_consuming(on_message)
 
         # Keep the main thread alive - wait indefinitely until shutdown is signaled
         try:
             self._shutdown_event.wait()
         except KeyboardInterrupt:
-            print("Keyboard interrupt received, shutting down...")
+            logging.info("Keyboard interrupt received, shutting down...")
             self.stop()
 
     def stop(self):
@@ -116,7 +118,7 @@ class Cleaner:
         try:
             self.in_queue.stop_consuming()
         except Exception as e:
-            print(f"Error stopping consumer: {e}")
+            logging.error(f"Error stopping consumer: {e}")
         self.close()
 
     def close(self):
@@ -146,21 +148,25 @@ if __name__ == '__main__':
 
     # Set up signal handlers for graceful shutdown
     def signal_handler(signum, frame):
-        print(f'Received signal {signum}, shutting down cleaner gracefully...')
+        logging.info(f'Received signal {signum}, shutting down cleaner gracefully...')
         cleaner.stop()
         sys.exit(0)
     
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
     
+    # Initialize logging
+    logging_level = os.environ.get('LOGGING_LEVEL', config.get('DEFAULT', 'LOGGING_LEVEL', fallback='INFO'))
+    initialize_log(logging_level)
+    
     try:
-        print(f"Starting cleaner for {data_type} data...")
+        logging.info(f"Starting cleaner for {data_type} data...")
         cleaner.run()
     except KeyboardInterrupt:
-        print('Keyboard interrupt received, shutting down cleaner.')
+        logging.info('Keyboard interrupt received, shutting down cleaner.')
         cleaner.stop()
     except Exception as e:
-        print(f'Error in cleaner: {e}')
+        logging.error(f'Error in cleaner: {e}')
         cleaner.stop()
     finally:
-        print('Cleaner shutdown complete.')
+        logging.info('Cleaner shutdown complete.')

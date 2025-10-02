@@ -4,6 +4,8 @@ import sys
 import threading
 import struct
 import configparser
+import logging
+from shared.logging_config import initialize_log
 
 from middleware.coffeeMiddleware import CoffeeMessageMiddlewareQueue
 
@@ -35,7 +37,7 @@ class Filter:
 
                 if msg_type == 2:
                     for q in self.out_queues:
-                        print(f"Filter sending end-of-data data_type:{data_type} to {q.queue_name}")
+                        logging.debug(f"Filter sending end-of-data data_type:{data_type} to {q.queue_name}")
                         q.send(message)
                     # if data_type == 6:
                     #     q.send(message)
@@ -74,7 +76,7 @@ class Filter:
                             q.send(new_message)
 
             except Exception as e:
-                print(f"Error processing message: {e} - Message: {message}")
+                logging.error(f"Error processing message: {e} - Message: {message}")
 
         self._running = True
         self.in_queue.start_consuming(on_message)
@@ -206,14 +208,21 @@ if __name__ == '__main__':
     else:
         raise ValueError(f"Unknown FILTER_TYPE: {filter_type}")
 
+    # Initialize logging
+    config_path = 'config.ini'
+    config = configparser.ConfigParser()
+    config.read(config_path)
+    logging_level = os.environ.get('LOGGING_LEVEL', config.get('DEFAULT', 'LOGGING_LEVEL', fallback='INFO'))
+    initialize_log(logging_level)
+
     # Signal handling
     def signal_handler(signum, frame):
-        print(f"Signal {signum}, shutting down filter gracefully...")
+        logging.info(f"Signal {signum}, shutting down filter gracefully...")
         f.stop()
         sys.exit(0)
 
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
 
-    print(f"Starting {filter_type} filter...")
+    logging.info(f"Starting {filter_type} filter...")
     f.run()
