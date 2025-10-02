@@ -67,9 +67,9 @@ class ConnectionState(Enum):
 
 class CoffeeMessageMiddlewareQueue(MessageMiddlewareQueue):
 
-  def __init__(self, host=None, queue_name=None):
+  def __init__(self, host, queue_name):
     self.queue_name = queue_name
-    self.host = host or RABBITMQ_CREDENTIALS["host"]
+    self.host = host
     
     # Thread-safe state management
     self._state_lock = threading.RLock()
@@ -345,11 +345,11 @@ class CoffeeMessageMiddlewareQueue(MessageMiddlewareQueue):
 
 
 class CoffeeMessageMiddlewareExchange(MessageMiddlewareExchange):
-  def __init__(self, host=None, exchange_name=None, route_keys=None, exchange_type='fanout'):
-    self.host = host or RABBITMQ_CREDENTIALS["host"]
+  def __init__(self, host, exchange_name, route_keys):
+    self.host = host
     self.exchange_name = exchange_name
     self.route_keys = route_keys or []
-    self.exchange_type = exchange_type
+    self.exchange_type = config.get("EXCHANGE", "exchange-type", fallback="fanout")
     
     # Thread-safe state management
     self._state_lock = threading.RLock()

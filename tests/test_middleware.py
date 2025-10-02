@@ -36,13 +36,13 @@ def test_queue_1_to_1(rabbitmq_host, unique_queue_name):
     received_messages.append(message)
 
   consumer.start_consuming(callback)
-  producer.send({"data": "hello"})
+  producer.send(b"hello")
 
   time.sleep(DELAY)
   consumer.stop_consuming()
   consumer.delete()
 
-  assert received_messages == [{"data": "hello"}]
+  assert received_messages == [b"hello"]
 
 
 def test_queue_1_to_n(rabbitmq_host, unique_queue_name):
@@ -61,7 +61,7 @@ def test_queue_1_to_n(rabbitmq_host, unique_queue_name):
 
   # Send multiple messages for distribution
   for i in range(4):
-    producer.send({"msg": i})
+    producer.send(f"message_{i}".encode())
 
   time.sleep(DELAY * 4)
   consumer1.stop_consuming()
@@ -84,22 +84,22 @@ def test_exchange_1_to_1(rabbitmq_host, unique_exchange_name):
   received = []
 
   producer = CoffeeMessageMiddlewareExchange(
-      rabbitmq_host, unique_exchange_name, exchange_type="fanout"
+      rabbitmq_host, unique_exchange_name, []
   )
   consumer = CoffeeMessageMiddlewareExchange(
-      rabbitmq_host, unique_exchange_name, exchange_type="fanout"
+      rabbitmq_host, unique_exchange_name, []
   )
 
   def callback(msg): received.append(msg)
 
   consumer.start_consuming(callback)  # Now blocks until ready internally
-  producer.send({"event": "update"})
+  producer.send(b"update")
 
   time.sleep(DELAY)
   consumer.stop_consuming()
   consumer.delete()
 
-  assert received == [{"event": "update"}]
+  assert received == [b"update"]
 
 
 def test_exchange_1_to_n(rabbitmq_host, unique_exchange_name):
@@ -107,19 +107,19 @@ def test_exchange_1_to_n(rabbitmq_host, unique_exchange_name):
   received_2 = []
 
   producer = CoffeeMessageMiddlewareExchange(
-      rabbitmq_host, unique_exchange_name, exchange_type="fanout"
+      rabbitmq_host, unique_exchange_name, []
   )
   consumer1 = CoffeeMessageMiddlewareExchange(
-      rabbitmq_host, unique_exchange_name, exchange_type="fanout"
+      rabbitmq_host, unique_exchange_name, []
   )
   consumer2 = CoffeeMessageMiddlewareExchange(
-      rabbitmq_host, unique_exchange_name, exchange_type="fanout"
+      rabbitmq_host, unique_exchange_name, []
   )
 
   consumer1.start_consuming(lambda msg: received_1.append(msg))  # Blocks until ready
   consumer2.start_consuming(lambda msg: received_2.append(msg))  # Blocks until ready
   
-  producer.send({"broadcast": True})
+  producer.send(b"broadcast")
 
   time.sleep(DELAY)
   consumer1.stop_consuming()
@@ -133,5 +133,5 @@ def test_exchange_1_to_n(rabbitmq_host, unique_exchange_name):
   except:
     pass
 
-  assert received_1 == [{"broadcast": True}]
-  assert received_2 == [{"broadcast": True}]
+  assert received_1 == [b"broadcast"]
+  assert received_2 == [b"broadcast"]
