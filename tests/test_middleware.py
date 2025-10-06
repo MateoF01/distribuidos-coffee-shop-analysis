@@ -77,7 +77,7 @@ def test_queue_1_to_n(rabbitmq_host, unique_queue_name):
 
   total_received = len(received_1) + len(received_2)
   assert total_received == 4
-  assert received_1 != [] or received_2 != []  # At least one consumed something
+  assert received_1 != [] or received_2 != []
 
 
 def test_exchange_1_to_1(rabbitmq_host, unique_exchange_name):
@@ -92,7 +92,7 @@ def test_exchange_1_to_1(rabbitmq_host, unique_exchange_name):
 
   def callback(msg): received.append(msg)
 
-  consumer.start_consuming(callback)  # Now blocks until ready internally
+  consumer.start_consuming(callback)
   producer.send(b"update")
 
   time.sleep(DELAY)
@@ -116,8 +116,8 @@ def test_exchange_1_to_n(rabbitmq_host, unique_exchange_name):
       rabbitmq_host, unique_exchange_name, []
   )
 
-  consumer1.start_consuming(lambda msg: received_1.append(msg))  # Blocks until ready
-  consumer2.start_consuming(lambda msg: received_2.append(msg))  # Blocks until ready
+  consumer1.start_consuming(lambda msg: received_1.append(msg))
+  consumer2.start_consuming(lambda msg: received_2.append(msg))
   
   producer.send(b"broadcast")
 
