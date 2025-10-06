@@ -8,20 +8,17 @@ import csv
 import logging
 from shared.logging_config import initialize_log
 from middleware.coffeeMiddleware import CoffeeMessageMiddlewareQueue
+from shared.worker import Worker
 
 
-class Joiner:
+class Joiner(Worker):
     def __init__(self, queue_in, queue_out, output_file, columns_want, rabbitmq_host, query_type, multiple_queues=None):
-        self.queue_in = queue_in
+        # Use multiple_input_queues parameter for the Worker superclass
+        input_queues = multiple_queues or [queue_in] if queue_in else multiple_queues
+        super().__init__(queue_in, queue_out, rabbitmq_host, multiple_input_queues=input_queues)
+        
         self.query_type = query_type
         self.columns_want = columns_want
-        self.rabbitmq_host = rabbitmq_host
-
-        # --- OUTPUT QUEUES: múltiples colas separadas por coma ---
-        if isinstance(queue_out, str):
-            queue_out = [q.strip() for q in queue_out.split(',')]
-        out_queues = [CoffeeMessageMiddlewareQueue(host=rabbitmq_host, queue_name=q)
-                      for q in (queue_out or [])]
 
         # --- OUTPUT FILES: múltiples archivos separados por coma ---
         if isinstance(output_file, str):
@@ -29,33 +26,23 @@ class Joiner:
         output_files = output_file or []
 
         # Validación 1–a–1
-        if len(out_queues) != len(output_files):
+        if len(self.out_queues) != len(output_files):
             raise ValueError(
-                f"QUEUE_OUT ({len(out_queues)}) y OUTPUT_FILE ({len(output_files)}) deben tener la MISMA cantidad para mapeo 1–a–1."
+                f"QUEUE_OUT ({len(self.out_queues)}) y OUTPUT_FILE ({len(output_files)}) deben tener la MISMA cantidad para mapeo 1–a–1."
             )
 
         # Pares (queue, file) en el mismo orden
-        self.outputs = list(zip(out_queues, output_files))
+        self.outputs = list(zip(self.out_queues, output_files))
 
         # Estado por archivo (usamos dict por file_path)
         self._csv_initialized = {f: False for _, f in self.outputs}
         self._rows_written = {f: 0 for _, f in self.outputs}
-
-        self._running = False
-        self._shutdown_event = threading.Event()
-        self._lock = threading.Lock()
-
-        self.multiple_queues = multiple_queues or [queue_in]
-        self.in_queues = {}
-        self.end_received = {queue: False for queue in self.multiple_queues}
+        self.end_received = {queue: False for queue in self.multiple_input_queues}
 
         # Temp dir: usar la carpeta del primer output si existe, sino CWD
         base_for_temp = os.path.dirname(self.outputs[0][1]) if self.outputs else os.getcwd()
         self.temp_dir = os.path.join(base_for_temp, 'temp')
         os.makedirs(self.temp_dir, exist_ok=True)
-
-        for queue_name in self.multiple_queues:
-            self.in_queues[queue_name] = CoffeeMessageMiddlewareQueue(host=rabbitmq_host, queue_name=queue_name)
 
         # strategies
         self.strategies = {
@@ -71,6 +58,61 @@ class Joiner:
             "resultados_groupby_q2": ",",
             "resultados_groupby_q3": ",",
         }
+    
+    def _process_message(self, message, msg_type, data_type, payload, queue_name=None):
+        """Process messages from input queues"""
+        # Initialize CSV files on first message for single queue mode
+        if len(self.multiple_input_queues) == 1:
+            for i in range(len(self.outputs)):
+                file_path = self.outputs[i][1]
+                if not self._csv_initialized.get(file_path, False):
+                    self._initialize_csv_idx(i)
+        
+        try:
+            payload_str = payload.decode('utf-8')
+        except Exception as e:
+            logging.error(f"Decode error: {e}")
+            return
+
+        rows = payload_str.split('\n')
+        processed_rows = []
+        for row in rows:
+            if row.strip():
+                items = self._split_row(queue_name, row)
+                if len(items) >= 2:
+                    processed_rows.append(items)
+
+        if processed_rows:
+            with self._lock:
+                if len(self.multiple_input_queues) > 1:
+                    # modo "join later": guardamos crudo por cola
+                    self._save_to_temp_file(queue_name, processed_rows)
+                else:
+                    # modo "single queue": escribimos directamente
+                    # por diseño, Q1 escribiría transaction_id, final_amount
+                    final_rows = [[r[0], r[1]] for r in processed_rows if len(r) >= 2]
+                    if final_rows:
+                        # como no sabemos a cuál salida corresponde,
+                        # en single-queue replicamos el dataset a TODAS
+                        for i in range(len(self.outputs)):
+                            self._write_rows_to_csv_idx(i, final_rows)
+    
+    def _handle_end_signal(self, message, msg_type, data_type, queue_name=None):
+        """Handle end-of-data signals with joiner-specific logic"""
+        with self._lock:
+            if not self.end_received[queue_name]:
+                self.end_received[queue_name] = True
+                logging.info(f"Received end signal from queue: {queue_name}")
+                if all(self.end_received.values()):
+                    logging.info("All queues have sent end signals. Processing joined data...")
+                    if len(self.multiple_input_queues) > 1:
+                        self._process_joined_data()
+                    else:
+                        self._send_sort_request()
+                        total_rows = sum(self._rows_written.values())
+                        logging.info(f'CSV data collection complete with {total_rows} total rows. Sort request sent.')
+            else:
+                logging.warning(f'Already received END signal from {queue_name}, ignoring duplicate')
 
     # =====================
     # Utils de CSV por salida
@@ -355,162 +397,45 @@ class Joiner:
     # Principal Loop 
     # =====================
 
-    def run(self):
-        self._running = True
-
-        def create_message_handler(queue_name):
-            def on_message(message):
-                if not self._running:
-                    return
-                try:
-                    # For single queue mode, initialize CSV files on first message
-                    if len(self.multiple_queues) == 1:
-                        for i in range(len(self.outputs)):
-                            file_path = self.outputs[i][1]
-                            if not self._csv_initialized.get(file_path, False):
-                                self._initialize_csv_idx(i)
-
-                    # All messages have protocol headers
-                    if not isinstance(message, bytes) or len(message) < 6:
-                        return
-
-                    header = message[:6]
-                    msg_type, data_type, payload_len = struct.unpack('>BBI', header)
-                    payload = message[6:]
-
-                    if msg_type == 2:  # END
-                        with self._lock:
-                            if not self.end_received[queue_name]:
-                                self.end_received[queue_name] = True
-                                if all(self.end_received.values()):
-                                    print("All queues have sent end signals. Processing joined data...")
-                                    if len(self.multiple_queues) > 1:
-                                        self._process_joined_data()
-                                    else:
-                                        self._send_sort_request()
-                                        total_rows = sum(self._rows_written.values())
-                                        print(f'CSV data collection complete with {total_rows} total rows. Sort request sent.')
-                            else:
-                                print(f'Already received END signal from {queue_name}, ignoring duplicate')
-                        return
-
-                    try:
-                        payload_str = payload.decode('utf-8')
-                    except Exception as e:
-                        print(f"Decode error: {e}")
-                        return
-
-                    rows = payload_str.split('\n')
-                    processed_rows = []
-                    for row in rows:
-                        if row.strip():
-                            items = self._split_row(queue_name, row)
-                            if len(items) >= 2:
-                                processed_rows.append(items)
-
-                    if processed_rows:
-                        with self._lock:
-                            if len(self.multiple_queues) > 1:
-                                # modo "join later": guardamos crudo por cola
-                                self._save_to_temp_file(queue_name, processed_rows)
-                            else:
-                                # modo "single queue": escribimos directamente
-                                # por diseño, Q1 escribiría transaction_id, final_amount
-                                final_rows = [[r[0], r[1]] for r in processed_rows if len(r) >= 2]
-                                if final_rows:
-                                    # como no sabemos a cuál salida corresponde,
-                                    # en single-queue replicamos el dataset a TODAS
-                                    for i in range(len(self.outputs)):
-                                        self._write_rows_to_csv_idx(i, final_rows)
-                except Exception as e:
-                    print(f"Error processing message: {e}")
-
-            return on_message
-
-        for queue_name in self.multiple_queues:
-            handler = create_message_handler(queue_name)
-            print(f"Joiner listening on {queue_name}")
-            self.in_queues[queue_name].start_consuming(handler)
-
+    def _log_startup_info(self):
+        """Override to provide joiner-specific startup information"""
         output_files = [f for _, f in self.outputs]
-        print(f"Joiner will output to {', '.join(output_files)}")
-
-        # Keep the main thread alive - wait indefinitely until shutdown is signaled
-        try:
-            self._shutdown_event.wait()
-        except KeyboardInterrupt:
-            print("Keyboard interrupt received, shutting down...")
-            self.stop()
-
-    def stop(self):
-        self._running = False
-        self._shutdown_event.set()
-        for q in self.in_queues.values():
-            try:
-                q.stop_consuming()
-            except:
-                pass
-        self.close()
-
-    def close(self):
-        for q in self.in_queues.values():
-            try: q.close()
-            except: pass
-        for out_q, _ in self.outputs:
-            try: out_q.close()
-            except: pass
+        output_info = f"output files: {', '.join(output_files)}"
+        input_info = f"multiple input queues: {self.multiple_input_queues}"
+        logging.info(f"Joiner started - {input_info}, {output_info}")
 
 
 if __name__ == '__main__':
-    queue_in = os.environ.get('QUEUE_IN')
-    queue_out_env = os.environ.get('QUEUE_OUT')           # puede tener múltiples, coma
-    output_file_env = os.environ.get('OUTPUT_FILE')       # puede tener múltiples, coma
-    query_type = os.environ.get('QUERY_TYPE')
-    rabbitmq_host = os.environ.get('RABBITMQ_HOST', 'rabbitmq')
+    def create_joiner():
+        queue_in = os.environ.get('QUEUE_IN')
+        queue_out_env = os.environ.get('QUEUE_OUT')           # puede tener múltiples, coma
+        output_file_env = os.environ.get('OUTPUT_FILE')       # puede tener múltiples, coma
+        query_type = os.environ.get('QUERY_TYPE')
+        rabbitmq_host = os.environ.get('RABBITMQ_HOST', 'rabbitmq')
 
-    # múltiples input queues (para join)
-    multiple_queues_str = os.environ.get('MULTIPLE_QUEUES')
-    multiple_queues = [q.strip() for q in multiple_queues_str.split(',')] if multiple_queues_str else [queue_in]
+        # múltiples input queues (para join)
+        multiple_queues_str = os.environ.get('MULTIPLE_QUEUES')
+        multiple_queues = [q.strip() for q in multiple_queues_str.split(',')] if multiple_queues_str else [queue_in]
 
+        config_path = os.path.join(os.path.dirname(__file__), 'config.ini')
+        config = configparser.ConfigParser()
+        config.read(config_path)
+
+        if query_type not in config:
+            raise ValueError(f"Unknown query type: {query_type}")
+
+        columns_want = [col.strip() for col in config[query_type]['columns'].split(',')]
+
+        return Joiner(
+            queue_in=queue_in,
+            queue_out=queue_out_env,
+            output_file=output_file_env,
+            columns_want=columns_want,
+            rabbitmq_host=rabbitmq_host,
+            query_type=query_type,
+            multiple_queues=multiple_queues
+        )
+    
+    # Use the Worker base class main entry point
     config_path = os.path.join(os.path.dirname(__file__), 'config.ini')
-    config = configparser.ConfigParser()
-    config.read(config_path)
-
-    if query_type not in config:
-        raise ValueError(f"Unknown query type: {query_type}")
-
-    columns_want = [col.strip() for col in config[query_type]['columns'].split(',')]
-
-    joiner = Joiner(
-        queue_in=queue_in,
-        queue_out=queue_out_env,
-        output_file=output_file_env,
-        columns_want=columns_want,
-        rabbitmq_host=rabbitmq_host,
-        query_type=query_type,
-        multiple_queues=multiple_queues
-    )
-
-    # Initialize logging
-    config_path = os.path.join(os.path.dirname(__file__), 'config.ini')
-    config = configparser.ConfigParser()
-    config.read(config_path)
-    logging_level = os.environ.get('LOGGING_LEVEL', config.get('DEFAULT', 'LOGGING_LEVEL', fallback='INFO'))
-    initialize_log(logging_level)
-
-    def signal_handler(signum, frame):
-        logging.info(f"Received signal {signum}, shutting down joiner gracefully...")
-        joiner.stop()
-        sys.exit(0)
-
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-
-    try:
-        logging.info(f"Starting joiner for {query_type} query...")
-        joiner.run()
-    except KeyboardInterrupt:
-        logging.info("Keyboard interrupt received.")
-        joiner.stop()
-    finally:
-        logging.info("Joiner shutdown complete.")
+    Joiner.run_worker_main(create_joiner, config_path)

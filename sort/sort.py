@@ -8,6 +8,7 @@ import csv
 import heapq
 import time
 from middleware.coffeeMiddleware import CoffeeMessageMiddlewareQueue
+from shared.worker import FileProcessingWorker
 
 class SorterConfig:
     def __init__(self, config_parser, data_type):
@@ -75,17 +76,14 @@ class SorterConfig:
                 f"invalid_number_fallback={self.invalid_number_fallback}, "
                 f"sort_column_index={self.sort_column_index})")
 
-class Sorter:
+class Sorter(FileProcessingWorker):
     def __init__(self, queue_in, input_file, output_file, rabbitmq_host, config: SorterConfig, completion_queue=None):
-        self.queue_in = queue_in
-        self.input_file = input_file
-        self.output_file = output_file
+        # Initialize with completion_queue as output if provided
+        queue_out = completion_queue if completion_queue else None
+        super().__init__(queue_in, queue_out, rabbitmq_host, input_file=input_file, output_file=output_file)
         self.sort_column_index = config.sort_column_index
         self.config = config
-        self._running = False
-        self._shutdown_event = threading.Event()
-        self.in_queue = CoffeeMessageMiddlewareQueue(host=rabbitmq_host, queue_name=queue_in)
-        self.completion_queue = CoffeeMessageMiddlewareQueue(host=rabbitmq_host, queue_name=completion_queue) if completion_queue else None
+        self.completion_queue_name = completion_queue
         self._temp_files = []
 
     def _write_sorted_chunk(self, chunk_data):
@@ -187,7 +185,7 @@ class Sorter:
         except Exception as e:
             print(f"Error merging sorted files: {e}")
 
-    def _sort_file(self):
+    def _process_file(self):
         """Sort the input file using external merge sort approach"""
         try:
             if not os.path.exists(self.input_file):
@@ -222,7 +220,8 @@ class Sorter:
             else:
                 print(f"Successfully sorted {self.input_file} by column {self.sort_column_index} and saved to {self.output_file}")
             
-# Completion signal will be sent by the message handler
+            # Send completion signal
+            self._send_completion_signal()
             
         except Exception as e:
             print(f"Error sorting file: {e}")
@@ -230,108 +229,58 @@ class Sorter:
     def _send_completion_signal(self):
         """Send a completion signal to notify that sorting is done"""
         try:
-            if self.completion_queue:
+            if self.out_queues:
                 # Create completion signal message (msg_type=3, data_type=0)
                 header = struct.pack('>BBI', 3, 0, 0)  # Completion signal
-                self.completion_queue.send(header)
+                self.out_queues[0].send(header)
                 print(f"Sent completion signal for {self.output_file}")
             else:
                 print("No completion queue configured")
         except Exception as e:
             print(f"Error sending completion signal: {e}")
 
-    def run(self):
-        self._running = True
-
-        def on_message(message):
-            if not self._running:
-                return
-            try:
-                # Expect message as bytes: header (configured size) + payload
-                if not isinstance(message, bytes) or len(message) < self.config.header_size:
-                    print(f"Invalid message format or too short: {message}")
-                    return
-                
-                header = message[:self.config.header_size]
-                msg_type, data_type, payload_len = struct.unpack('>BBI', header)
-                payload = message[self.config.header_size:]
-
-                # Check for sort signal
-                if msg_type == self.config.sort_signal_type:
-                    print(f'Sort signal received for file: {self.input_file}')
-                    self._sort_file()
-                    print(f'Sort complete. Output saved to: {self.output_file}')
-                    # Could send completion signal back if needed
-                    self._send_completion_signal()
-                    return
-                
-            except Exception as e:
-                print(f"Error processing message: {e} - Message: {message}")
-
-        print(f"Sorter listening on {self.queue_in} for sort requests")
-        self.in_queue.start_consuming(on_message)
-
-        # Keep the main thread alive
-        try:
-            self._shutdown_event.wait()
-        except KeyboardInterrupt:
-            print("Keyboard interrupt received, shutting down...")
-            self.stop()
-
-    def stop(self):
-        self._running = False
-        self._shutdown_event.set()
-        try:
-            self.in_queue.stop_consuming()
-        except Exception as e:
-            print(f"Error stopping consumer: {e}")
-        self.close()
-
-    def close(self):
-        self.in_queue.close()
+    def _process_message(self, message, msg_type, data_type, payload, queue_name=None):
+        """Process sort signal messages"""
+        if msg_type == self.config.sort_signal_type:
+            print(f'Sort signal received for file: {self.input_file}')
+            self._process_file()
+            print(f'Sort complete. Output saved to: {self.output_file}')
+        else:
+            print(f"Received unexpected message type: {msg_type}/{data_type}")
+    
+    def _validate_message(self, message):
+        """Override to use custom header size"""
+        if not isinstance(message, bytes) or len(message) < self.config.header_size:
+            print(f"Invalid message format or too short: {message}")
+            return False
+        return True
         if self.completion_queue:
             self.completion_queue.close()
 
 if __name__ == '__main__':
-    # Configure via environment variables
-    queue_in = os.environ.get('QUEUE_IN')
-    input_file = os.environ.get('INPUT_FILE')
-    output_file = os.environ.get('OUTPUT_FILE')
-    data_type = os.environ.get('DATA_TYPE')
-    completion_queue = os.environ.get('COMPLETION_QUEUE')
-    rabbitmq_host = os.environ.get('RABBITMQ_HOST', 'rabbitmq')
+    def create_sorter():
+        # Configure via environment variables
+        queue_in = os.environ.get('QUEUE_IN')
+        input_file = os.environ.get('INPUT_FILE')
+        output_file = os.environ.get('OUTPUT_FILE')
+        data_type = os.environ.get('DATA_TYPE')
+        completion_queue = os.environ.get('COMPLETION_QUEUE')
+        rabbitmq_host = os.environ.get('RABBITMQ_HOST', 'rabbitmq')
 
-    if not all([queue_in, input_file, output_file, data_type]):
-        raise ValueError("Missing required environment variables: QUEUE_IN, INPUT_FILE, OUTPUT_FILE, DATA_TYPE")
+        if not all([queue_in, input_file, output_file, data_type]):
+            raise ValueError("Missing required environment variables: QUEUE_IN, INPUT_FILE, OUTPUT_FILE, DATA_TYPE")
 
-    # Load configuration
+        # Load configuration
+        config_path = os.path.join(os.path.dirname(__file__), 'config.ini')
+        config_parser = configparser.ConfigParser()
+        config_parser.read(config_path)
+        
+        # Create configuration object
+        config = SorterConfig(config_parser, data_type)
+        print(f"Loaded configuration: {config}")
+        
+        return Sorter(queue_in, input_file, output_file, rabbitmq_host, config, completion_queue)
+    
+    # Use the Worker base class main entry point
     config_path = os.path.join(os.path.dirname(__file__), 'config.ini')
-    config_parser = configparser.ConfigParser()
-    config_parser.read(config_path)
-    
-    # Create configuration object
-    config = SorterConfig(config_parser, data_type)
-    print(f"Loaded configuration: {config}")
-    
-    sorter = Sorter(queue_in, input_file, output_file, rabbitmq_host, config, completion_queue)
-    
-    # Set up signal handlers for graceful shutdown
-    def signal_handler(signum, frame):
-        print(f'Received signal {signum}, shutting down sorter gracefully...')
-        sorter.stop()
-        sys.exit(0)
-    
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-    
-    try:
-        print(f"Starting sorter...")
-        sorter.run()
-    except KeyboardInterrupt:
-        print('Keyboard interrupt received, shutting down sorter.')
-        sorter.stop()
-    except Exception as e:
-        print(f'Error in sorter: {e}')
-        sorter.stop()
-    finally:
-        print('Sorter shutdown complete.')
+    Sorter.run_worker_main(create_sorter, config_path)

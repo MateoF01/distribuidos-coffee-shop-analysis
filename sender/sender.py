@@ -7,22 +7,16 @@ import logging
 from middleware.coffeeMiddleware import CoffeeMessageMiddlewareQueue
 from shared import protocol
 from shared.logging_config import initialize_log
+from shared.worker import FileProcessingWorker
 
-class Sender:
+class Sender(FileProcessingWorker):
     def __init__(self, queue_in, queue_out, input_file, rabbitmq_host, batch_size=5000, query_type='q1', include_headers=False):
-        self.queue_in = queue_in
-        self.queue_out = queue_out
-        self.input_file = input_file
+        super().__init__(queue_in, queue_out, rabbitmq_host, input_file=input_file)
         self.batch_size = batch_size
         self.query_type = query_type
-        self.rabbitmq_host = rabbitmq_host
         self.include_headers = include_headers
-        self._running = False
-        self._shutdown_event = threading.Event()
-        self.in_queue = CoffeeMessageMiddlewareQueue(host=rabbitmq_host, queue_name=queue_in)
-        self.out_queue = CoffeeMessageMiddlewareQueue(host=rabbitmq_host, queue_name=queue_out)
 
-    def _send_csv_file(self):
+    def _process_file(self):
         """Read CSV file and send it in batches to output queue"""
         if not os.path.exists(self.input_file):
             print(f"[ERROR] Input file {self.input_file} does not exist")
@@ -92,7 +86,7 @@ class Sender:
             }
             data_type = data_type_map.get(self.query_type, protocol.Q1_RESULT)
             message = protocol.pack_message(protocol.MSG_TYPE_DATA, data_type, payload)
-            self.out_queue.send(message)
+            self.out_queues[0].send(message)
         except Exception as e:
             print(f"[ERROR] Error sending batch: {e}")
             raise
@@ -110,108 +104,37 @@ class Sender:
             }
             query_result_type = data_type_map.get(self.query_type, protocol.Q1_RESULT)
             message1 = protocol.pack_message(protocol.MSG_TYPE_END, query_result_type, b"")
-            self.out_queue.send(message1)
+            self.out_queues[0].send(message1)
             print(f"[INFO] Sent MSG_TYPE_END with {self.query_type.upper()}_RESULT ({query_result_type})")
             
             # Send second END signal with DATA_END
             message2 = protocol.pack_message(protocol.MSG_TYPE_END, protocol.DATA_END, b"")
-            self.out_queue.send(message2)
+            self.out_queues[0].send(message2)
             print(f"[INFO] Sent MSG_TYPE_END with DATA_END")
             
         except Exception as e:
             print(f"[ERROR] Error sending END signals: {e}")
 
-    def run(self):
-        """Main run loop - listen for completion signals"""
-        self._running = True
 
-        def on_message(message):
-            if not self._running:
-                return
-            try:
-                if not isinstance(message, bytes) or len(message) < 6:
-                    print(f"[WARN] Invalid message format or too short: {message}")
-                    return
-                
-                msg_type, data_type, payload = protocol._unpack_message(message)
-
-                print(f"[INFO] Received message: msg_type={msg_type}, data_type={data_type}")
-
-                # Check for completion signal (like grouper uses MSG_TYPE_NOTI)
-                if msg_type == protocol.MSG_TYPE_NOTI:
-                    print(f'[INFO] Completion signal received. Starting to send file: {self.input_file}')
-                    self._send_csv_file()
-                    print(f'[INFO] File transmission complete')
-                    return
-                else:
-                    print(f"[WARN] Received unexpected message type: {msg_type}/{data_type}")
-                
-            except Exception as e:
-                print(f"[ERROR] Error processing message: {e} - Message: {message}")
-
-        print(f"[INFO] Sender listening on {self.queue_in} for completion signals")
-        self.in_queue.start_consuming(on_message)
-
-        # Keep the main thread alive
-        try:
-            self._shutdown_event.wait()
-        except KeyboardInterrupt:
-            print("[INFO] Keyboard interrupt received, shutting down...")
-            self.stop()
-
-    def stop(self):
-        """Stop the sender"""
-        print("[INFO] Stopping sender...")
-        self._running = False
-        self._shutdown_event.set()
-        try:
-            self.in_queue.stop_consuming()
-        except Exception as e:
-            print(f"[ERROR] Error stopping consumer: {e}")
-        self.close()
-
-    def close(self):
-        """Close all connections"""
-        try:
-            self.in_queue.close()
-            self.out_queue.close()
-        except Exception as e:
-            print(f"[ERROR] Error closing queues: {e}")
 
 if __name__ == '__main__':
-    # Configure via environment variables
-    queue_in = os.environ.get('QUEUE_IN')
-    queue_out = os.environ.get('QUEUE_OUT')
-    input_file = os.environ.get('INPUT_FILE')
-    rabbitmq_host = os.environ.get('RABBITMQ_HOST', 'rabbitmq')
-    batch_size = int(os.environ.get('BATCH_SIZE', '5000'))
-    query_type = os.environ.get('QUERY_TYPE', 'q1')
-    include_headers = os.environ.get('INCLUDE_HEADERS', 'false').lower() == 'true'
+    def create_sender():
+        # Configure via environment variables
+        queue_in = os.environ.get('QUEUE_IN')
+        queue_out = os.environ.get('QUEUE_OUT')
+        input_file = os.environ.get('INPUT_FILE')
+        rabbitmq_host = os.environ.get('RABBITMQ_HOST', 'rabbitmq')
+        batch_size = int(os.environ.get('BATCH_SIZE', '5000'))
+        query_type = os.environ.get('QUERY_TYPE', 'q1')
+        include_headers = os.environ.get('INCLUDE_HEADERS', 'false').lower() == 'true'
 
-    if not all([queue_in, queue_out, input_file]):
-        raise ValueError("Missing required environment variables: QUEUE_IN, QUEUE_OUT, INPUT_FILE")
+        if not all([queue_in, queue_out, input_file]):
+            raise ValueError("Missing required environment variables: QUEUE_IN, QUEUE_OUT, INPUT_FILE")
 
-    print(f"[INFO] Using batch_size: {batch_size}, query_type: {query_type}, include_headers: {include_headers}")
+        print(f"[INFO] Using batch_size: {batch_size}, query_type: {query_type}, include_headers: {include_headers}")
+        
+        return Sender(queue_in, queue_out, input_file, rabbitmq_host, batch_size, query_type, include_headers)
     
-    sender = Sender(queue_in, queue_out, input_file, rabbitmq_host, batch_size, query_type, include_headers)
-    
-    # Set up signal handlers for graceful shutdown
-    def signal_handler(signum, frame):
-        print(f'[INFO] Received signal {signum}, shutting down sender gracefully...')
-        sender.stop()
-        sys.exit(0)
-    
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-    
-    try:
-        print(f"[INFO] Starting sender...")
-        sender.run()
-    except KeyboardInterrupt:
-        print('[INFO] Keyboard interrupt received, shutting down sender.')
-        sender.stop()
-    except Exception as e:
-        print(f'[ERROR] Error in sender: {e}')
-        sender.stop()
-    finally:
-        print('[INFO] Sender shutdown complete.')
+    # Use the Worker base class main entry point
+    config_path = os.path.join(os.path.dirname(__file__), 'config.ini')
+    Sender.run_worker_main(create_sender, config_path)

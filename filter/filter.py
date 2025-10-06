@@ -6,95 +6,49 @@ import struct
 import configparser
 import logging
 from shared.logging_config import initialize_log
+from shared.worker import StreamProcessingWorker
 
 from middleware.coffeeMiddleware import CoffeeMessageMiddlewareQueue
 
-class Filter:
+class Filter(StreamProcessingWorker):
     def __init__(self, queue_in, queue_out, rabbitmq_host):
-        if isinstance(queue_out, str):
-            queue_out = [q.strip() for q in queue_out.split(',')]
-        self.queue_in = queue_in
-        self.queue_out = queue_out
-        self._running = False
-        self._shutdown_event = threading.Event()
-        self.in_queue = CoffeeMessageMiddlewareQueue(host=rabbitmq_host, queue_name=queue_in)
-        self.out_queues = [CoffeeMessageMiddlewareQueue(host=rabbitmq_host, queue_name=q) for q in self.queue_out]
+        super().__init__(queue_in, queue_out, rabbitmq_host)
+
+    def _process_rows(self, rows, queue_name=None):
+        """Process rows and return results organized by queue."""
+        dic_queue_row = {}
+        
+        for row in rows:
+            if not row.strip():
+                continue
+                
+            rows_queues = self._filter_row(row) or []
+            
+            for filtered_row, target_queue_name in rows_queues:
+                if target_queue_name not in dic_queue_row:
+                    dic_queue_row[target_queue_name] = []
+                dic_queue_row[target_queue_name].append(filtered_row)
+        
+        return dic_queue_row
+    
+    def _send_complex_results(self, dic_queue_row, msg_type, data_type):
+        """Send filtered results to appropriate queues."""
+        for queue_name, filtered_rows in dic_queue_row.items():
+            new_payload_str = '\n'.join(filtered_rows)
+            new_payload = new_payload_str.encode('utf-8')
+            new_payload_len = len(new_payload)
+            new_header = struct.pack('>BBI', msg_type, data_type, new_payload_len)
+            new_message = new_header + new_payload
+
+            for q in self.out_queues:
+                if q.queue_name == queue_name:
+                    q.send(new_message)
 
     # Método genérico que cada hijo va a redefinir
     def _filter_row(self, row: str):
-        return row
+        return [(row, self.out_queues[0].queue_name if self.out_queues else "default")]
 
-    def run(self):
-        def on_message(message):
-            if not self._running:
-                return
-            try:
-                if not isinstance(message, bytes) or len(message) < 6:
-                    return
-                header = message[:6]
-                msg_type, data_type, payload_len = struct.unpack('>BBI', header)
-                payload = message[6:]
 
-                if msg_type == 2:
-                    for q in self.out_queues:
-                        logging.debug(f"Filter sending end-of-data data_type:{data_type} to {q.queue_name}")
-                        q.send(message)
-                    # if data_type == 6:
-                    #     q.send(message)
-                        # self.stop()
-                    return
-
-                payload_str = payload.decode('utf-8')
-                rows = payload_str.split('\n')
-
-                dic_queue_row = {}
-
-                for row in rows:
-                    rows_queues = self._filter_row(row) or []
-
-                    for row, queue_name in rows_queues:
-                        if queue_name not in dic_queue_row:
-                            dic_queue_row[queue_name] = []
-                        
-                        dic_queue_row[queue_name].append(row)
-
-                if not dic_queue_row:
-                    return
-
-                for queue_name in dic_queue_row.keys():
-                    
-                    filtered_rows = dic_queue_row[queue_name]
-
-                    new_payload_str = '\n'.join(filtered_rows)
-                    new_payload = new_payload_str.encode('utf-8')
-                    new_payload_len = len(new_payload)
-                    new_header = struct.pack('>BBI', msg_type, data_type, new_payload_len)
-                    new_message = new_header + new_payload
-
-                    for q in self.out_queues:
-                        if q.queue_name == queue_name:
-                            q.send(new_message)
-
-            except Exception as e:
-                logging.error(f"Error processing message: {e} - Message: {message}")
-
-        self._running = True
-        self.in_queue.start_consuming(on_message)
-        self._shutdown_event.wait()
-
-    def stop(self):
-        self._running = False
-        self._shutdown_event.set()
-        try:
-            self.in_queue.stop_consuming()
-        except Exception:
-            pass
-        self.close()
-
-    def close(self):
-        self.in_queue.close()
-        for q in self.out_queues:
-            q.close()
 
 
 # ====================
@@ -170,7 +124,7 @@ class AmountFilter(Filter):
 
         if amount < self.min_amount:
             return None
-        return [(row, self.queue_out[0])]
+        return [(row, self.out_queues[0].queue_name)]
 
 
 # ====================
@@ -178,51 +132,36 @@ class AmountFilter(Filter):
 # ====================
 
 if __name__ == '__main__':
-    queue_in = os.environ.get('QUEUE_IN')
-    queue_out = os.environ.get('QUEUE_OUT')
-    rabbitmq_host = os.environ.get('RABBITMQ_HOST', 'rabbitmq')
+    def create_filter():
+        queue_in = os.environ.get('QUEUE_IN')
+        queue_out = os.environ.get('QUEUE_OUT')
+        rabbitmq_host = os.environ.get('RABBITMQ_HOST', 'rabbitmq')
 
-    filter_type = os.environ.get('FILTER_TYPE', 'temporal')  # temporal o amount
+        filter_type = os.environ.get('FILTER_TYPE', 'temporal')  # temporal o amount
+        config_path = os.path.join(os.path.dirname(__file__), 'config.ini')
+        config = configparser.ConfigParser()
+        config.read(config_path)
+
+        data_type = os.environ.get('DATA_TYPE')
+        if data_type not in config:
+            raise ValueError(f"Unknown data type: {data_type}")
+
+        columns_have = [c.strip() for c in config[data_type]['have'].split(',')]
+        col_index = {c: i for i, c in enumerate(columns_have)}
+
+        if filter_type == 'temporal':
+            temporal_config_path = os.path.join(os.path.dirname(__file__), 'temporal_filter_config.ini')
+            temporal_config = configparser.ConfigParser()
+            temporal_config.read(temporal_config_path)
+            return TemporalFilter(queue_in, queue_out, rabbitmq_host, data_type, col_index, temporal_config)
+
+        elif filter_type == 'amount':
+            min_amount = os.environ.get('MIN_AMOUNT')
+            return AmountFilter(queue_in, queue_out, rabbitmq_host, min_amount, col_index)
+
+        else:
+            raise ValueError(f"Unknown FILTER_TYPE: {filter_type}")
+
+    # Use the Worker base class main entry point
     config_path = os.path.join(os.path.dirname(__file__), 'config.ini')
-    config = configparser.ConfigParser()
-    config.read(config_path)
-
-    data_type = os.environ.get('DATA_TYPE')
-    if data_type not in config:
-        raise ValueError(f"Unknown data type: {data_type}")
-
-    columns_have = [c.strip() for c in config[data_type]['have'].split(',')]
-    col_index = {c: i for i, c in enumerate(columns_have)}
-
-
-    if filter_type == 'temporal':
-        temporal_config_path = os.path.join(os.path.dirname(__file__), 'temporal_filter_config.ini')
-        temporal_config = configparser.ConfigParser()
-        temporal_config.read(temporal_config_path)
-        f = TemporalFilter(queue_in, queue_out, rabbitmq_host, data_type, col_index, temporal_config)
-
-    elif filter_type == 'amount':
-        min_amount = os.environ.get('MIN_AMOUNT')
-        f = AmountFilter(queue_in, queue_out, rabbitmq_host, min_amount, col_index)
-
-    else:
-        raise ValueError(f"Unknown FILTER_TYPE: {filter_type}")
-
-    # Initialize logging
-    config_path = 'config.ini'
-    config = configparser.ConfigParser()
-    config.read(config_path)
-    logging_level = os.environ.get('LOGGING_LEVEL', config.get('DEFAULT', 'LOGGING_LEVEL', fallback='INFO'))
-    initialize_log(logging_level)
-
-    # Signal handling
-    def signal_handler(signum, frame):
-        logging.info(f"Signal {signum}, shutting down filter gracefully...")
-        f.stop()
-        sys.exit(0)
-
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-
-    logging.info(f"Starting {filter_type} filter...")
-    f.run()
+    Filter.run_worker_main(create_filter, config_path)
