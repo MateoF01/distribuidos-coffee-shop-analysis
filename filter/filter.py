@@ -8,7 +8,6 @@ import logging
 from shared.logging_config import initialize_log
 from shared.worker import StreamProcessingWorker
 
-from middleware.coffeeMiddleware import CoffeeMessageMiddlewareQueue
 
 class Filter(StreamProcessingWorker):
     def __init__(self, queue_in, queue_out, rabbitmq_host):

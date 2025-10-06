@@ -57,7 +57,7 @@ services:
       BATCH_MAX_AMOUNT: 5000
     volumes:
       - ./data:/app/.data
-      - ./results:/app/results
+      - ./results:/app/resultst
     networks:
       - coffee-net
 
@@ -86,7 +86,6 @@ services:
     build:
       context: .
       dockerfile: cleaner/Dockerfile
-    container_name: cleaner_transaction_items
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -304,11 +303,10 @@ services:
     networks:
       - coffee-net
   
-  grouper_q2:
+  grouper_q2_v2:
     build:
       context: .
-      dockerfile: grouper/Dockerfile
-    container_name: grouper_q2
+      dockerfile: grouper_v2/Dockerfile
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -323,7 +321,7 @@ services:
       COMPLETION_QUEUE: topper_q2_signal
       GROUPER_MODE: q2
     volumes:
-      - ./grouper/temp:/app/temp
+      - ./grouper_v2/temp:/app/temp
     networks:
       - coffee-net
 
@@ -381,7 +379,7 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
-      grouper_q2:
+      grouper_q2_v2:
         condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
