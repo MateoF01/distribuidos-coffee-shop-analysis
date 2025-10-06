@@ -318,12 +318,37 @@ services:
       RABBITMQ_USER: admin
       RABBITMQ_PASS: secretpassword
       QUEUE_IN: transaction_items_filtered_Q2
-      COMPLETION_QUEUE: topper_q2_signal
+      COMPLETION_QUEUE: reducer_q2_signal
       GROUPER_MODE: q2
     volumes:
       - ./grouper_v2/temp:/app/temp
     networks:
       - coffee-net
+
+  reducer_q2:
+    build:
+      context: .
+      dockerfile: reducer_q2/Dockerfile
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      gateway:
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      QUEUE_IN: reducer_q2_signal
+      COMPLETION_QUEUE: topper_q2_signal
+      REDUCER_MODE: q2      
+      INPUT_DIR: /app/temp/grouper_q2
+      OUTPUT_FILE: /app/temp/transaction_items_filtered_Q2
+    volumes:
+      - ./reducer_q2/temp:/app/temp
+    networks:
+      - coffee-net
+
 
   grouper_q3:
     build:

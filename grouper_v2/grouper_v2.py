@@ -8,7 +8,7 @@ import gc
 from collections import defaultdict
 from datetime import datetime
 import socket
-
+from shared import protocol
 
 BASE_TEMP_DIR = os.path.join(os.path.dirname(__file__), 'temp')
 os.makedirs(BASE_TEMP_DIR, exist_ok=True)
@@ -65,7 +65,6 @@ class GrouperV2(StreamProcessingWorker):
             except (ValueError, IndexError):
                 continue
         
-        print("ITEMS DIC: ", monthly_data.items())
         # Process each month separately to minimize memory usage
         for month, items_dict in monthly_data.items():
             self._update_q2_file(temp_dir, month, items_dict)
@@ -100,6 +99,19 @@ class GrouperV2(StreamProcessingWorker):
         with open(fpath, 'w') as f:
             for item_id, vals in existing_data.items():
                 f.write(f'{item_id},{vals[0]},{vals[1]}\n')
+
+
+    #tuve que sobreescribir este metodo porque no hay clase para recibir rows y enviar una notificacion
+    def _handle_end_signal(self, message, msg_type, data_type, queue_name=None):
+        logging.info(f"[{self.replica_id}] END recibido — enviando notificación de completado.")
+
+        noti_payload = f"completed_by={self.replica_id}".encode("utf-8")
+        noti_message = protocol.pack_message(protocol.MSG_TYPE_NOTI, data_type, noti_payload)
+
+        for q in self.out_queues:
+            q.send(noti_message)
+
+        logging.info(f"[{self.replica_id}] Notificación enviada a reducer(s): {[q.queue_name for q in self.out_queues]}")
 # ====================
 # Main
 # ====================
