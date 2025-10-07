@@ -9,6 +9,7 @@ import logging
 from middleware.coffeeMiddleware import CoffeeMessageMiddlewareQueue
 from shared import protocol
 from shared.logging_config import initialize_log
+from shared.worker import Worker
 
 # Load configuration
 config_path = os.path.join(os.path.dirname(__file__), 'config.ini')
@@ -19,64 +20,32 @@ config.read(config_path)
 BASE_TEMP_DIR = os.environ.get('BASE_TEMP_DIR', config['topper']['base_temp_dir'])
 os.makedirs(BASE_TEMP_DIR, exist_ok=True)
 
-class Topper:
+class Topper(Worker):
 
     def __init__(self, queue_in, input_dir, output_file, rabbitmq_host, top_n, topper_mode, completion_queue):
-        self.queue_in = queue_in
+        super().__init__(queue_in, completion_queue, rabbitmq_host)
         self.input_dir = input_dir
-        self.rabbitmq_host = rabbitmq_host
         self.top_n = top_n
-        self.completion_queue = completion_queue
+        self.completion_queue_name = completion_queue
         self.query_id = queue_in
         self.output_dir = os.path.join(BASE_TEMP_DIR, self.query_id)
         os.makedirs(self.output_dir, exist_ok=True)
         output_filename = os.path.basename(output_file)
         self.output_file = os.path.join(self.output_dir, output_filename)
-        self._running = False
-        self._shutdown_event = threading.Event()
-        self.in_queue = CoffeeMessageMiddlewareQueue(host=rabbitmq_host, queue_name=queue_in)
-        self.out_queue = None
-        if self.completion_queue:
-            self.out_queue = CoffeeMessageMiddlewareQueue(host=rabbitmq_host, queue_name=completion_queue)
         self.topper_mode = topper_mode
 
-    def run(self):
-        self._running = True
-        
-        def on_message(message):
-            if not self._running:
-                return
-            try:
-                logging.debug(f"[Topper] Received signal from queue: {self.queue_in}")
-                if not isinstance(message, bytes) or len(message) < 6:
-                    logging.warning(f"Invalid message format or too short: {message}")
-                    return
-                
-                msg_type, data_type, payload = protocol._unpack_message(message)
-                
-                if msg_type == protocol.MSG_TYPE_NOTI:
-                    logging.info('[Topper] Received completion signal, starting CSV processing...')
-                    if(self.topper_mode == 'Q2'):
-                        self.process_csv_files_Q2()
-                    if(self.topper_mode == 'Q3'):
-                        self.process_csv_files_Q3()
-                    if(self.topper_mode == 'Q4'):
-                        self.process_csv_files_Q4()
-                    return
-                else:
-                    print(f"[Topper] Received unknown message type: {msg_type}")
-                    
-            except Exception as e:
-                logging.error(f"Error processing message: {e} - Message: {message}")
-
-        logging.info(f"Topper listening on {self.queue_in}")
-        self.in_queue.start_consuming(on_message)
-        
-        try:
-            self._shutdown_event.wait()
-        except KeyboardInterrupt:
-            print("Keyboard interrupt received, shutting down...")
-            self.stop()
+    def _process_message(self, message, msg_type, data_type, payload, queue_name=None):
+        """Process completion signals to start CSV processing"""
+        if msg_type == protocol.MSG_TYPE_NOTI:
+            logging.info('[Topper] Received completion signal, starting CSV processing...')
+            if self.topper_mode == 'Q2':
+                self.process_csv_files_Q2()
+            elif self.topper_mode == 'Q3':
+                self.process_csv_files_Q3()
+            elif self.topper_mode == 'Q4':
+                self.process_csv_files_Q4()
+        else:
+            logging.warning(f"[Topper] Received unknown message type: {msg_type}")
 
     def _get_csv_files(self):
         """Devuelve lista ordenada de archivos CSV en input_dir"""
@@ -240,66 +209,30 @@ class Topper:
 
         self._write_output(all_rows, ['store_id', 'purchases_qty', 'user_id'])
 
-    def stop(self):
-        self._running = False
-        self._shutdown_event.set()
-        try:
-            self.in_queue.stop_consuming()
-        except Exception as e:
-            print(f"Error stopping consumer: {e}")
-        self.close()
-
-    def close(self):
-        self.in_queue.close()
-        if self.out_queue:
-            self.out_queue.close()
-
     def _send_completion_signal(self):
         """Send completion signal to the next stage if completion queue is configured"""
-        if self.out_queue:
+        if self.out_queues:
             try:
-                print(f"[Topper:{self.query_id}] Sending completion signal to {self.completion_queue}")
+                logging.info(f"[Topper:{self.query_id}] Sending completion signal to {self.completion_queue_name}")
                 completion_message = protocol.pack_message(protocol.MSG_TYPE_NOTI, protocol.DATA_END, b"")
-                self.out_queue.send(completion_message)
-                print(f"[Topper:{self.query_id}] Completion signal sent successfully")
+                self.out_queues[0].send(completion_message)
+                logging.info(f"[Topper:{self.query_id}] Completion signal sent successfully")
             except Exception as e:
-                print(f"[Topper:{self.query_id}] Error sending completion signal: {e}")
+                logging.error(f"[Topper:{self.query_id}] Error sending completion signal: {e}")
 
 if __name__ == '__main__':
-    # Configure via environment variables
-    queue_in = os.environ.get('QUEUE_IN', 'topper_q4_signal')
-    input_dir = os.environ.get('INPUT_DIR', '/app/temp/transactions_filtered_Q4')
-    output_file = os.environ.get('OUTPUT_FILE', '/app/output/q4_top3.csv')
-    top_n = int(os.environ.get('TOP_N', '3'))
-    topper_mode = os.environ.get('TOPPER_MODE', 'Q2')
+    def create_topper():
+        # Configure via environment variables
+        queue_in = os.environ.get('QUEUE_IN', 'topper_q4_signal')
+        input_dir = os.environ.get('INPUT_DIR', '/app/temp/transactions_filtered_Q4')
+        output_file = os.environ.get('OUTPUT_FILE', '/app/output/q4_top3.csv')
+        top_n = int(os.environ.get('TOP_N', '3'))
+        topper_mode = os.environ.get('TOPPER_MODE', 'Q2')
+        rabbitmq_host = os.environ.get('RABBITMQ_HOST', 'rabbitmq')
+        completion_queue = os.environ.get('COMPLETION_QUEUE')
 
-    rabbitmq_host = os.environ.get('RABBITMQ_HOST', 'rabbitmq')
-    completion_queue = os.environ.get('COMPLETION_QUEUE')
-
-
-    topper = Topper(queue_in, input_dir, output_file, rabbitmq_host, top_n, topper_mode, completion_queue)
+        return Topper(queue_in, input_dir, output_file, rabbitmq_host, top_n, topper_mode, completion_queue)
     
-    # Initialize logging
-    logging_level = os.environ.get('LOGGING_LEVEL', config.get('DEFAULT', 'LOGGING_LEVEL', fallback='INFO'))
-    initialize_log(logging_level)
-
-    # Set up signal handlers for graceful shutdown
-    def signal_handler(signum, frame):
-        logging.info(f'Received signal {signum}, shutting down topper gracefully...')
-        topper.stop()
-        sys.exit(0)
-    
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-    
-    try:
-        logging.info(f"Starting topper...")
-        topper.run()
-    except KeyboardInterrupt:
-        logging.info('Keyboard interrupt received, shutting down topper.')
-        topper.stop()
-    except Exception as e:
-        logging.error(f'Error in topper: {e}')
-        topper.stop()
-    finally:
-        logging.info('Topper shutdown complete.')
+    # Use the Worker base class main entry point
+    config_path = os.path.join(os.path.dirname(__file__), 'config.ini')
+    Topper.run_worker_main(create_topper, config_path)
