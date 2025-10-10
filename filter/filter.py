@@ -5,6 +5,7 @@ import threading
 import struct
 import configparser
 import logging
+import time
 from shared.logging_config import initialize_log
 from shared.worker import StreamProcessingWorker
 
@@ -31,13 +32,16 @@ class Filter(StreamProcessingWorker):
         
         return dic_queue_row
     
-    def _send_complex_results(self, dic_queue_row, msg_type, data_type):
+    def _send_complex_results(self, dic_queue_row, msg_type, data_type, timestamp):
         """Send filtered results to appropriate queues."""
+        import time
         for queue_name, filtered_rows in dic_queue_row.items():
             new_payload_str = '\n'.join(filtered_rows)
             new_payload = new_payload_str.encode('utf-8')
             new_payload_len = len(new_payload)
-            new_header = struct.pack('>BBI', msg_type, data_type, new_payload_len)
+            # Use per-hop timestamps: generate new timestamp for this forwarding step
+            current_timestamp = time.time()
+            new_header = struct.pack('>BBdI', msg_type, data_type, current_timestamp, new_payload_len)
             new_message = new_header + new_payload
 
             for q in self.out_queues:

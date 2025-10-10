@@ -94,7 +94,7 @@ class Server:
         def on_result(message):
             nonlocal data_end_count, final_end_sent
             try:
-                msg_type, data_type, _ = protocol._unpack_message(message)
+                msg_type, data_type, timestamp, _ = protocol._unpack_message(message)
                 
                 if msg_type == protocol.MSG_TYPE_END and data_type == protocol.DATA_END:
                     # Count DATA_END signals but don't forward them yet
@@ -103,7 +103,7 @@ class Server:
                     
                     if data_end_count == data_end_expected and not final_end_sent:
                         # Send final DATA_END signal to client
-                        final_message = protocol.pack_message(protocol.MSG_TYPE_END, protocol.DATA_END, b"")
+                        final_message = protocol.pack_message(protocol.MSG_TYPE_END, protocol.DATA_END, b"", time.time())
                         conn.sendall(final_message)
                         final_end_sent = True
                         logging.info("All queries completed. Sent final DATA_END to client.")
@@ -140,11 +140,12 @@ class Server:
         # Mientras tanto recibe del cliente y encola
         try:
             while True:
-                msg_type, data_type, payload = protocol.receive_message(conn)
+                msg_type, data_type, timestamp, payload = protocol.receive_message(conn)
                 if not msg_type:   # cliente cerró
                     break
 
-                message = protocol.pack_message(msg_type, data_type, payload)
+                # Use per-hop timestamps: generate new timestamp for this forwarding step
+                message = protocol.pack_message(msg_type, data_type, payload, None)
 
                 if msg_type == protocol.MSG_TYPE_DATA:
                     if data_type in queue_names:

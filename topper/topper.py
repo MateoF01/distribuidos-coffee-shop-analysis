@@ -6,6 +6,7 @@ import configparser
 import csv
 import heapq
 import logging
+import time
 from middleware.coffeeMiddleware import CoffeeMessageMiddlewareQueue
 from shared import protocol
 from shared.logging_config import initialize_log
@@ -34,7 +35,7 @@ class Topper(Worker):
         self.output_file = os.path.join(self.output_dir, output_filename)
         self.topper_mode = topper_mode
 
-    def _process_message(self, message, msg_type, data_type, payload, queue_name=None):
+    def _process_message(self, message, msg_type, data_type, timestamp, payload, queue_name=None):
         """Process completion signals to start CSV processing"""
         if msg_type == protocol.MSG_TYPE_NOTI:
             logging.info('[Topper] Received completion signal, starting CSV processing...')
@@ -214,7 +215,7 @@ class Topper(Worker):
         if self.out_queues:
             try:
                 logging.info(f"[Topper:{self.query_id}] Sending completion signal to {self.completion_queue_name}")
-                completion_message = protocol.pack_message(protocol.MSG_TYPE_NOTI, protocol.DATA_END, b"")
+                completion_message = protocol.pack_message(protocol.MSG_TYPE_NOTI, protocol.DATA_END, b"", time.time())
                 self.out_queues[0].send(completion_message)
                 logging.info(f"[Topper:{self.query_id}] Completion signal sent successfully")
             except Exception as e:

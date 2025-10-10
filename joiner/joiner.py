@@ -6,6 +6,7 @@ import struct
 import configparser
 import csv
 import logging
+import time
 from shared.logging_config import initialize_log
 from middleware.coffeeMiddleware import CoffeeMessageMiddlewareQueue
 from shared.worker import Worker
@@ -59,7 +60,7 @@ class Joiner(Worker):
             "resultados_groupby_q3": ",",
         }
     
-    def _process_message(self, message, msg_type, data_type, payload, queue_name=None):
+    def _process_message(self, message, msg_type, data_type, timestamp, payload, queue_name=None):
         """Process messages from input queues"""
         # Initialize CSV files on first message for single queue mode
         if len(self.multiple_input_queues) == 1:
@@ -182,7 +183,7 @@ class Joiner(Worker):
     def _send_sort_request(self):
         """Envía señal de sort/notify a CADA cola de salida, indicando su archivo asociado."""
         try:
-            header = struct.pack('>BBI', 3, 0, 0)
+            header = struct.pack('>BBdI', 3, 0, time.time(), 0)  # Updated to include timestamp
             for out_q, out_file in self.outputs:
                 try:
                     out_q.send(header)

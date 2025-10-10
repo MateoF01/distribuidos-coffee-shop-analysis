@@ -1,6 +1,10 @@
 SHELL := /bin/bash
 PWD := $(shell pwd)
 
+# Replica configuration - can be overridden via environment variables or command line
+CLEANER_TRANSACTIONS_REPLICAS ?= 1
+CLEANER_TRANSACTION_ITEMS_REPLICAS ?= 1
+
 default: help
 
 .PHONY: help
@@ -12,6 +16,15 @@ help:
 	@echo "  logs    - Show logs from all services"
 	@echo "  clean   - Clean up output and temp files from all components"
 	@echo "  build   - Build all Docker images"
+	@echo ""
+	@echo "Replica configuration (can be overridden):"
+	@echo "  Current cleaner_transactions replicas: $(CLEANER_TRANSACTIONS_REPLICAS)"
+	@echo "  Current cleaner_transaction_items replicas: $(CLEANER_TRANSACTION_ITEMS_REPLICAS)"
+	@echo ""
+	@echo "Examples:"
+	@echo "  make up  # Use default replica counts"
+	@echo "  CLEANER_TRANSACTIONS_REPLICAS=5 make up  # Override transactions replicas"
+	@echo "  make up CLEANER_TRANSACTIONS_REPLICAS=2 CLEANER_TRANSACTION_ITEMS_REPLICAS=4"
 
 .PHONY: build
 build:
@@ -19,7 +32,8 @@ build:
 
 .PHONY: up
 up: build
-	docker compose up -d
+	@echo "Starting services with cleaner_transactions replicas: $(CLEANER_TRANSACTIONS_REPLICAS), cleaner_transaction_items replicas: $(CLEANER_TRANSACTION_ITEMS_REPLICAS)"
+	docker compose up -d --scale cleaner_transactions=$(CLEANER_TRANSACTIONS_REPLICAS) --scale cleaner_transaction_items=$(CLEANER_TRANSACTION_ITEMS_REPLICAS)
 
 .PHONY: down
 down:
@@ -54,3 +68,21 @@ stop:
 .PHONY: rm
 rm: stop
 	docker compose rm -f
+
+# Replica management targets
+.PHONY: scale-cleaners
+scale-cleaners:
+	@echo "Scaling cleaner services to transactions: $(CLEANER_TRANSACTIONS_REPLICAS), transaction_items: $(CLEANER_TRANSACTION_ITEMS_REPLICAS)"
+	docker compose up -d --scale cleaner_transactions=$(CLEANER_TRANSACTIONS_REPLICAS) --scale cleaner_transaction_items=$(CLEANER_TRANSACTION_ITEMS_REPLICAS)
+
+.PHONY: show-replicas
+show-replicas:
+	@echo "Current replica configuration:"
+	@echo "  cleaner_transactions: $(CLEANER_TRANSACTIONS_REPLICAS)"
+	@echo "  cleaner_transaction_items: $(CLEANER_TRANSACTION_ITEMS_REPLICAS)"
+	@echo "Running containers:"
+	@docker compose ps | grep -E "(cleaner_transactions|cleaner_transaction_items)" || echo "No cleaner containers running"
+
+.PHONY: logs-cleaners
+logs-cleaners:
+	docker compose logs -f cleaner_transactions cleaner_transaction_items

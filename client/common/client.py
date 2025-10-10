@@ -78,7 +78,7 @@ class Client:
         try:
             while True:
                 try:
-                    msg_type, data_type, payload = protocol.receive_message(self.conn)
+                    msg_type, data_type, timestamp, payload = protocol.receive_message(self.conn)
                 except Exception as e:
                     print(f"[ERROR] Failed to receive message: {e}")
                     break

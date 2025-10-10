@@ -65,7 +65,6 @@ services:
     build:
       context: .
       dockerfile: cleaner/Dockerfile
-    container_name: cleaner_transactions
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -86,7 +85,6 @@ services:
     build:
       context: .
       dockerfile: cleaner/Dockerfile
-    container_name: cleaner_transaction_items
     depends_on:
       rabbitmq:
         condition: service_healthy
