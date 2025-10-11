@@ -10,7 +10,7 @@ from datetime import datetime
 import socket
 from shared import protocol
 
-BASE_TEMP_DIR = os.path.join(os.path.dirname(__file__), 'temp')
+BASE_TEMP_DIR = os.path.join(os.path.dirname(__file__), 'grouper_v2/temp')
 os.makedirs(BASE_TEMP_DIR, exist_ok=True)
 
 def get_month_str(dt_str):
