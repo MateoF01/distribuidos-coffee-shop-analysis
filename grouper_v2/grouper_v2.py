@@ -39,7 +39,6 @@ class GrouperV2(StreamProcessingWorker):
             self._q2_agg(rows, self.temp_dir)
 
     def _q2_agg(self, rows, temp_dir):
-        print("RECIBO ROWS: ", rows)
         # Use pre-compiled indices
         idx_item = 0
         idx_quantity = 1

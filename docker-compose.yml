@@ -343,7 +343,7 @@ services:
       COMPLETION_QUEUE: topper_q2_signal
       REDUCER_MODE: q2      
       INPUT_DIR: /app/temp/grouper_v2_q2      
-      OUTPUT_FILE: /app/reducer_temp/q2/transaction_items_filtered_Q2
+      OUTPUT_DIR: /app/reducer_temp/q2/transaction_items_filtered_Q2
     volumes:
       - ./grouper_v2/temp:/app/temp/grouper_v2_q2
       - ./reducer/temp:/app/reducer_temp/q2    
@@ -366,7 +366,7 @@ services:
       RABBITMQ_USER: admin
       RABBITMQ_PASS: secretpassword
       QUEUE_IN: topper_q2_signal
-      INPUT_DIR: /app/reducer_temp/q2
+      INPUT_DIR: /app/reducer_temp/q2/transaction_items_filtered_Q2
       OUTPUT_FILE: /app/topper_temp/q2_top1.csv
       TOP_N: 1
       COMPLETION_QUEUE: sender_grouper_q2_signal
