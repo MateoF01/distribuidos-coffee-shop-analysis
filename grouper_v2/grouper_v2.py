@@ -38,6 +38,10 @@ class GrouperV2(StreamProcessingWorker):
             BASE_TEMP_DIR = os.path.join(os.path.dirname(__file__), 'temp/grouper_v2_q2')
             os.makedirs(BASE_TEMP_DIR, exist_ok=True)
             self._q2_agg(rows, BASE_TEMP_DIR)
+        if self.grouper_mode == 'q3':
+            BASE_TEMP_DIR = os.path.join(os.path.dirname(__file__), 'temp/grouper_v2_q3')
+            os.makedirs(BASE_TEMP_DIR, exist_ok=True)
+            self._q3_agg(rows, BASE_TEMP_DIR)
         if self.grouper_mode == 'q4':
             BASE_TEMP_DIR = os.path.join(os.path.dirname(__file__), 'temp/grouper_v2_q4')
             os.makedirs(BASE_TEMP_DIR, exist_ok=True)
@@ -105,6 +109,58 @@ class GrouperV2(StreamProcessingWorker):
             for item_id, vals in existing_data.items():
                 f.write(f'{item_id},{vals[0]},{vals[1]}\n')
 
+    def _q3_agg(self, rows, temp_dir):
+        # Use pre-compiled indices if available
+
+        #transaction_id,final_amount,created_at,store_id,user_id
+        idx_final = 1
+        idx_created = 2
+        idx_store = 3
+        
+        # Use regular dict for better memory efficiency
+        grouped = {}
+        min_len = max(idx_final, idx_created, idx_store) + 1
+        
+        for row in rows:
+            items = row.split('|')
+            if len(items) < min_len:
+                continue
+            
+            try:
+                semester = get_semester_str(items[idx_created])
+                store_id = items[idx_store]
+                final_amount = float(items[idx_final])
+                
+                key = f"{semester}_{store_id}"
+                grouped[key] = grouped.get(key, 0.0) + final_amount
+            except (ValueError, IndexError):
+                continue
+        
+        # Batch update files
+        self._update_q3_file(temp_dir, grouped)
+        
+        # Clear data
+        grouped.clear()
+        del grouped
+        gc.collect()
+    
+    def _update_q3_file(self,temp_dir, grouped_data):
+        """Batch update Q3 files efficiently"""
+        for key, new_total in grouped_data.items():
+            fpath = os.path.join(temp_dir, f'{key}_{self.replica_id}.csv')
+            
+            # Read existing value
+            old_total = 0.0
+            if os.path.exists(fpath):
+                try:
+                    with open(fpath, 'r') as f:
+                        old_total = float(f.read().strip())
+                except (ValueError, IOError):
+                    old_total = 0.0
+            
+            # Write updated total
+            with open(fpath, 'w') as f:
+                f.write(f'{old_total + new_total}\n')
 
     def _q4_agg(self, rows, temp_dir):
 
@@ -162,6 +218,8 @@ class GrouperV2(StreamProcessingWorker):
             with open(fpath, 'w') as f:
                 for user_id, count in existing_users.items():
                     f.write(f'{user_id},{count}\n')
+
+
 
     #tuve que sobreescribir este metodo porque no hay clase para recibir rows y enviar una notificacion
     def _handle_end_signal(self, message, msg_type, data_type, queue_name=None):

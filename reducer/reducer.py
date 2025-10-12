@@ -94,29 +94,27 @@ class ReducerV2(SignalProcessingWorker):
 
     def _reduce_q3(self, filepaths):
         """
-        semestre_tienda, total_tpv → suma total TPV por tienda y semestre.
-        (cada archivo contiene una sola fila con un número o varias con formato store_id,semester,tpv)
+        Merge de archivos parciales Q3:
+        Cada archivo contiene un único valor numérico (TPV parcial).
+        Se suman todos los valores y se devuelve un único total.
         """
-        combined = defaultdict(float)
+        total = 0.0
+
         for fpath in filepaths:
             try:
                 with open(fpath, "r") as f:
                     reader = csv.reader(f)
                     for row in reader:
-                        if len(row) == 1:
-                            combined["total"] += float(row[0])
-                        elif len(row) == 3:
-                            store_id, semester, tpv = row
-                            key = f"{store_id},{semester}"
-                            combined[key] += float(tpv)
+                        if not row:
+                            continue
+                        total += float(row[0])
             except Exception as e:
                 logging.error(f"[Reducer Q3] Error leyendo {fpath}: {e}")
 
-        # Si las filas eran "key,valor", las mantenemos separadas
-        if any("," in k for k in combined.keys()):
-            return [tuple(k.split(",")) + (v,) for k, v in combined.items()]
-        # Si eran un solo valor por grupo (semestre_tienda)
-        return [("total", v) for _, v in combined.items()]
+        # Devolvemos directamente el número total como lista de una sola fila
+        return [[total]]
+
+
 
     def _reduce_q4(self, filepaths):
         """
