@@ -10,8 +10,7 @@ from datetime import datetime
 import socket
 from shared import protocol
 
-BASE_TEMP_DIR = os.path.join(os.path.dirname(__file__), 'temp/grouper_v2_q2')
-os.makedirs(BASE_TEMP_DIR, exist_ok=True)
+
 
 def get_month_str(dt_str):
     dt = datetime.strptime(dt_str[:7], '%Y-%m')
@@ -30,13 +29,19 @@ class GrouperV2(StreamProcessingWorker):
     def __init__(self, queue_in, queue_out, rabbitmq_host, grouper_mode, replica_id):
         super().__init__(queue_in, queue_out, rabbitmq_host)
         self.grouper_mode = grouper_mode
-        self.temp_dir = BASE_TEMP_DIR
+        self.temp_dir = ''
         self.replica_id = replica_id
 
     def _process_rows(self, rows, queue_name=None):
         """Agrupa las filas recibidas y acumula sumas."""
         if self.grouper_mode == 'q2':
-            self._q2_agg(rows, self.temp_dir)
+            BASE_TEMP_DIR = os.path.join(os.path.dirname(__file__), 'temp/grouper_v2_q2')
+            os.makedirs(BASE_TEMP_DIR, exist_ok=True)
+            self._q2_agg(rows, BASE_TEMP_DIR)
+        if self.grouper_mode == 'q4':
+            BASE_TEMP_DIR = os.path.join(os.path.dirname(__file__), 'temp/grouper_v2_q4')
+            os.makedirs(BASE_TEMP_DIR, exist_ok=True)
+            self._q4_agg(rows, BASE_TEMP_DIR)
 
     def _q2_agg(self, rows, temp_dir):
         # Use pre-compiled indices
@@ -100,6 +105,63 @@ class GrouperV2(StreamProcessingWorker):
             for item_id, vals in existing_data.items():
                 f.write(f'{item_id},{vals[0]},{vals[1]}\n')
 
+
+    def _q4_agg(self, rows, temp_dir):
+
+        #transaction_id,final_amount,created_at,store_id,user_id
+        idx_store = 3
+        idx_user = 4
+        
+        # Use regular dict for better memory efficiency
+        grouped = {}
+        min_len = max(idx_store, idx_user) + 1
+        
+        for row in rows:
+            items = row.split('|')
+            if len(items) < min_len:
+                continue
+            
+            store_id = items[idx_store]
+            user_id = items[idx_user].strip()
+            
+            if not user_id:  # Skip empty user_id
+                continue
+            
+            if store_id not in grouped:
+                grouped[store_id] = {}
+            
+            grouped[store_id][user_id] = grouped[store_id].get(user_id, 0) + 1
+        
+        # Batch update files
+        self._update_q4_file(temp_dir, grouped)
+        
+        # Clear data
+        grouped.clear()
+        del grouped
+        gc.collect()
+
+    def _update_q4_file(self, temp_dir, grouped_data):
+        """Batch update Q4 files efficiently"""
+        for store_id, users in grouped_data.items():
+            fpath = os.path.join(temp_dir, f'{store_id}_{self.replica_id}.csv')
+            
+            # Read existing data efficiently
+            existing_users = {}
+            if os.path.exists(fpath):
+                with open(fpath, 'r') as f:
+                    for line in f:
+                        parts = line.strip().split(',')
+                        if len(parts) == 2 and parts[0].strip():
+                            existing_users[parts[0]] = int(parts[1])
+            
+            # Merge new data
+            for user_id, count in users.items():
+                existing_users[user_id] = existing_users.get(user_id, 0) + count
+            
+            # Write all data at once
+            with open(fpath, 'w') as f:
+                for user_id, count in existing_users.items():
+                    f.write(f'{user_id},{count}\n')
 
     #tuve que sobreescribir este metodo porque no hay clase para recibir rows y enviar una notificacion
     def _handle_end_signal(self, message, msg_type, data_type, queue_name=None):
