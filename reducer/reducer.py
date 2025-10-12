@@ -1,7 +1,9 @@
+from asyncio import protocols
 import os
 import csv
 import logging
 import gc
+from shared import protocol
 from collections import defaultdict
 from shared.worker import SignalProcessingWorker
 
@@ -42,14 +44,18 @@ class ReducerV2(SignalProcessingWorker):
 
         logging.info(f"[Reducer {self.reducer_mode.upper()}] Se encontraron {len(groups)} grupos.")
 
+        DATA_TYPE = ''
         for prefix, filepaths in groups.items():
             # Elegir función de reducción
             if self.reducer_mode == "q2":
                 combined = self._reduce_q2(filepaths)
+                DATA_TYPE = protocol.DATA_TRANSACTION_ITEMS
             elif self.reducer_mode == "q3":
                 combined = self._reduce_q3(filepaths)
+                DATA_TYPE = protocol.DATA_TRANSACTIONS
             elif self.reducer_mode == "q4":
                 combined = self._reduce_q4(filepaths)
+                DATA_TYPE = protocol.DATA_TRANSACTIONS
             else:
                 logging.error(f"[Reducer] Modo desconocido: {self.reducer_mode}")
                 return
@@ -67,6 +73,9 @@ class ReducerV2(SignalProcessingWorker):
 
         gc.collect()
         logging.info(f"[Reducer {self.reducer_mode.upper()}] Reducción completa de todos los grupos.")
+        self._notify_completion(DATA_TYPE)
+
+        
 
     # ======================================================
     # Lógicas de reducción

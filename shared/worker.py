@@ -372,7 +372,6 @@ class SignalProcessingWorker(Worker):
             logging.info(f"[{self.__class__.__name__}] Notification received — starting processing.")
             try:
                 self._process_signal()
-                self._notify_completion(data_type)
                 logging.info(f"[{self.__class__.__name__}] Processing complete. Completion signal sent.")
             except Exception as e:
                 logging.error(f"[{self.__class__.__name__}] Error during processing: {e}")
