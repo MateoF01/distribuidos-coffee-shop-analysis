@@ -10,7 +10,7 @@ from datetime import datetime
 import socket
 from shared import protocol
 
-BASE_TEMP_DIR = os.path.join(os.path.dirname(__file__), 'grouper_v2/temp')
+BASE_TEMP_DIR = os.path.join(os.path.dirname(__file__), 'temp/grouper_v2_q2')
 os.makedirs(BASE_TEMP_DIR, exist_ok=True)
 
 def get_month_str(dt_str):
@@ -39,6 +39,7 @@ class GrouperV2(StreamProcessingWorker):
             self._q2_agg(rows, self.temp_dir)
 
     def _q2_agg(self, rows, temp_dir):
+        print("RECIBO ROWS: ", rows)
         # Use pre-compiled indices
         idx_item = 0
         idx_quantity = 1
