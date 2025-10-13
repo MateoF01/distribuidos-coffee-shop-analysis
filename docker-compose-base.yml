@@ -4,23 +4,25 @@ services:
     container_name: rabbitmq
     restart: always
     ports:
-      - "5672:5672"
-      - "15672:15672"
+    - 5672:5672
+    - 15672:15672
     environment:
       RABBITMQ_DEFAULT_USER: admin
       RABBITMQ_DEFAULT_PASS: secretpassword
-      RABBITMQ_LOGS: "-"  # Log to stdout
+      RABBITMQ_LOGS: '-'
       RABBITMQ_LOG_LEVEL: warning
-      RABBITMQ_HEARTBEAT: 300  # 5 minutes instead of default 60s
+      RABBITMQ_HEARTBEAT: 300
     networks:
-      - coffee-net
+    - coffee-net
     healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+      test:
+      - CMD
+      - rabbitmq-diagnostics
+      - check_port_connectivity
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 30s
-
   gateway:
     build:
       context: .
@@ -38,14 +40,15 @@ services:
       GATEWAY_HOST: 0.0.0.0
       GATEWAY_PORT: 5000
       QUEUE_IN: results
+      REQUESTS_PER_CLIENT: 2
+      GATEWAY_MAX_PROCESSES: 3
     networks:
-      - coffee-net
-
+    - coffee-net
   client:
     build:
       context: .
       dockerfile: client/Dockerfile
-    container_name: client
+    container_name: client1
     depends_on:
       gateway:
         condition: service_started
@@ -56,11 +59,10 @@ services:
       CLIENT_ID: client1
       BATCH_MAX_AMOUNT: 5000
     volumes:
-      - ./data:/app/.data
-      - ./results:/app/results
+    - ./data:/app/.data
+    - ./results:/app/results
     networks:
-      - coffee-net
-
+    - coffee-net
   cleaner_transactions:
     build:
       context: .
@@ -80,8 +82,7 @@ services:
       DATA_TYPE: transactions
       EXCHANGE_NAME: transactions_end_exchange
     networks:
-      - coffee-net
-
+    - coffee-net
   cleaner_transaction_items:
     build:
       context: .
@@ -101,8 +102,7 @@ services:
       DATA_TYPE: transaction_items
       EXCHANGE_NAME: transaction_items_end_exchange
     networks:
-      - coffee-net
-
+    - coffee-net
   cleaner_users:
     build:
       context: .
@@ -122,8 +122,7 @@ services:
       QUEUE_OUT: users_cleaned
       DATA_TYPE: users
     networks:
-      - coffee-net
-
+    - coffee-net
   cleaner_stores:
     build:
       context: .
@@ -143,8 +142,7 @@ services:
       QUEUE_OUT: stores_cleaned_q3,stores_cleaned_q4
       DATA_TYPE: stores
     networks:
-      - coffee-net
-
+    - coffee-net
   cleaner_menu_items:
     build:
       context: .
@@ -164,8 +162,7 @@ services:
       QUEUE_OUT: menu_items_cleaned
       DATA_TYPE: menu_items
     networks:
-      - coffee-net
-
+    - coffee-net
   coordinator_transactions:
     build:
       context: .
@@ -185,8 +182,7 @@ services:
       QUEUE_OUT: transactions_coordinated
       NUM_REPLICAS: ${CLEANER_TRANSACTIONS_REPLICAS:-1}
     networks:
-      - coffee-net
-
+    - coffee-net
   coordinator_transaction_items:
     build:
       context: .
@@ -206,8 +202,7 @@ services:
       QUEUE_OUT: transaction_items_coordinated
       NUM_REPLICAS: ${CLEANER_TRANSACTION_ITEMS_REPLICAS:-1}
     networks:
-      - coffee-net
-
+    - coffee-net
   temporal_filter_transactions:
     build:
       context: .
@@ -228,8 +223,7 @@ services:
       DATA_TYPE: transactions
       FILTER_TYPE: temporal
     networks:
-      - coffee-net
-
+    - coffee-net
   temporal_filter_transaction_items:
     build:
       context: .
@@ -250,8 +244,7 @@ services:
       DATA_TYPE: transaction_items
       FILTER_TYPE: temporal
     networks:
-      - coffee-net
-
+    - coffee-net
   amount_filter_transactions:
     build:
       context: .
@@ -272,10 +265,8 @@ services:
       DATA_TYPE: transactions
       FILTER_TYPE: amount
       MIN_AMOUNT: 75
-
     networks:
-      - coffee-net
-
+    - coffee-net
   cleaner_transactions_q4:
     build:
       context: .
@@ -295,8 +286,7 @@ services:
       QUEUE_OUT: transactions_cleaned_Q4
       DATA_TYPE: transactions_q4
     networks:
-      - coffee-net
-
+    - coffee-net
   joiner_q1:
     build:
       context: .
@@ -317,10 +307,9 @@ services:
       OUTPUT_FILE: /app/output/q1_unsorted.csv
       QUERY_TYPE: q1
     volumes:
-      - ./output:/app/output
+    - ./output:/app/output
     networks:
-          - coffee-net
-
+    - coffee-net
   sorter_q1:
     build:
       context: .
@@ -342,15 +331,14 @@ services:
       DATA_TYPE: q1
       COMPLETION_QUEUE: sender_q1_signal
     volumes:
-      - ./output:/app/output
+    - ./output:/app/output
     networks:
       - coffee-net
   
-  grouper_q2:
+  grouper_q2_v2:
     build:
       context: .
-      dockerfile: grouper/Dockerfile
-    container_name: grouper_q2
+      dockerfile: grouper_v2/Dockerfile
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -362,18 +350,68 @@ services:
       RABBITMQ_USER: admin
       RABBITMQ_PASS: secretpassword
       QUEUE_IN: transaction_items_filtered_Q2
-      COMPLETION_QUEUE: topper_q2_signal
+      COMPLETION_QUEUE: reducer_q2_signal
       GROUPER_MODE: q2
     volumes:
-      - ./grouper/temp:/app/temp
+      - ./grouper_v2/temp/q2:/app/temp/grouper_v2_q2
     networks:
       - coffee-net
 
-  grouper_q3:
+  reducer_q2:
     build:
       context: .
-      dockerfile: grouper/Dockerfile
-    container_name: grouper_q3
+      dockerfile: reducer/Dockerfile
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      gateway:
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      QUEUE_IN: reducer_q2_signal
+      COMPLETION_QUEUE: topper_q2_signal
+      REDUCER_MODE: q2      
+      INPUT_DIR: /app/temp/grouper_v2_q2      
+      OUTPUT_DIR: /app/reducer_temp/q2/transaction_items_filtered_Q2
+    volumes:
+      - ./grouper_v2/temp/q2:/app/temp/grouper_v2_q2
+      - ./reducer/temp:/app/reducer_temp/q2    
+    networks:
+    - coffee-net
+  topper_q2:
+    build:
+      context: .
+      dockerfile: topper/Dockerfile
+    container_name: topper_q2
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      grouper_q2_v2:
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      QUEUE_IN: topper_q2_signal
+      INPUT_DIR: /app/reducer_temp/q2/transaction_items_filtered_Q2
+      OUTPUT_FILE: /app/topper_temp/q2_top1.csv
+      TOP_N: 1
+      COMPLETION_QUEUE: sender_grouper_q2_signal
+      TOPPER_MODE: Q2
+    volumes:
+      - ./reducer/temp:/app/reducer_temp/q2    
+      - ./topper/temp:/app/topper_temp
+    networks:
+      - coffee-net
+
+  grouper_q3_v2:
+    build:
+      context: .
+      dockerfile: grouper_v2/Dockerfile
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -385,18 +423,17 @@ services:
       RABBITMQ_USER: admin
       RABBITMQ_PASS: secretpassword
       QUEUE_IN: transactions_filtered_Q3
+      COMPLETION_QUEUE: reducer_q3_signal
       GROUPER_MODE: q3
-      COMPLETION_QUEUE: topper_q3_signal
     volumes:
-      - ./grouper/temp:/app/temp
+      - ./grouper_v2/temp/q3:/app/temp/grouper_v2_q3
     networks:
       - coffee-net
 
-  grouper_q4:
+  reducer_q3:
     build:
       context: .
-      dockerfile: grouper/Dockerfile
-    container_name: grouper_q4
+      dockerfile: reducer/Dockerfile
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -407,41 +444,16 @@ services:
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_USER: admin
       RABBITMQ_PASS: secretpassword
-      GROUPER_MODE: q4
-      QUEUE_IN: transactions_cleaned_Q4
-      COMPLETION_QUEUE: topper_q4_signal
+      QUEUE_IN: reducer_q3_signal
+      COMPLETION_QUEUE: topper_q3_signal
+      REDUCER_MODE: q3     
+      INPUT_DIR: /app/temp/grouper_v2_q3      
+      OUTPUT_DIR: /app/reducer_temp/q3/transactions_filtered_Q3
     volumes:
-      - ./grouper/temp:/app/temp
+      - ./grouper_v2/temp/q3:/app/temp/grouper_v2_q3
+      - ./reducer/temp:/app/reducer_temp/q3    
     networks:
       - coffee-net
-
-  topper_q2:
-    build:
-      context: .
-      dockerfile: topper/Dockerfile
-    container_name: topper_q2
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-      grouper_q2:
-        condition: service_started
-    environment:
-      PYTHONUNBUFFERED: 1
-      RABBITMQ_HOST: rabbitmq
-      RABBITMQ_USER: admin
-      RABBITMQ_PASS: secretpassword
-      QUEUE_IN: topper_q2_signal
-      INPUT_DIR: /app/temp/transaction_items_filtered_Q2
-      OUTPUT_FILE: /app/topper_temp/q2_top1.csv
-      TOP_N: 1
-      COMPLETION_QUEUE: sender_grouper_q2_signal
-      TOPPER_MODE: Q2
-    volumes:
-      - ./grouper/temp:/app/temp
-      - ./topper/temp:/app/topper_temp
-    networks:
-      - coffee-net
-
 
   topper_q3:
     build:
@@ -451,7 +463,7 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
-      grouper_q3:
+      grouper_q3_v2:
         condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
@@ -459,14 +471,62 @@ services:
       RABBITMQ_USER: admin
       RABBITMQ_PASS: secretpassword
       QUEUE_IN: topper_q3_signal
-      INPUT_DIR: /app/temp/transactions_filtered_Q3
+      INPUT_DIR: /app/reducer_temp/q3/transactions_filtered_Q3
       OUTPUT_FILE: /app/topper_temp/q3_top1.csv
       TOP_N: 1
       COMPLETION_QUEUE: sender_grouper_q3_signal
       TOPPER_MODE: Q3
     volumes:
-      - ./grouper/temp:/app/temp
+      - ./reducer/temp:/app/reducer_temp/q3    
       - ./topper/temp:/app/topper_temp
+    networks:
+      - coffee-net
+
+
+  grouper_q4_v2:
+    build:
+      context: .
+      dockerfile: grouper_v2/Dockerfile
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      gateway:
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      QUEUE_IN: transactions_cleaned_Q4
+      COMPLETION_QUEUE: reducer_q4_signal
+      GROUPER_MODE: q4
+    volumes:
+      - ./grouper_v2/temp/q4:/app/temp/grouper_v2_q4
+    networks:
+      - coffee-net
+
+  reducer_q4:
+    build:
+      context: .
+      dockerfile: reducer/Dockerfile
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      gateway:
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      QUEUE_IN: reducer_q4_signal
+      COMPLETION_QUEUE: topper_q4_signal
+      REDUCER_MODE: q4      
+      INPUT_DIR: /app/temp/grouper_v2_q4      
+      OUTPUT_DIR: /app/reducer_temp/q4/transactions_cleaned_Q4
+    volumes:
+      - ./grouper_v2/temp/q4:/app/temp/grouper_v2_q4
+      - ./reducer/temp:/app/reducer_temp/q4    
     networks:
       - coffee-net
 
@@ -478,25 +538,24 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
-      grouper_q4:
+      grouper_q4_v2:
         condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_USER: admin
       RABBITMQ_PASS: secretpassword
-      QUEUE_IN: topper_q4_signal
-      INPUT_DIR: /app/temp/transactions_cleaned_Q4
+      QUEUE_IN: topper_q4_signal 
+      INPUT_DIR: /app/reducer_temp/q4/transactions_cleaned_Q4
       OUTPUT_FILE: /app/topper_temp/q4_top3.csv
       TOP_N: 3
       COMPLETION_QUEUE: sender_grouper_q4_signal
       TOPPER_MODE: Q4
     volumes:
-      - ./grouper/temp:/app/temp
+      - ./reducer/temp:/app/reducer_temp/q4    
       - ./topper/temp:/app/topper_temp
     networks:
-      - coffee-net
-
+    - coffee-net
   sender_grouper_q4:
     build:
       context: .
@@ -518,10 +577,9 @@ services:
       BATCH_SIZE: 5000
       QUERY_TYPE: q4
     volumes:
-      - ./topper/temp:/app/topper_temp
+    - ./topper/temp:/app/topper_temp
     networks:
-      - coffee-net
-
+    - coffee-net
   joiner_q4:
     build:
       context: .
@@ -546,10 +604,9 @@ services:
       OUTPUT_FILE: /app/output/q4_unsorted.csv
       QUERY_TYPE: q4
     volumes:
-      - ./output:/app/output
+    - ./output:/app/output
     networks:
-      - coffee-net
-
+    - coffee-net
   joiner_q2:
     build:
       context: .
@@ -572,10 +629,9 @@ services:
       OUTPUT_FILE: /app/output/q2_a.csv, /app/output/q2_b.csv
       QUERY_TYPE: q2
     volumes:
-      - ./output:/app/output
+    - ./output:/app/output
     networks:
-      - coffee-net
-
+    - coffee-net
   sorter_q4:
     build:
       context: .
@@ -597,10 +653,9 @@ services:
       COMPLETION_QUEUE: sender_q4_signal
       DATA_TYPE: q4
     volumes:
-      - ./output:/app/output
+    - ./output:/app/output
     networks:
-      - coffee-net
-      
+    - coffee-net
   sender_q4:
     build:
       context: .
@@ -622,10 +677,9 @@ services:
       QUERY_TYPE: q4
       INCLUDE_HEADERS: true
     volumes:
-      - ./output:/app/output
+    - ./output:/app/output
     networks:
-      - coffee-net
-    
+    - coffee-net
   sender_q2_a:
     build:
       context: .
@@ -647,10 +701,9 @@ services:
       QUERY_TYPE: q2_a
       INCLUDE_HEADERS: true
     volumes:
-      - ./output:/app/output
+    - ./output:/app/output
     networks:
-      - coffee-net
-
+    - coffee-net
   sender_q2_b:
     build:
       context: .
@@ -672,10 +725,9 @@ services:
       QUERY_TYPE: q2_b
       INCLUDE_HEADERS: true
     volumes:
-      - ./output:/app/output
+    - ./output:/app/output
     networks:
-      - coffee-net
-
+    - coffee-net
   sender_grouper_q2:
     build:
       context: .
@@ -697,10 +749,9 @@ services:
       BATCH_SIZE: 5000
       QUERY_TYPE: q2
     volumes:
-      - ./topper/temp:/app/topper_temp
+    - ./topper/temp:/app/topper_temp
     networks:
-      - coffee-net
-
+    - coffee-net
   sender_grouper_q3:
     build:
       context: .
@@ -722,10 +773,9 @@ services:
       BATCH_SIZE: 5000
       QUERY_TYPE: q3
     volumes:
-      - ./topper/temp:/app/topper_temp
+    - ./topper/temp:/app/topper_temp
     networks:
-      - coffee-net
-
+    - coffee-net
   sender_q1:
     build:
       context: .
@@ -747,11 +797,9 @@ services:
       QUERY_TYPE: q1
       INCLUDE_HEADERS: true
     volumes:
-      - ./output:/app/output
+    - ./output:/app/output
     networks:
-      - coffee-net
-  
-
+    - coffee-net
   joiner_q3:
     build:
       context: .
@@ -774,10 +822,9 @@ services:
       OUTPUT_FILE: /app/output/q3_unsorted.csv
       QUERY_TYPE: q3
     volumes:
-      - ./output:/app/output
+    - ./output:/app/output
     networks:
-      - coffee-net
-
+    - coffee-net
   sorter_q3:
     build:
       context: .
@@ -799,10 +846,9 @@ services:
       COMPLETION_QUEUE: sender_q3_signal
       DATA_TYPE: q3
     volumes:
-      - ./output:/app/output
+    - ./output:/app/output
     networks:
-      - coffee-net
-  
+    - coffee-net
   sender_q3:
     build:
       context: .
@@ -824,10 +870,9 @@ services:
       QUERY_TYPE: q3
       INCLUDE_HEADERS: true
     volumes:
-      - ./output:/app/output
+    - ./output:/app/output
     networks:
-      - coffee-net
-    
+    - coffee-net
 networks:
   coffee-net:
     driver: bridge
