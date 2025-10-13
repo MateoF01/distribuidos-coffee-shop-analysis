@@ -225,7 +225,7 @@ class Client:
                         for batch in csv_loaders.load_csv_batch(filepath, self.batch_max_amount):
                             payload = "\n".join(batch).encode()
                             protocol.send_message(self.conn, protocol.MSG_TYPE_DATA, data_type, payload)
-                            #print(f"[INFO] Sent batch of {len(batch)} rows from {filepath.name}")
+                            print(f"[INFO] Sent batch of {len(batch)} rows from {filepath.name}")
                     protocol.send_message(self.conn, protocol.MSG_TYPE_END, data_type, b"")
                     print(f"[INFO] REQ {request_num+1}/{self.requests_amount}: Sent END for data_type={data_type}")
 

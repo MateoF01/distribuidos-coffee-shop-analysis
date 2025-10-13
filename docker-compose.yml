@@ -41,6 +41,7 @@ services:
       GATEWAY_PORT: 5000
       QUEUE_IN: results
       REQUESTS_PER_CLIENT: 2
+      GATEWAY_MAX_PROCESSES: 3
     networks:
     - coffee-net
   client1:
@@ -56,6 +57,26 @@ services:
       DATA_DIR: /app/.data
       SERVER_ADDRESS: gateway:5000
       CLIENT_ID: client1
+      BATCH_MAX_AMOUNT: 5000
+      REQUESTS_PER_CLIENT: 2
+    volumes:
+    - ./data:/app/.data
+    - ./results:/app/results
+    networks:
+    - coffee-net
+  client2:
+    build:
+      context: .
+      dockerfile: client/Dockerfile
+    container_name: client2
+    depends_on:
+      gateway:
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: 1
+      DATA_DIR: /app/.data
+      SERVER_ADDRESS: gateway:5000
+      CLIENT_ID: client2
       BATCH_MAX_AMOUNT: 5000
       REQUESTS_PER_CLIENT: 2
     volumes:
