@@ -109,7 +109,7 @@ class Worker(ABC):
                     return
                 
                 # Parse message using protocol helpers
-                msg_type, data_type, timestamp, payload = protocol._unpack_message(message)
+                msg_type, data_type, request_id, timestamp, payload = protocol.unpack_message(message)
                 
                 # Handle end-of-data signals
                 if msg_type == protocol.MSG_TYPE_END:
@@ -117,7 +117,7 @@ class Worker(ABC):
                     return
                 
                 # Process the message content
-                self._process_message(message, msg_type, data_type, timestamp, payload, queue_name)
+                self._process_message(message, msg_type, data_type, request_id, timestamp, payload, queue_name)
                 
             except Exception as e:
                 logging.error(f"Error processing message: {e} - Message: {message}")
@@ -155,13 +155,14 @@ class Worker(ABC):
         logging.info(f"{worker_type} started - {input_info}, {output_info}")
     
     @abstractmethod
-    def _process_message(self, message, msg_type, data_type, timestamp, payload, queue_name=None):
+    def _process_message(self, message, msg_type, data_type, request_id, timestamp, payload, queue_name=None):
         """Process a message. Must be implemented by subclasses.
         
         Args:
             message: Raw message bytes
             msg_type: Message type from protocol
             data_type: Data type from protocol
+            request_id: Request ID from protocol
             timestamp: Message timestamp from protocol  
             payload: Message payload bytes
             queue_name: Name of the queue the message came from (for multi-queue workers)
@@ -265,7 +266,7 @@ class StreamProcessingWorker(Worker):
     Handles common patterns for workers that process rows of data and forward them.
     """
     
-    def _process_message(self, message, msg_type, data_type, timestamp, payload, queue_name=None):
+    def _process_message(self, message, msg_type, data_type, request_id, timestamp, payload, queue_name=None):
         """Process message by extracting rows, processing them, and forwarding results."""
         try:
             # Decode payload
@@ -276,7 +277,7 @@ class StreamProcessingWorker(Worker):
             processed_rows = self._process_rows(rows, queue_name)
             
             # Send processed rows
-            self._send_processed_rows(processed_rows, msg_type, data_type, timestamp)
+            self._send_processed_rows(processed_rows, msg_type, data_type, request_id, timestamp)
             
         except Exception as e:
             logging.error(f"Failed to decode or process payload: {e}")
@@ -294,13 +295,15 @@ class StreamProcessingWorker(Worker):
         """
         pass
     
-    def _send_processed_rows(self, processed_rows, msg_type, data_type, timestamp):
+    def _send_processed_rows(self, processed_rows, msg_type, data_type, request_id, timestamp):
         """Send processed rows to output queues.
         
         Args:
             processed_rows: Results from _process_rows()
             msg_type: Original message type
             data_type: Original data type
+            request_id: Original request ID
+            timestamp: Message timestamp from protocol 
         """
         if not processed_rows:
             logging.debug("No rows after processing, nothing sent.")
@@ -310,12 +313,12 @@ class StreamProcessingWorker(Worker):
         # Can be overridden for more complex routing
         if isinstance(processed_rows, list) and all(isinstance(row, str) for row in processed_rows):
             # Simple list of strings
-            self._send_rows_to_all_queues(processed_rows, msg_type, data_type, timestamp)
+            self._send_rows_to_all_queues(processed_rows, msg_type, data_type, request_id, timestamp)
         else:
             # Complex processing results - delegate to subclass
-            self._send_complex_results(processed_rows, msg_type, data_type, timestamp)
+            self._send_complex_results(processed_rows, msg_type, data_type, request_id, request_id, timestamp)
     
-    def _send_rows_to_all_queues(self, rows, msg_type, data_type, timestamp):
+    def _send_rows_to_all_queues(self, rows, msg_type, data_type, request_id, timestamp):
         """Send a list of row strings to all output queues."""
         new_payload_str = '\n'.join(rows)
         new_payload = new_payload_str.encode('utf-8')
@@ -328,7 +331,7 @@ class StreamProcessingWorker(Worker):
         queue_names = [q.queue_name for q in self.out_queues]
         logging.debug(f"Sent processed message to {queue_names} (rows: {len(rows)}, msg_type: {msg_type}, data_type: {data_type})")
     
-    def _send_complex_results(self, processed_rows, msg_type, data_type, timestamp):
+    def _send_complex_results(self, processed_rows, msg_type, data_type, request_id, timestamp):
         """Handle complex processing results. Override in subclasses as needed."""
         logging.warning("Complex processing results not handled by default implementation")
 
@@ -344,7 +347,7 @@ class FileProcessingWorker(Worker):
         self.input_file = input_file
         self.output_file = output_file
     
-    def _process_message(self, message, msg_type, data_type, timestamp, payload, queue_name=None):
+    def _process_message(self, message, msg_type, data_type, request_id, timestamp, payload, queue_name=None):
         """Process message - typically handles completion signals."""
         if msg_type == protocol.MSG_TYPE_NOTI:
             logging.info(f'Completion signal received. Starting file processing: {self.input_file}')

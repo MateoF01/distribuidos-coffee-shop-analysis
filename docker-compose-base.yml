@@ -44,7 +44,7 @@ services:
       GATEWAY_MAX_PROCESSES: 3
     networks:
     - coffee-net
-  client1:
+  client:
     build:
       context: .
       dockerfile: client/Dockerfile
@@ -58,27 +58,6 @@ services:
       SERVER_ADDRESS: gateway:5000
       CLIENT_ID: client1
       BATCH_MAX_AMOUNT: 5000
-      REQUESTS_PER_CLIENT: 2
-    volumes:
-    - ./data:/app/.data
-    - ./results:/app/results
-    networks:
-    - coffee-net
-  client2:
-    build:
-      context: .
-      dockerfile: client/Dockerfile
-    container_name: client2
-    depends_on:
-      gateway:
-        condition: service_started
-    environment:
-      PYTHONUNBUFFERED: 1
-      DATA_DIR: /app/.data
-      SERVER_ADDRESS: gateway:5000
-      CLIENT_ID: client2
-      BATCH_MAX_AMOUNT: 5000
-      REQUESTS_PER_CLIENT: 2
     volumes:
     - ./data:/app/.data
     - ./results:/app/results
@@ -354,7 +333,8 @@ services:
     volumes:
     - ./output:/app/output
     networks:
-    - coffee-net
+      - coffee-net
+  
   grouper_q2_v2:
     build:
       context: .
@@ -373,9 +353,10 @@ services:
       COMPLETION_QUEUE: reducer_q2_signal
       GROUPER_MODE: q2
     volumes:
-    - ./grouper_v2/temp/q2:/app/temp/grouper_v2_q2
+      - ./grouper_v2/temp/q2:/app/temp/grouper_v2_q2
     networks:
-    - coffee-net
+      - coffee-net
+
   reducer_q2:
     build:
       context: .
@@ -392,12 +373,12 @@ services:
       RABBITMQ_PASS: secretpassword
       QUEUE_IN: reducer_q2_signal
       COMPLETION_QUEUE: topper_q2_signal
-      REDUCER_MODE: q2
-      INPUT_DIR: /app/temp/grouper_v2_q2
+      REDUCER_MODE: q2      
+      INPUT_DIR: /app/temp/grouper_v2_q2      
       OUTPUT_DIR: /app/reducer_temp/q2/transaction_items_filtered_Q2
     volumes:
-    - ./grouper_v2/temp/q2:/app/temp/grouper_v2_q2
-    - ./reducer/temp:/app/reducer_temp/q2
+      - ./grouper_v2/temp/q2:/app/temp/grouper_v2_q2
+      - ./reducer/temp:/app/reducer_temp/q2    
     networks:
     - coffee-net
   topper_q2:
@@ -422,10 +403,11 @@ services:
       COMPLETION_QUEUE: sender_grouper_q2_signal
       TOPPER_MODE: Q2
     volumes:
-    - ./reducer/temp:/app/reducer_temp/q2
-    - ./topper/temp:/app/topper_temp
+      - ./reducer/temp:/app/reducer_temp/q2    
+      - ./topper/temp:/app/topper_temp
     networks:
-    - coffee-net
+      - coffee-net
+
   grouper_q3_v2:
     build:
       context: .
@@ -444,9 +426,10 @@ services:
       COMPLETION_QUEUE: reducer_q3_signal
       GROUPER_MODE: q3
     volumes:
-    - ./grouper_v2/temp/q3:/app/temp/grouper_v2_q3
+      - ./grouper_v2/temp/q3:/app/temp/grouper_v2_q3
     networks:
-    - coffee-net
+      - coffee-net
+
   reducer_q3:
     build:
       context: .
@@ -463,14 +446,15 @@ services:
       RABBITMQ_PASS: secretpassword
       QUEUE_IN: reducer_q3_signal
       COMPLETION_QUEUE: topper_q3_signal
-      REDUCER_MODE: q3
-      INPUT_DIR: /app/temp/grouper_v2_q3
+      REDUCER_MODE: q3     
+      INPUT_DIR: /app/temp/grouper_v2_q3      
       OUTPUT_DIR: /app/reducer_temp/q3/transactions_filtered_Q3
     volumes:
-    - ./grouper_v2/temp/q3:/app/temp/grouper_v2_q3
-    - ./reducer/temp:/app/reducer_temp/q3
+      - ./grouper_v2/temp/q3:/app/temp/grouper_v2_q3
+      - ./reducer/temp:/app/reducer_temp/q3    
     networks:
-    - coffee-net
+      - coffee-net
+
   topper_q3:
     build:
       context: .
@@ -493,10 +477,12 @@ services:
       COMPLETION_QUEUE: sender_grouper_q3_signal
       TOPPER_MODE: Q3
     volumes:
-    - ./reducer/temp:/app/reducer_temp/q3
-    - ./topper/temp:/app/topper_temp
+      - ./reducer/temp:/app/reducer_temp/q3    
+      - ./topper/temp:/app/topper_temp
     networks:
-    - coffee-net
+      - coffee-net
+
+
   grouper_q4_v2:
     build:
       context: .
@@ -515,9 +501,10 @@ services:
       COMPLETION_QUEUE: reducer_q4_signal
       GROUPER_MODE: q4
     volumes:
-    - ./grouper_v2/temp/q4:/app/temp/grouper_v2_q4
+      - ./grouper_v2/temp/q4:/app/temp/grouper_v2_q4
     networks:
-    - coffee-net
+      - coffee-net
+
   reducer_q4:
     build:
       context: .
@@ -534,14 +521,15 @@ services:
       RABBITMQ_PASS: secretpassword
       QUEUE_IN: reducer_q4_signal
       COMPLETION_QUEUE: topper_q4_signal
-      REDUCER_MODE: q4
-      INPUT_DIR: /app/temp/grouper_v2_q4
+      REDUCER_MODE: q4      
+      INPUT_DIR: /app/temp/grouper_v2_q4      
       OUTPUT_DIR: /app/reducer_temp/q4/transactions_cleaned_Q4
     volumes:
-    - ./grouper_v2/temp/q4:/app/temp/grouper_v2_q4
-    - ./reducer/temp:/app/reducer_temp/q4
+      - ./grouper_v2/temp/q4:/app/temp/grouper_v2_q4
+      - ./reducer/temp:/app/reducer_temp/q4    
     networks:
-    - coffee-net
+      - coffee-net
+
   topper_q4:
     build:
       context: .
@@ -557,15 +545,15 @@ services:
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_USER: admin
       RABBITMQ_PASS: secretpassword
-      QUEUE_IN: topper_q4_signal
+      QUEUE_IN: topper_q4_signal 
       INPUT_DIR: /app/reducer_temp/q4/transactions_cleaned_Q4
       OUTPUT_FILE: /app/topper_temp/q4_top3.csv
       TOP_N: 3
       COMPLETION_QUEUE: sender_grouper_q4_signal
       TOPPER_MODE: Q4
     volumes:
-    - ./reducer/temp:/app/reducer_temp/q4
-    - ./topper/temp:/app/topper_temp
+      - ./reducer/temp:/app/reducer_temp/q4    
+      - ./topper/temp:/app/topper_temp
     networks:
     - coffee-net
   sender_grouper_q4:
