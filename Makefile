@@ -26,6 +26,7 @@ help:
 	@echo "  CLEANER_TRANSACTIONS_REPLICAS=5 make up  # Override transactions replicas"
 	@echo "  make up CLEANER_TRANSACTIONS_REPLICAS=2 CLEANER_TRANSACTION_ITEMS_REPLICAS=4"
 
+
 .PHONY: build
 build:
 	docker compose build
@@ -39,13 +40,20 @@ up: build
 down:
 	docker compose stop -t 5
 	docker compose down
-	@echo "Cleaning up output and temp directories..."
-	@docker run --rm -v ./output:/tmp/output -v ./grouper/temp:/tmp/grouper_temp -v ./topper/temp:/tmp/topper_temp alpine:latest sh -c "rm -rf /tmp/output/* /tmp/grouper_temp/* /tmp/topper_temp/* 2>/dev/null || true"
-	@echo "All services stopped and cleanup completed!"
+	@echo "🧹 Cleaning up output and temp directories..."
+	@docker run --rm \
+		-v $(PWD)/output:/tmp/output \
+		-v $(PWD)/grouper_v2/temp/q2:/tmp/grouper_q2 \
+		-v $(PWD)/grouper_v2/temp/q3:/tmp/grouper_q3 \
+		-v $(PWD)/grouper_v2/temp/q4:/tmp/grouper_q4 \
+		-v $(PWD)/reducer/temp:/tmp/reducer_temp \
+		-v $(PWD)/topper/temp:/tmp/topper_temp \
+		alpine:latest sh -c "rm -rf /tmp/output/* /tmp/grouper_q2/* /tmp/grouper_q3/* /tmp/grouper_q4/* /tmp/reducer_temp/* /tmp/topper_temp/* 2>/dev/null || true"
+	@echo "✅ All services stopped and cleanup completed!"
 
 .PHONY: restart
 restart: down up
-	@echo "Services restarted with cleanup!"
+	@echo "🔁 Services restarted with cleanup!"
 
 .PHONY: logs
 logs:
@@ -53,9 +61,16 @@ logs:
 
 .PHONY: clean
 clean:
-	@echo "Cleaning up output and temp directories..."
-	@docker run --rm -v ./output:/tmp/output -v ./grouper/temp:/tmp/grouper_temp -v ./topper/temp:/tmp/topper_temp alpine:latest sh -c "rm -rf /tmp/output/* /tmp/grouper_temp/* /tmp/topper_temp/* 2>/dev/null || true"
-	@echo "Cleanup completed!"
+	@echo "🧹 Cleaning up output and temp directories..."
+	@docker run --rm \
+		-v $(PWD)/output:/tmp/output \
+		-v $(PWD)/grouper_v2/temp/q2:/tmp/grouper_q2 \
+		-v $(PWD)/grouper_v2/temp/q3:/tmp/grouper_q3 \
+		-v $(PWD)/grouper_v2/temp/q4:/tmp/grouper_q4 \
+		-v $(PWD)/reducer/temp:/tmp/reducer_temp \
+		-v $(PWD)/topper/temp:/tmp/topper_temp \
+		alpine:latest sh -c "rm -rf /tmp/output/* /tmp/grouper_q2/* /tmp/grouper_q3/* /tmp/grouper_q4/* /tmp/reducer_temp/* /tmp/topper_temp/* 2>/dev/null || true"
+	@echo "✅ Cleanup completed!"
 
 .PHONY: status
 status:

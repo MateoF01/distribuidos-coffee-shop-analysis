@@ -360,3 +360,43 @@ class FileProcessingWorker(Worker):
     def _process_file(self):
         """Process the input file. Must be implemented by subclasses."""
         pass
+
+
+class SignalProcessingWorker(Worker):
+    """
+    Generic worker that reacts to a NOTI (notification) signal and sends another
+    NOTI signal upon completion.
+    """
+
+    def _process_message(self, message, msg_type, data_type, timestamp, payload, queue_name=None):
+        """
+        Handle incoming messages. When a NOTI signal is received, perform the
+        main processing and then notify downstream workers upon completion.
+        """
+        if msg_type == protocol.MSG_TYPE_NOTI:
+            logging.info(f"[{self.__class__.__name__}] Notification received — starting processing.")
+            try:
+                self._process_signal()
+                logging.info(f"[{self.__class__.__name__}] Processing complete. Completion signal sent.")
+            except Exception as e:
+                logging.error(f"[{self.__class__.__name__}] Error during processing: {e}")
+        else:
+            logging.warning(f"[{self.__class__.__name__}] Unexpected message type: {msg_type}/{data_type}")
+
+    @abstractmethod
+    def _process_signal(self):
+        """
+        Core logic triggered when a NOTI signal is received.
+        Should be implemented by subclasses (e.g., file merge, reducer logic, etc.).
+        """
+        pass
+
+    def _notify_completion(self, data_type):
+        """
+        Send a NOTI message to downstream workers indicating that the processing is complete.
+        """
+        noti_payload = f"{self.__class__.__name__.lower()}_completed".encode("utf-8")
+        noti_message = protocol.pack_message(protocol.MSG_TYPE_NOTI, data_type, noti_payload)
+        for q in self.out_queues:
+            q.send(noti_message)
+        logging.info(f"[{self.__class__.__name__}] Completion notification sent to {[q.queue_name for q in self.out_queues]}")
