@@ -2,7 +2,6 @@ import socket
 import threading
 import time
 import signal
-import sys
 from middleware.coffeeMiddleware import CoffeeMessageMiddlewareQueue, CoffeeMessageMiddlewareExchange
 import os
 from shared import protocol
@@ -41,6 +40,8 @@ class Server:
         self._setup_rabbitmq()
         self._setup_socket()
         self._setup_signal_handlers()
+        self.requests = {}  # {request_id: conn}
+        self.next_request_id = 1   # global unique request id counter
 
     def _setup_rabbitmq(self):
         rabbitmq_host = os.environ.get('RABBITMQ_HOST', 'rabbitmq')
@@ -76,6 +77,11 @@ class Server:
         logging.info(f"Received signal {signum}, shutting down gateway gracefully...")
         self.shutdown_flag = True
 
+    def _get_next_request_id(self):
+        rid = self.next_request_id
+        self.next_request_id += 1
+        return rid    
+
     def run(self):
         logging.info(f'Server listening on {self.host}:{self.port}')
         
@@ -106,23 +112,30 @@ class Server:
         def on_result(message):
             nonlocal data_end_count, final_end_sent
             try:
-                msg_type, data_type, timestamp, _ = protocol.unpack_message(message)
+                msg_type, data_type, request_id,timestamp, _ = protocol.unpack_message(message)
+                target_conn = self.requests.get(request_id)
+                if target_conn is None:
+                    return
                 
                 if msg_type == protocol.MSG_TYPE_END and data_type == protocol.DATA_END:
                     # Count DATA_END signals but don't forward them yet
                     data_end_count += 1
-                    logging.debug(f"DATA_END received ({data_end_count}/{data_end_expected})")
+                    logging.debug(f"DATA_END received for request_id={request_id} ({data_end_count}/{data_end_expected})")
                     
                     if data_end_count == data_end_expected and not final_end_sent:
                         # Send final DATA_END signal to client
-                        final_message = protocol.pack_message(protocol.MSG_TYPE_END, protocol.DATA_END, b"", time.time())
-                        conn.sendall(final_message)
+                        protocol.send_message(target_conn, protocol.MSG_TYPE_END, protocol.DATA_END, b"")
                         final_end_sent = True
                         logging.info("All queries completed. Sent final DATA_END to client.")
+
+                        # Clean up all requests for this connection
+                        to_remove = [rid for rid, c in self.requests.items() if c == target_conn]
+                        for rid in to_remove:
+                            del self.requests[rid]
                         
                         # Close connection after a short delay
                         def close_connection():
-                            time.sleep(0.5)  # Small delay to ensure message is received
+                            time.sleep(0.5)
                             try:
                                 conn.shutdown(socket.SHUT_RDWR)
                             except OSError:
@@ -131,10 +144,10 @@ class Server:
                         
                         threading.Thread(target=close_connection, daemon=True).start()
                 else:
-                    # Forward all other messages (including query-specific END messages)
-                    conn.sendall(message)
+                    # Forward all other messages to client
+                    protocol.send_message(target_conn, msg_type, data_type, payload)
                     if msg_type == protocol.MSG_TYPE_END:
-                        logging.debug(f"Forwarded END message with data_type={data_type}")
+                        logging.debug(f"Forwarded END message with data_type={data_type} for request_id={request_id}")
                         
             except (BrokenPipeError, OSError) as e:
                 logging.warning(f"Cliente desconectado: {e}")
@@ -143,26 +156,40 @@ class Server:
                 except:
                     pass
 
-        # Lanza hilo que escucha resultados
+        # Start thread to consume results and route them
         threading.Thread(
             target=lambda: self.results_queue.start_consuming(on_result),
             daemon=True
         ).start()
 
-        # Mientras tanto recibe del cliente y encola
+        # Main loop: receive client requests and track them by request_id
         try:
+            # Track which data_types have received DATA_END for this connection
+            data_end_received = set()
+            current_request_id = self._get_next_request_id()
+            self.requests[current_request_id] = conn
+            logging.info(f"Client {addr} new request_id: {current_request_id}")
+
             while True:
                 msg_type, data_type, timestamp, payload = protocol.receive_message(conn)
-                if not msg_type:   # cliente cerró
+                if not msg_type:
                     break
 
+                # Detect start of a new request: receiving DATA for a data_type that already received DATA_END
+                if msg_type == protocol.MSG_TYPE_DATA and data_type in data_end_received:
+                    # New request detected
+                    current_request_id = self._get_next_request_id()
+                    self.requests[current_request_id] = conn
+                    data_end_received.clear()
+                    logging.info(f"Client {addr} new request_id: {current_request_id} (new batch detected)")
+                
                 # Use per-hop timestamps: generate new timestamp for this forwarding step
                 message = protocol.pack_message(msg_type, data_type, payload, None)
-
+                
                 if msg_type == protocol.MSG_TYPE_DATA:
                     if data_type in queue_names:
                         self.queues[queue_names[data_type]].send(message)
-                        logging.debug(f"Sent {data_type_names.get(data_type, data_type)} data to queue")
+                        logging.debug(f"Sent {data_type_names.get(data_type, data_type)} data to queue with request_id={current_request_id}")
                     else:
                         logging.warning(f"Unknown data type: {data_type}")
                 elif msg_type == protocol.MSG_TYPE_END:
@@ -171,14 +198,16 @@ class Server:
                         logging.info("Received DATA_END from client, broadcasting to all queues and exchanges")
                         for queue_name in queue_names.values():
                             self.queues[queue_name].send(message)
-                            logging.debug(f"Sent DATA_END to {queue_name}")
+                            logging.debug(f"Sent DATA_END to {queue_name} with request_id={current_request_id}")
                         # Also broadcast DATA_END to exchanges for cleaners
                         self.transactions_end_exchange.send(message)
                         self.transaction_items_end_exchange.send(message)
                         logging.debug("Sent DATA_END to cleaner exchanges")
+                        # Mark all data_types as ended for this batch
+                        data_end_received.update(queue_names.keys())
                     elif data_type in queue_names:
                         self.queues[queue_names[data_type]].send(message)
-                        logging.debug(f"Sent END message for {data_type_names.get(data_type, data_type)} to queue")
+                        logging.debug(f"Sent END message for {data_type_names.get(data_type, data_type)} to queue with request_id={current_request_id}")
                         
                         # Additionally send END messages to exchanges for transactions and transaction_items
                         if data_type == protocol.DATA_TRANSACTIONS:
@@ -187,6 +216,9 @@ class Server:
                         elif data_type == protocol.DATA_TRANSACTION_ITEMS:
                             self.transaction_items_end_exchange.send(message)
                             logging.debug(f"Sent END message for transaction_items to exchange")
+
+                        # Mark this data_type as ended for this batch
+                        data_end_received.add(data_type)
                     else:
                         logging.warning(f"Unknown data type in END message: {data_type}")
                 else:
@@ -196,8 +228,11 @@ class Server:
             import traceback
             logging.debug(f"Traceback: {traceback.format_exc()}")
         finally:
-            # 👇 no cerramos conn acá
-            pass
+            # Clean up all requests for this connection
+            to_remove = [rid for rid, c in self.requests.items() if c == conn]
+            for rid in to_remove:
+                del self.requests[rid]
+            logging.info(f"Cleaned up mappings for client {addr}")
 
     def close(self):
         for q in self.queues.values():
