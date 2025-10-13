@@ -4,6 +4,7 @@ import sys
 import threading
 import csv
 import logging
+import time
 from middleware.coffeeMiddleware import CoffeeMessageMiddlewareQueue
 from shared import protocol
 from shared.logging_config import initialize_log
@@ -85,7 +86,7 @@ class Sender(FileProcessingWorker):
                 'q4': protocol.Q4_RESULT
             }
             data_type = data_type_map.get(self.query_type, protocol.Q1_RESULT)
-            message = protocol.pack_message(protocol.MSG_TYPE_DATA, data_type, payload)
+            message = protocol.pack_message(protocol.MSG_TYPE_DATA, data_type, payload, time.time())
             self.out_queues[0].send(message)
         except Exception as e:
             print(f"[ERROR] Error sending batch: {e}")
@@ -103,12 +104,12 @@ class Sender(FileProcessingWorker):
                 'q4': protocol.Q4_RESULT
             }
             query_result_type = data_type_map.get(self.query_type, protocol.Q1_RESULT)
-            message1 = protocol.pack_message(protocol.MSG_TYPE_END, query_result_type, b"")
+            message1 = protocol.pack_message(protocol.MSG_TYPE_END, query_result_type, b"", time.time())
             self.out_queues[0].send(message1)
             print(f"[INFO] Sent MSG_TYPE_END with {self.query_type.upper()}_RESULT ({query_result_type})")
             
             # Send second END signal with DATA_END
-            message2 = protocol.pack_message(protocol.MSG_TYPE_END, protocol.DATA_END, b"")
+            message2 = protocol.pack_message(protocol.MSG_TYPE_END, protocol.DATA_END, b"", time.time())
             self.out_queues[0].send(message2)
             print(f"[INFO] Sent MSG_TYPE_END with DATA_END")
             

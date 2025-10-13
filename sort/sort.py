@@ -230,8 +230,8 @@ class Sorter(FileProcessingWorker):
         """Send a completion signal to notify that sorting is done"""
         try:
             if self.out_queues:
-                # Create completion signal message (msg_type=3, data_type=0)
-                header = struct.pack('>BBI', 3, 0, 0)  # Completion signal
+                # Create completion signal message (msg_type=3, data_type=0, timestamp, payload_len=0)
+                header = struct.pack('>BBdI', 3, 0, time.time(), 0)  # Completion signal with timestamp
                 self.out_queues[0].send(header)
                 print(f"Sent completion signal for {self.output_file}")
             else:
@@ -239,7 +239,7 @@ class Sorter(FileProcessingWorker):
         except Exception as e:
             print(f"Error sending completion signal: {e}")
 
-    def _process_message(self, message, msg_type, data_type, payload, queue_name=None):
+    def _process_message(self, message, msg_type, data_type, timestamp, payload, queue_name=None):
         """Process sort signal messages"""
         if msg_type == self.config.sort_signal_type:
             print(f'Sort signal received for file: {self.input_file}')

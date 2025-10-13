@@ -3,7 +3,7 @@ import threading
 import time
 import signal
 import sys
-from middleware.coffeeMiddleware import CoffeeMessageMiddlewareQueue
+from middleware.coffeeMiddleware import CoffeeMessageMiddlewareQueue, CoffeeMessageMiddlewareExchange
 import os
 from shared import protocol
 import logging
@@ -48,6 +48,18 @@ class Server:
         for q in queue_names.values():
             self.queues[q] = CoffeeMessageMiddlewareQueue(host=rabbitmq_host, queue_name=q)
         self.results_queue = CoffeeMessageMiddlewareQueue(host=rabbitmq_host, queue_name=RESULTS_QUEUE)
+        
+        # Exchange publishers for END messages to cleaners
+        self.transactions_end_exchange = CoffeeMessageMiddlewareExchange(
+            host=rabbitmq_host, 
+            exchange_name='transactions_end_exchange', 
+            route_keys=[]
+        )
+        self.transaction_items_end_exchange = CoffeeMessageMiddlewareExchange(
+            host=rabbitmq_host, 
+            exchange_name='transaction_items_end_exchange', 
+            route_keys=[]
+        )
 
     def _setup_socket(self):
         self._server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -94,7 +106,7 @@ class Server:
         def on_result(message):
             nonlocal data_end_count, final_end_sent
             try:
-                msg_type, data_type, _ = protocol._unpack_message(message)
+                msg_type, data_type, timestamp, _ = protocol._unpack_message(message)
                 
                 if msg_type == protocol.MSG_TYPE_END and data_type == protocol.DATA_END:
                     # Count DATA_END signals but don't forward them yet
@@ -103,7 +115,7 @@ class Server:
                     
                     if data_end_count == data_end_expected and not final_end_sent:
                         # Send final DATA_END signal to client
-                        final_message = protocol.pack_message(protocol.MSG_TYPE_END, protocol.DATA_END, b"")
+                        final_message = protocol.pack_message(protocol.MSG_TYPE_END, protocol.DATA_END, b"", time.time())
                         conn.sendall(final_message)
                         final_end_sent = True
                         logging.info("All queries completed. Sent final DATA_END to client.")
@@ -140,11 +152,12 @@ class Server:
         # Mientras tanto recibe del cliente y encola
         try:
             while True:
-                msg_type, data_type, payload = protocol.receive_message(conn)
+                msg_type, data_type, timestamp, payload = protocol.receive_message(conn)
                 if not msg_type:   # cliente cerró
                     break
 
-                message = protocol.pack_message(msg_type, data_type, payload)
+                # Use per-hop timestamps: generate new timestamp for this forwarding step
+                message = protocol.pack_message(msg_type, data_type, payload, None)
 
                 if msg_type == protocol.MSG_TYPE_DATA:
                     if data_type in queue_names:
@@ -154,14 +167,26 @@ class Server:
                         logging.warning(f"Unknown data type: {data_type}")
                 elif msg_type == protocol.MSG_TYPE_END:
                     if data_type == protocol.DATA_END:
-                        # Special handling for DATA_END - send to all data queues
-                        logging.info("Received DATA_END from client, broadcasting to all queues")
+                        # Special handling for DATA_END - send to all data queues and exchanges
+                        logging.info("Received DATA_END from client, broadcasting to all queues and exchanges")
                         for queue_name in queue_names.values():
                             self.queues[queue_name].send(message)
                             logging.debug(f"Sent DATA_END to {queue_name}")
+                        # Also broadcast DATA_END to exchanges for cleaners
+                        self.transactions_end_exchange.send(message)
+                        self.transaction_items_end_exchange.send(message)
+                        logging.debug("Sent DATA_END to cleaner exchanges")
                     elif data_type in queue_names:
                         self.queues[queue_names[data_type]].send(message)
                         logging.debug(f"Sent END message for {data_type_names.get(data_type, data_type)} to queue")
+                        
+                        # Additionally send END messages to exchanges for transactions and transaction_items
+                        if data_type == protocol.DATA_TRANSACTIONS:
+                            self.transactions_end_exchange.send(message)
+                            logging.debug(f"Sent END message for transactions to exchange")
+                        elif data_type == protocol.DATA_TRANSACTION_ITEMS:
+                            self.transaction_items_end_exchange.send(message)
+                            logging.debug(f"Sent END message for transaction_items to exchange")
                     else:
                         logging.warning(f"Unknown data type in END message: {data_type}")
                 else:

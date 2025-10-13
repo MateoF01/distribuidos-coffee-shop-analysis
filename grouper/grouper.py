@@ -3,6 +3,7 @@ import sys
 import signal
 import threading
 import configparser
+import time
 from collections import defaultdict
 from datetime import datetime
 import logging
@@ -75,7 +76,7 @@ class Grouper:
                 if not isinstance(message, bytes) or len(message) < 6:
                     logging.warning(f"Invalid message format or too short: {message}")
                     return
-                msg_type, data_type, payload = protocol._unpack_message(message)
+                msg_type, data_type, timestamp, payload = protocol._unpack_message(message)
 
                 if msg_type == protocol.MSG_TYPE_END:
                     if data_type == protocol.DATA_END:
@@ -130,7 +131,7 @@ class Grouper:
         if self.out_queue:
             try:
                 logging.info(f"[Grouper:{self.query_id}] Sending completion signal to {self.completion_queue}")
-                completion_message = protocol.pack_message(protocol.MSG_TYPE_NOTI, protocol.DATA_END, b"")
+                completion_message = protocol.pack_message(protocol.MSG_TYPE_NOTI, protocol.DATA_END, b"", time.time())
                 self.out_queue.send(completion_message)
                 logging.info(f"[Grouper:{self.query_id}] Completion signal sent successfully")
             except Exception as e:
