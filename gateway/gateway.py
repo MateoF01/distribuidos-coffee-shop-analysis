@@ -106,7 +106,7 @@ class Server:
         def on_result(message):
             nonlocal data_end_count, final_end_sent
             try:
-                msg_type, data_type, timestamp, _ = protocol._unpack_message(message)
+                msg_type, data_type, timestamp, _ = protocol.unpack_message(message)
                 
                 if msg_type == protocol.MSG_TYPE_END and data_type == protocol.DATA_END:
                     # Count DATA_END signals but don't forward them yet

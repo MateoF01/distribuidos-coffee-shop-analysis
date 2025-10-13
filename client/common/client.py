@@ -1,16 +1,15 @@
 import socket, time, threading, os
 from common import csv_loaders
 from shared import protocol   
-from pathlib import Path
-
 
 class Client:
-    def __init__(self, client_id, server_address, data_dir, batch_max_amount, out_dir=None):
+    def __init__(self, client_id, server_address, data_dir, batch_max_amount, out_dir=None, requests_amount=1):
         self.client_id = client_id
         self.server_address = server_address
         self.data_dir = data_dir
         self.batch_max_amount = batch_max_amount
         self.conn = None
+        self.requests_amount = requests_amount
 
         # Ruta de salida dentro de la carpeta client/
         base_dir = os.path.dirname(__file__)   # carpeta client/common
@@ -201,6 +200,8 @@ class Client:
 
 
     def start_client_loop(self):
+        self.queries_received = set()
+        self.final_end_received = False
         try:
             self.create_socket()
 
@@ -208,22 +209,25 @@ class Client:
             listener_thread = threading.Thread(target=self._listen_for_responses, daemon=False)
             listener_thread.start()
 
-            # Agrupar archivos por tipo
-            files_by_type = {}
-            for data_type, filepath in csv_loaders.iter_csv_files(self.data_dir):
-                files_by_type.setdefault(data_type, []).append(filepath)
+            for request_num in range(self.requests_amount):
+                print(f"[INFO] Iteration {request_num+1}/{self.requests_amount}: Sending files from data folder")
 
-            # Enviar archivos
-            for data_type, filepaths in files_by_type.items():
-                print(f"[INFO] Processing {len(filepaths)} files for data_type={data_type}")
-                for filepath in filepaths:
-                    print(f"[INFO] Sending file {filepath} (type={data_type})")
-                    for batch in csv_loaders.load_csv_batch(filepath, self.batch_max_amount):
-                        payload = "\n".join(batch).encode()
-                        protocol.send_message(self.conn, protocol.MSG_TYPE_DATA, data_type, payload)
-                        print(f"[INFO] Sent batch of {len(batch)} rows from {filepath.name}")
-                protocol.send_message(self.conn, protocol.MSG_TYPE_END, data_type, b"")
-                print(f"[INFO] Sent END for data_type={data_type}")
+                # Agrupar archivos por tipo
+                files_by_type = {}
+                for data_type, filepath in csv_loaders.iter_csv_files(self.data_dir):
+                    files_by_type.setdefault(data_type, []).append(filepath)
+
+                # Enviar archivos
+                for data_type, filepaths in files_by_type.items():
+                    print(f"[INFO] REQ {request_num+1}/{self.requests_amount}: Processing {len(filepaths)} files for data_type={data_type}")
+                    for filepath in filepaths:
+                        print(f"[INFO] REQ {request_num+1}/{self.requests_amount}: Sending file {filepath} (type={data_type})")
+                        for batch in csv_loaders.load_csv_batch(filepath, self.batch_max_amount):
+                            payload = "\n".join(batch).encode()
+                            protocol.send_message(self.conn, protocol.MSG_TYPE_DATA, data_type, payload)
+                            #print(f"[INFO] Sent batch of {len(batch)} rows from {filepath.name}")
+                    protocol.send_message(self.conn, protocol.MSG_TYPE_END, data_type, b"")
+                    print(f"[INFO] REQ {request_num+1}/{self.requests_amount}: Sent END for data_type={data_type}")
 
             # END final
             protocol.send_message(self.conn, protocol.MSG_TYPE_END, protocol.DATA_END, b"")

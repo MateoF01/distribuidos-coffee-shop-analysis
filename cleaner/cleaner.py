@@ -58,7 +58,7 @@ class Cleaner(StreamProcessingWorker):
     def _handle_end_message(self, message):
         """Handle END messages from exchange."""
         try:
-            msg_type, data_type, timestamp, payload = protocol._unpack_message(message)
+            msg_type, data_type, timestamp, payload = protocol.unpack_message(message)
             with self.lock:
                 self.end_timestamps[data_type] = timestamp
                 self.end_messages_count += 1

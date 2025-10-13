@@ -10,12 +10,14 @@ def main():
     client_id = os.getenv("CLIENT_ID", "client1")
     data_dir = os.getenv("DATA_DIR", "/app/.data")
     batch_max_amount = int(os.getenv("BATCH_MAX_AMOUNT", "100"))
+    requests_amount = int(os.getenv("REQUESTS_PER_CLIENT", "1"))
 
     client = Client(
         client_id=client_id,
         server_address=server_address,
         data_dir=data_dir,
         batch_max_amount=batch_max_amount,
+        requests_amount=requests_amount
     )
 
     # Signal handler

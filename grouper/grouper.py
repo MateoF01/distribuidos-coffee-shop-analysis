@@ -76,7 +76,7 @@ class Grouper:
                 if not isinstance(message, bytes) or len(message) < 6:
                     logging.warning(f"Invalid message format or too short: {message}")
                     return
-                msg_type, data_type, timestamp, payload = protocol._unpack_message(message)
+                msg_type, data_type, timestamp, payload = protocol.unpack_message(message)
 
                 if msg_type == protocol.MSG_TYPE_END:
                     if data_type == protocol.DATA_END:

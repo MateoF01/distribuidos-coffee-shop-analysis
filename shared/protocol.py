@@ -6,7 +6,6 @@ MSG_TYPE_DATA = 1
 MSG_TYPE_END = 2
 MSG_TYPE_NOTI = 3
 
-
 # Data Types
 DATA_TRANSACTIONS = 1
 DATA_TRANSACTION_ITEMS = 2
@@ -21,8 +20,13 @@ Q2_RESULT_b = 9
 Q3_RESULT = 10
 Q4_RESULT = 11
 
+
+
+# === SOCKET FUNCTIONS (client <-> gateway) ===
+
 def send_message(conn, msg_type: int, data_type: int, payload: bytes, timestamp: float = None):
     """
+    Send messages over a socket connection
     - 1 byte: message type
     - 1 byte: data type
     - 8 bytes: timestamp (double)
@@ -34,16 +38,19 @@ def send_message(conn, msg_type: int, data_type: int, payload: bytes, timestamp:
     header = struct.pack(">BBdI", msg_type, data_type, timestamp, len(payload))
     conn.sendall(header + payload)
 
-def send_notification(conn, msg_type = MSG_TYPE_NOTI):
-    header = struct.pack(">BBdI", msg_type, 0, time.time(), 0)  # Include timestamp and 0 payload length
-    conn.sendall(header)
-
 def receive_message(conn):
+    """
+    Receive messages over a socket connection
+    - 1 byte: message type
+    - 1 byte: data type
+    - 8 bytes: timestamp (double)
+    - 4 bytes: payload len
+    - N bytes: payload
+    """
     header = _read_full(conn, 14)  # 1 type msg + 1 type dato + 8 timestamp + 4 len
     msg_type, data_type, timestamp, length = struct.unpack(">BBdI", header)
     payload = _read_full(conn, length) if length > 0 else b""
     return msg_type, data_type, timestamp, payload
-
 
 def _read_full(conn, n):
     buf = b""
@@ -54,14 +61,30 @@ def _read_full(conn, n):
         buf += chunk
     return buf
 
-def pack_message(msg_type, data_type, payload, timestamp: float = None):
+def send_notification(conn, msg_type = MSG_TYPE_NOTI):
+    header = struct.pack(">BBdI", msg_type, 0, time.time(), 0)  # Include timestamp and 0 payload length
+    conn.sendall(header)
+
+
+
+# === RABBITMQ FUNCTIONS (gateway <-> workers) ===
+
+def pack_message(msg_type, data_type, payload, request_id, timestamp: float = None):
+    """
+    Pack a message for RabbitMQ or internal gateway communication.
+    Header: 1 byte msg_type, 1 byte data_type, 1 byte request_id, 8 bytes timestamp, 4 bytes payload_len
+    """
     if timestamp is None:
         timestamp = time.time()
     header = struct.pack('>BBdI', msg_type, data_type, timestamp, len(payload))
     return header + payload
 
-def _unpack_message(msg_bytes):
-    header = msg_bytes[:14]
-    msg_type, data_type, timestamp, payload_len = struct.unpack('>BBdI', header)
-    payload = msg_bytes[14:]
-    return msg_type, data_type, timestamp, payload
+def unpack_message(msg_bytes):
+    """
+    Unpack a message from RabbitMQ or internal gateway communication.
+    Header: 1 byte msg_type, 1 byte data_type, 1 byte request_id, 8 bytes timestamp, 4 bytes payload_len
+    """
+    header = msg_bytes[:15]
+    msg_type, data_type, request_id, timestamp, payload_len = struct.unpack('>BBdI', header)
+    payload = msg_bytes[15:]
+    return msg_type, data_type, request_id, timestamp, payload
