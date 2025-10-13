@@ -346,11 +346,10 @@ services:
     networks:
       - coffee-net
   
-  grouper_q2:
+  grouper_q2_v2:
     build:
       context: .
-      dockerfile: grouper/Dockerfile
-    container_name: grouper_q2
+      dockerfile: grouper_v2/Dockerfile
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -362,18 +361,17 @@ services:
       RABBITMQ_USER: admin
       RABBITMQ_PASS: secretpassword
       QUEUE_IN: transaction_items_filtered_Q2
-      COMPLETION_QUEUE: topper_q2_signal
+      COMPLETION_QUEUE: reducer_q2_signal
       GROUPER_MODE: q2
     volumes:
-      - ./grouper/temp:/app/temp
+      - ./grouper_v2/temp/q2:/app/temp/grouper_v2_q2
     networks:
       - coffee-net
 
-  grouper_q3:
+  reducer_q2:
     build:
       context: .
-      dockerfile: grouper/Dockerfile
-    container_name: grouper_q3
+      dockerfile: reducer/Dockerfile
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -384,34 +382,14 @@ services:
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_USER: admin
       RABBITMQ_PASS: secretpassword
-      QUEUE_IN: transactions_filtered_Q3
-      GROUPER_MODE: q3
-      COMPLETION_QUEUE: topper_q3_signal
+      QUEUE_IN: reducer_q2_signal
+      COMPLETION_QUEUE: topper_q2_signal
+      REDUCER_MODE: q2      
+      INPUT_DIR: /app/temp/grouper_v2_q2      
+      OUTPUT_DIR: /app/reducer_temp/q2/transaction_items_filtered_Q2
     volumes:
-      - ./grouper/temp:/app/temp
-    networks:
-      - coffee-net
-
-  grouper_q4:
-    build:
-      context: .
-      dockerfile: grouper/Dockerfile
-    container_name: grouper_q4
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-      gateway:
-        condition: service_started
-    environment:
-      PYTHONUNBUFFERED: 1
-      RABBITMQ_HOST: rabbitmq
-      RABBITMQ_USER: admin
-      RABBITMQ_PASS: secretpassword
-      GROUPER_MODE: q4
-      QUEUE_IN: transactions_cleaned_Q4
-      COMPLETION_QUEUE: topper_q4_signal
-    volumes:
-      - ./grouper/temp:/app/temp
+      - ./grouper_v2/temp/q2:/app/temp/grouper_v2_q2
+      - ./reducer/temp:/app/reducer_temp/q2    
     networks:
       - coffee-net
 
@@ -423,7 +401,7 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
-      grouper_q2:
+      grouper_q2_v2:
         condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
@@ -431,17 +409,63 @@ services:
       RABBITMQ_USER: admin
       RABBITMQ_PASS: secretpassword
       QUEUE_IN: topper_q2_signal
-      INPUT_DIR: /app/temp/transaction_items_filtered_Q2
+      INPUT_DIR: /app/reducer_temp/q2/transaction_items_filtered_Q2
       OUTPUT_FILE: /app/topper_temp/q2_top1.csv
       TOP_N: 1
       COMPLETION_QUEUE: sender_grouper_q2_signal
       TOPPER_MODE: Q2
     volumes:
-      - ./grouper/temp:/app/temp
+      - ./reducer/temp:/app/reducer_temp/q2    
       - ./topper/temp:/app/topper_temp
     networks:
       - coffee-net
 
+  grouper_q3_v2:
+    build:
+      context: .
+      dockerfile: grouper_v2/Dockerfile
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      gateway:
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      QUEUE_IN: transactions_filtered_Q3
+      COMPLETION_QUEUE: reducer_q3_signal
+      GROUPER_MODE: q3
+    volumes:
+      - ./grouper_v2/temp/q3:/app/temp/grouper_v2_q3
+    networks:
+      - coffee-net
+
+  reducer_q3:
+    build:
+      context: .
+      dockerfile: reducer/Dockerfile
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      gateway:
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      QUEUE_IN: reducer_q3_signal
+      COMPLETION_QUEUE: topper_q3_signal
+      REDUCER_MODE: q3     
+      INPUT_DIR: /app/temp/grouper_v2_q3      
+      OUTPUT_DIR: /app/reducer_temp/q3/transactions_filtered_Q3
+    volumes:
+      - ./grouper_v2/temp/q3:/app/temp/grouper_v2_q3
+      - ./reducer/temp:/app/reducer_temp/q3    
+    networks:
+      - coffee-net
 
   topper_q3:
     build:
@@ -451,7 +475,7 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
-      grouper_q3:
+      grouper_q3_v2:
         condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
@@ -459,14 +483,62 @@ services:
       RABBITMQ_USER: admin
       RABBITMQ_PASS: secretpassword
       QUEUE_IN: topper_q3_signal
-      INPUT_DIR: /app/temp/transactions_filtered_Q3
+      INPUT_DIR: /app/reducer_temp/q3/transactions_filtered_Q3
       OUTPUT_FILE: /app/topper_temp/q3_top1.csv
       TOP_N: 1
       COMPLETION_QUEUE: sender_grouper_q3_signal
       TOPPER_MODE: Q3
     volumes:
-      - ./grouper/temp:/app/temp
+      - ./reducer/temp:/app/reducer_temp/q3    
       - ./topper/temp:/app/topper_temp
+    networks:
+      - coffee-net
+
+
+  grouper_q4_v2:
+    build:
+      context: .
+      dockerfile: grouper_v2/Dockerfile
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      gateway:
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      QUEUE_IN: transactions_cleaned_Q4
+      COMPLETION_QUEUE: reducer_q4_signal
+      GROUPER_MODE: q4
+    volumes:
+      - ./grouper_v2/temp/q4:/app/temp/grouper_v2_q4
+    networks:
+      - coffee-net
+
+  reducer_q4:
+    build:
+      context: .
+      dockerfile: reducer/Dockerfile
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      gateway:
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      QUEUE_IN: reducer_q4_signal
+      COMPLETION_QUEUE: topper_q4_signal
+      REDUCER_MODE: q4      
+      INPUT_DIR: /app/temp/grouper_v2_q4      
+      OUTPUT_DIR: /app/reducer_temp/q4/transactions_cleaned_Q4
+    volumes:
+      - ./grouper_v2/temp/q4:/app/temp/grouper_v2_q4
+      - ./reducer/temp:/app/reducer_temp/q4    
     networks:
       - coffee-net
 
@@ -478,21 +550,21 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
-      grouper_q4:
+      grouper_q4_v2:
         condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_USER: admin
       RABBITMQ_PASS: secretpassword
-      QUEUE_IN: topper_q4_signal
-      INPUT_DIR: /app/temp/transactions_cleaned_Q4
+      QUEUE_IN: topper_q4_signal 
+      INPUT_DIR: /app/reducer_temp/q4/transactions_cleaned_Q4
       OUTPUT_FILE: /app/topper_temp/q4_top3.csv
       TOP_N: 3
       COMPLETION_QUEUE: sender_grouper_q4_signal
       TOPPER_MODE: Q4
     volumes:
-      - ./grouper/temp:/app/temp
+      - ./reducer/temp:/app/reducer_temp/q4    
       - ./topper/temp:/app/topper_temp
     networks:
       - coffee-net
