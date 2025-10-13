@@ -365,7 +365,7 @@ class SignalProcessingWorker(Worker):
     NOTI signal upon completion.
     """
 
-    def _process_message(self, message, msg_type, data_type, payload, queue_name=None):
+    def _process_message(self, message, msg_type, data_type, timestamp, payload, queue_name=None):
         """
         Handle incoming messages. When a NOTI signal is received, perform the
         main processing and then notify downstream workers upon completion.

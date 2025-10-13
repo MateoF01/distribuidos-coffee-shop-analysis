@@ -334,11 +334,11 @@ class Joiner(Worker):
             # out_count >= 2: mapeo explícito
             # Q2_a (quantity) goes to first output with specific headers
             if rows_quantity:
-                q2a_headers = ['month_year', 'item_name', 'quantity']
+                q2a_headers = ['year_month_created_at', 'item_name', 'sellings_qty']
                 self._write_rows_to_csv_idx(0, rows_quantity, q2a_headers)
             # Q2_b (subtotal) goes to second output with specific headers
             if rows_subtotal and out_count >= 2:
-                q2b_headers = ['month_year', 'item_name', 'subtotal']
+                q2b_headers = ['year_month_created_at', 'item_name', 'profit_sum']
                 self._write_rows_to_csv_idx(1, rows_subtotal, q2b_headers)
             # si hay más de 2 salidas, opcionalmente replicamos todo en las restantes
             if out_count > 2 and rows_all:
