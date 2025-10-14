@@ -69,14 +69,14 @@ def send_notification(conn, msg_type = MSG_TYPE_NOTI):
 
 # === RABBITMQ FUNCTIONS (gateway <-> workers) ===
 
-def pack_message(msg_type, data_type, payload, request_id, timestamp: float = None):
+def pack_message(msg_type, data_type, payload, request_id=0, timestamp: float = None):
     """
     Pack a message for RabbitMQ or internal gateway communication.
     Header: 1 byte msg_type, 1 byte data_type, 1 byte request_id, 8 bytes timestamp, 4 bytes payload_len
     """
     if timestamp is None:
         timestamp = time.time()
-    header = struct.pack('>BBdI', msg_type, data_type, timestamp, len(payload))
+    header = struct.pack('>BBBdI', msg_type, data_type, request_id, timestamp, len(payload))
     return header + payload
 
 def unpack_message(msg_bytes):
@@ -85,6 +85,53 @@ def unpack_message(msg_bytes):
     Header: 1 byte msg_type, 1 byte data_type, 1 byte request_id, 8 bytes timestamp, 4 bytes payload_len
     """
     header = msg_bytes[:15]
-    msg_type, data_type, request_id, timestamp, payload_len = struct.unpack('>BBdI', header)
+    msg_type, data_type, request_id, timestamp, payload_len = struct.unpack('>BBBdI', header)
     payload = msg_bytes[15:]
     return msg_type, data_type, request_id, timestamp, payload
+
+
+# === STANDARDIZED MESSAGE CREATION FUNCTIONS ===
+
+def create_data_message(data_type: int, payload: bytes, request_id: int = 0, timestamp: float = None):
+    """
+    Create a standardized data message.
+    
+    Args:
+        data_type: Type of data (DATA_TRANSACTIONS, DATA_TRANSACTION_ITEMS, etc.)
+        payload: Message payload as bytes
+        request_id: Request identifier for tracking (default: 0)
+        timestamp: Message timestamp (default: current time)
+    
+    Returns:
+        bytes: Packed message ready to send through middleware
+    """
+    return pack_message(MSG_TYPE_DATA, data_type, payload, request_id, timestamp)
+
+def create_end_message(data_type: int, request_id: int = 0, timestamp: float = None):
+    """
+    Create a standardized end message (signals end of data stream).
+    
+    Args:
+        data_type: Type of data that ended (DATA_TRANSACTIONS, DATA_END, etc.)
+        request_id: Request identifier for tracking (default: 0)
+        timestamp: Message timestamp (default: current time)
+    
+    Returns:
+        bytes: Packed message ready to send through middleware
+    """
+    return pack_message(MSG_TYPE_END, data_type, b"", request_id, timestamp)
+
+def create_notification_message(data_type: int, payload: bytes = b"", request_id: int = 0, timestamp: float = None):
+    """
+    Create a standardized notification message.
+    
+    Args:
+        data_type: Type of notification (DATA_END, Q1_RESULT, etc.)
+        payload: Notification payload as bytes (default: empty)
+        request_id: Request identifier for tracking (default: 0)
+        timestamp: Message timestamp (default: current time)
+    
+    Returns:
+        bytes: Packed message ready to send through middleware
+    """
+    return pack_message(MSG_TYPE_NOTI, data_type, payload, request_id, timestamp)

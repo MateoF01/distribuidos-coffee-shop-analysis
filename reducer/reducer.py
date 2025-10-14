@@ -20,6 +20,7 @@ class ReducerV2(SignalProcessingWorker):
         self.input_dir = input_dir
         self.output_dir = output_dir
         self.reducer_mode = reducer_mode.lower()
+        self.current_request_id = 0
 
         os.makedirs(self.output_dir, exist_ok=True)
 
@@ -27,7 +28,7 @@ class ReducerV2(SignalProcessingWorker):
     # CORE: Ejecutado al recibir señal NOTI
     # ======================================================
 
-    def _process_signal(self):
+    def _process_signal(self, request_id):
         if not os.path.exists(self.input_dir):
             logging.warning(f"[Reducer {self.reducer_mode.upper()}] Input directory not found: {self.input_dir}")
             return
@@ -73,7 +74,7 @@ class ReducerV2(SignalProcessingWorker):
 
         gc.collect()
         logging.info(f"[Reducer {self.reducer_mode.upper()}] Reducción completa de todos los grupos.")
-        self._notify_completion(DATA_TYPE)
+        self._notify_completion(DATA_TYPE, request_id)
 
         
 

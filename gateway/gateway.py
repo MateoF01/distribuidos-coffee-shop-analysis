@@ -138,15 +138,25 @@ class Server:
         def on_result(message):
             nonlocal data_end_count, final_end_sent
             try:
-                msg_type, data_type, request_id, timestamp, _ = protocol.unpack_message(message)
+                msg_type, data_type, request_id, timestamp, payload = protocol.unpack_message(message)
+                
+                # Log all received messages with request_id for debugging
+                if msg_type == protocol.MSG_TYPE_DATA:
+                    logging.info(f"[GATEWAY] Received DATA message: data_type={data_type}, request_id={request_id}, payload_size={len(payload)}")
+                elif msg_type == protocol.MSG_TYPE_END:
+                    logging.info(f"[GATEWAY] Received END message: data_type={data_type}, request_id={request_id}")
+                else:
+                    logging.info(f"[GATEWAY] Received message: msg_type={msg_type}, data_type={data_type}, request_id={request_id}")
+                
                 target_conn = self.requests.get(request_id)
                 if target_conn is None:
+                    logging.warning(f"[GATEWAY] No connection found for request_id={request_id}, dropping message")
                     return
 
                 if msg_type == protocol.MSG_TYPE_END and data_type == protocol.DATA_END:
                     # Count DATA_END signals but don't forward them yet
                     data_end_count += 1
-                    logging.debug(f"DATA_END received for request_id={request_id} ({data_end_count}/{data_end_expected})")
+                    logging.info(f"[GATEWAY] DATA_END received for request_id={request_id} ({data_end_count}/{data_end_expected})")
 
                     if data_end_count == data_end_expected and not final_end_sent:
                         # Send final DATA_END signal to client
@@ -173,7 +183,9 @@ class Server:
                     # Forward all other messages to client
                     protocol.send_message(target_conn, msg_type, data_type, payload)
                     if msg_type == protocol.MSG_TYPE_END:
-                        logging.debug(f"Forwarded END message with data_type={data_type} for request_id={request_id}")
+                        logging.info(f"[GATEWAY] Forwarded END message with data_type={data_type} for request_id={request_id}")
+                    elif msg_type == protocol.MSG_TYPE_DATA:
+                        logging.info(f"[GATEWAY] Forwarded DATA message with data_type={data_type} for request_id={request_id}, payload_size={len(payload)}")
 
             except (BrokenPipeError, OSError) as e:
                 logging.warning(f"Cliente desconectado: {e}")
@@ -210,7 +222,12 @@ class Server:
                     logging.info(f"Client {addr} new request_id: {current_request_id} (new batch detected)")
 
                 # Use per-hop timestamps: generate new timestamp for this forwarding step
-                message = protocol.pack_message(msg_type, data_type, payload, None)
+                if msg_type == protocol.MSG_TYPE_DATA:
+                    message = protocol.create_data_message(data_type, payload, current_request_id)
+                elif msg_type == protocol.MSG_TYPE_END:
+                    message = protocol.create_end_message(data_type, current_request_id)
+                else:
+                    message = protocol.create_notification_message(data_type, payload, current_request_id)
 
                 if msg_type == protocol.MSG_TYPE_DATA:
                     if data_type in queue_names:

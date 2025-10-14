@@ -8,6 +8,7 @@ import logging
 import time
 from shared.logging_config import initialize_log
 from shared.worker import StreamProcessingWorker
+from shared import protocol
 
 
 class Filter(StreamProcessingWorker):
@@ -31,17 +32,15 @@ class Filter(StreamProcessingWorker):
         
         return dic_queue_row
     
-    def _send_complex_results(self, dic_queue_row, msg_type, data_type, timestamp):
+    def _send_complex_results(self, dic_queue_row, msg_type, data_type, request_id, timestamp):
         """Send filtered results to appropriate queues."""
         import time
         for queue_name, filtered_rows in dic_queue_row.items():
             new_payload_str = '\n'.join(filtered_rows)
             new_payload = new_payload_str.encode('utf-8')
-            new_payload_len = len(new_payload)
             # Use per-hop timestamps: generate new timestamp for this forwarding step
             current_timestamp = time.time()
-            new_header = struct.pack('>BBdI', msg_type, data_type, current_timestamp, new_payload_len)
-            new_message = new_header + new_payload
+            new_message = protocol.create_data_message(data_type, new_payload, request_id, current_timestamp)
 
             for q in self.out_queues:
                 if q.queue_name == queue_name:

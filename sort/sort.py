@@ -9,6 +9,7 @@ import heapq
 import time
 from middleware.coffeeMiddleware import CoffeeMessageMiddlewareQueue
 from shared.worker import FileProcessingWorker
+from shared import protocol
 
 class SorterConfig:
     def __init__(self, config_parser, data_type):
@@ -230,19 +231,21 @@ class Sorter(FileProcessingWorker):
         """Send a completion signal to notify that sorting is done"""
         try:
             if self.out_queues:
-                # Create completion signal message (msg_type=3, data_type=0, timestamp, payload_len=0)
-                header = struct.pack('>BBdI', 3, 0, time.time(), 0)  # Completion signal with timestamp
-                self.out_queues[0].send(header)
-                print(f"Sent completion signal for {self.output_file}")
+                # Create completion signal message
+                message = protocol.create_notification_message(0, b'', self.current_request_id)
+                self.out_queues[0].send(message)
+                print(f"Sent completion signal for {self.output_file} with request_id={self.current_request_id}")
             else:
                 print("No completion queue configured")
         except Exception as e:
             print(f"Error sending completion signal: {e}")
 
-    def _process_message(self, message, msg_type, data_type, timestamp, payload, queue_name=None):
+    def _process_message(self, message, msg_type, data_type, request_id, timestamp, payload, queue_name=None):
         """Process sort signal messages"""
         if msg_type == self.config.sort_signal_type:
-            print(f'Sort signal received for file: {self.input_file}')
+            # Store request_id from the sort signal for use in completion message
+            self.current_request_id = request_id
+            print(f'Sort signal received for file: {self.input_file} with request_id={request_id}')
             self._process_file()
             print(f'Sort complete. Output saved to: {self.output_file}')
         else:

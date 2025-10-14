@@ -86,8 +86,9 @@ class Sender(FileProcessingWorker):
                 'q4': protocol.Q4_RESULT
             }
             data_type = data_type_map.get(self.query_type, protocol.Q1_RESULT)
-            message = protocol.pack_message(protocol.MSG_TYPE_DATA, data_type, payload, time.time())
+            message = protocol.create_data_message(data_type, payload, self.current_request_id)
             self.out_queues[0].send(message)
+            print(f"[INFO] Sent batch to results queue: query_type={self.query_type}, request_id={self.current_request_id}, rows={len(batch)}")
         except Exception as e:
             print(f"[ERROR] Error sending batch: {e}")
             raise
@@ -104,14 +105,14 @@ class Sender(FileProcessingWorker):
                 'q4': protocol.Q4_RESULT
             }
             query_result_type = data_type_map.get(self.query_type, protocol.Q1_RESULT)
-            message1 = protocol.pack_message(protocol.MSG_TYPE_END, query_result_type, b"", time.time())
+            message1 = protocol.create_end_message(query_result_type, self.current_request_id)
             self.out_queues[0].send(message1)
-            print(f"[INFO] Sent MSG_TYPE_END with {self.query_type.upper()}_RESULT ({query_result_type})")
+            print(f"[INFO] Sent MSG_TYPE_END with {self.query_type.upper()}_RESULT ({query_result_type}) to results queue: request_id={self.current_request_id}")
             
             # Send second END signal with DATA_END
-            message2 = protocol.pack_message(protocol.MSG_TYPE_END, protocol.DATA_END, b"", time.time())
+            message2 = protocol.create_end_message(protocol.DATA_END, self.current_request_id)
             self.out_queues[0].send(message2)
-            print(f"[INFO] Sent MSG_TYPE_END with DATA_END")
+            print(f"[INFO] Sent MSG_TYPE_END with DATA_END to results queue: request_id={self.current_request_id}")
             
         except Exception as e:
             print(f"[ERROR] Error sending END signals: {e}")

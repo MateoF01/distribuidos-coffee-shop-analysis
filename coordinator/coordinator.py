@@ -24,24 +24,24 @@ class Coordinator(StreamProcessingWorker):
         self.data_messages_count = defaultdict(int)  # Track data messages by data_type
         self.lock = threading.Lock()
         
-    def _process_message(self, message, msg_type, data_type, timestamp, payload, queue_name=None):
+    def _process_message(self, message, msg_type, data_type, request_id, timestamp, payload, queue_name=None):
         """Process messages from multiple replicas."""
         with self.lock:
             if msg_type == protocol.MSG_TYPE_END:
-                self._handle_end_message(msg_type, data_type, timestamp, payload)
+                self._handle_end_message(msg_type, data_type, request_id, timestamp, payload)
             elif msg_type == protocol.MSG_TYPE_DATA:
-                self._handle_data_message(msg_type, data_type, timestamp, payload)
+                self._handle_data_message(msg_type, data_type, request_id, timestamp, payload)
             else:
                 # Forward other message types directly
-                self._forward_message(msg_type, data_type, timestamp, payload)
+                self._forward_message(msg_type, data_type, request_id, timestamp, payload)
     
-    def _handle_data_message(self, msg_type, data_type, timestamp, payload):
+    def _handle_data_message(self, msg_type, data_type, request_id, timestamp, payload):
         """Handle data messages - forward immediately."""
         # Count data messages
         self.data_messages_count[data_type] += 1
         
         # Data messages are forwarded immediately with per-hop timestamps
-        new_message = protocol.pack_message(msg_type, data_type, payload, None)
+        new_message = protocol.create_data_message(data_type, payload, request_id)
         for q in self.out_queues:
             q.send(new_message)
         
@@ -51,7 +51,7 @@ class Coordinator(StreamProcessingWorker):
         else:
             logging.debug(f"Forwarded data message #{self.data_messages_count[data_type]} (data_type: {data_type})")
     
-    def _handle_end_message(self, msg_type, data_type, timestamp, payload):
+    def _handle_end_message(self, msg_type, data_type, request_id, timestamp, payload):
         """Handle END messages - wait for all replicas before forwarding."""
         # Use (msg_type, data_type) tuple to distinguish different types of END messages
         end_key = (msg_type, data_type)
@@ -62,7 +62,7 @@ class Coordinator(StreamProcessingWorker):
         if (self.end_messages_received[end_key] >= self.num_replicas and 
             end_key not in self.end_messages_forwarded):
             # All replicas have sent END message, forward it once
-            new_message = protocol.pack_message(msg_type, data_type, payload, None)
+            new_message = protocol.create_end_message(data_type, request_id)
             for q in self.out_queues:
                 q.send(new_message)
             
@@ -73,9 +73,14 @@ class Coordinator(StreamProcessingWorker):
             # Mark this (msg_type, data_type) as having END forwarded
             self.end_messages_forwarded.add(end_key)
     
-    def _forward_message(self, msg_type, data_type, timestamp, payload):
+    def _forward_message(self, msg_type, data_type, request_id, timestamp, payload):
         """Forward other message types directly."""
-        new_message = protocol.pack_message(msg_type, data_type, payload, None)
+        if msg_type == protocol.MSG_TYPE_DATA:
+            new_message = protocol.create_data_message(data_type, payload, request_id)
+        elif msg_type == protocol.MSG_TYPE_END:
+            new_message = protocol.create_end_message(data_type, request_id)
+        else:
+            new_message = protocol.create_notification_message(data_type, payload, request_id)
         for q in self.out_queues:
             q.send(new_message)
         logging.debug(f"Forwarded message (msg_type: {msg_type}, data_type: {data_type})")

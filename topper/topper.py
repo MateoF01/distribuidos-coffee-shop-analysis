@@ -34,9 +34,11 @@ class Topper(Worker):
         output_filename = os.path.basename(output_file)
         self.output_file = os.path.join(self.output_dir, output_filename)
         self.topper_mode = topper_mode
+        self.current_request_id = 0
 
-    def _process_message(self, message, msg_type, data_type, timestamp, payload, queue_name=None):
+    def _process_message(self, message, msg_type, data_type, request_id, timestamp, payload, queue_name=None):
         """Process completion signals to start CSV processing"""
+        self.current_request_id = request_id
         if msg_type == protocol.MSG_TYPE_NOTI:
             logging.info('[Topper] Received completion signal, starting CSV processing...')
             if self.topper_mode == 'Q2':
@@ -214,10 +216,10 @@ class Topper(Worker):
         """Send completion signal to the next stage if completion queue is configured"""
         if self.out_queues:
             try:
-                logging.info(f"[Topper:{self.query_id}] Sending completion signal to {self.completion_queue_name}")
-                completion_message = protocol.pack_message(protocol.MSG_TYPE_NOTI, protocol.DATA_END, b"", time.time())
+                logging.info(f"[Topper:{self.query_id}] Sending completion signal to {self.completion_queue_name} with request_id={self.current_request_id}")
+                completion_message = protocol.create_notification_message(protocol.DATA_END, b"", self.current_request_id)
                 self.out_queues[0].send(completion_message)
-                logging.info(f"[Topper:{self.query_id}] Completion signal sent successfully")
+                logging.info(f"[Topper:{self.query_id}] Completion signal sent successfully to {self.completion_queue_name} with request_id={self.current_request_id}")
             except Exception as e:
                 logging.error(f"[Topper:{self.query_id}] Error sending completion signal: {e}")
 

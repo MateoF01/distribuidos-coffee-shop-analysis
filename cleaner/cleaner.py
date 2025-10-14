@@ -58,7 +58,7 @@ class Cleaner(StreamProcessingWorker):
     def _handle_end_message(self, message):
         """Handle END messages from exchange."""
         try:
-            msg_type, data_type, timestamp, payload = protocol.unpack_message(message)
+            msg_type, data_type, request_id, timestamp, payload = protocol.unpack_message(message)
             with self.lock:
                 self.end_timestamps[data_type] = timestamp
                 self.end_messages_count += 1
@@ -67,12 +67,12 @@ class Cleaner(StreamProcessingWorker):
         except Exception as e:
             logging.error(f"Error handling END message: {e}")
 
-    def _process_message(self, message, msg_type, data_type, timestamp, payload, queue_name=None):
+    def _process_message(self, message, msg_type, data_type, request_id, timestamp, payload, queue_name=None):
         """Override to add timestamp comparison logic."""
         if msg_type == protocol.MSG_TYPE_END:
             # Handle END messages with timestamp comparison
             logging.info(f"[RACE_DETECTION] Processing END message for data_type {data_type} with timestamp {timestamp}")
-            self._handle_data_end_message(msg_type, data_type, timestamp, payload)
+            self._handle_data_end_message(msg_type, data_type, request_id, timestamp, payload)
         else:
             # For data messages, check if we should send based on END timestamp
             with self.lock:
@@ -83,7 +83,7 @@ class Cleaner(StreamProcessingWorker):
                 with self.lock:
                     self.processed_messages_count += 1
                 logging.debug(f"[RACE_DETECTION] Processing data message #{self.data_messages_count} (data_type: {data_type}, timestamp: {timestamp}) - SENDING")
-                super()._process_message(message, msg_type, data_type, timestamp, payload, queue_name)
+                super()._process_message(message, msg_type, data_type, request_id, timestamp, payload, queue_name)
             else:
                 with self.lock:
                     self.held_back_messages_count += 1
@@ -108,20 +108,20 @@ class Cleaner(StreamProcessingWorker):
             logging.debug(f"[RACE_DETECTION] Timestamp comparison for data_type {data_type}: data={timestamp} vs end={end_timestamp} - {comparison_result}")
             return should_send
     
-    def _handle_data_end_message(self, msg_type, data_type, timestamp, payload):
+    def _handle_data_end_message(self, msg_type, data_type, request_id, timestamp, payload):
         """Handle END messages - always forward with new timestamp."""
         with self.lock:
             current_stats = f"Data: {self.data_messages_count}, Processed: {self.processed_messages_count}, Held: {self.held_back_messages_count}, END: {self.end_messages_count}"
             
         if data_type == protocol.DATA_END:
             # For DATA_END, always forward with new timestamp
-            new_message = protocol.pack_message(msg_type, data_type, payload, None)
+            new_message = protocol.create_end_message(data_type, request_id)
             for q in self.out_queues:
                 q.send(new_message)
             logging.info(f"[RACE_DETECTION] Forwarded DATA_END message - Final stats: {current_stats}")
         else:
             # For specific data type END messages, forward with new timestamp
-            new_message = protocol.pack_message(msg_type, data_type, payload, None)
+            new_message = protocol.create_end_message(data_type, request_id)
             for q in self.out_queues:
                 q.send(new_message)
             logging.info(f"[RACE_DETECTION] Forwarded END message for data_type {data_type} - Current stats: {current_stats}")

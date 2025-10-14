@@ -222,16 +222,16 @@ class GrouperV2(StreamProcessingWorker):
 
 
     #tuve que sobreescribir este metodo porque no hay clase para recibir rows y enviar una notificacion
-    def _handle_end_signal(self, message, msg_type, data_type, queue_name=None):
-        logging.info(f"[{self.replica_id}] END recibido — enviando notificación de completado.")
+    def _handle_end_signal(self, message, msg_type, data_type, request_id, queue_name=None):
+        logging.info(f"[{self.replica_id}] END recibido — enviando notificación de completado con request_id={request_id}.")
 
         noti_payload = f"completed_by={self.replica_id}".encode("utf-8")
-        noti_message = protocol.pack_message(protocol.MSG_TYPE_NOTI, data_type, noti_payload)
+        noti_message = protocol.create_notification_message(data_type, noti_payload, request_id)
 
         for q in self.out_queues:
             q.send(noti_message)
 
-        logging.info(f"[{self.replica_id}] Notificación enviada a reducer(s): {[q.queue_name for q in self.out_queues]}")
+        logging.info(f"[{self.replica_id}] Notificación enviada a reducer(s): {[q.queue_name for q in self.out_queues]} con request_id={request_id}")
 # ====================
 # Main
 # ====================

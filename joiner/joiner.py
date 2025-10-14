@@ -10,6 +10,7 @@ import time
 from shared.logging_config import initialize_log
 from middleware.coffeeMiddleware import CoffeeMessageMiddlewareQueue
 from shared.worker import Worker
+from shared import protocol
 
 
 class Joiner(Worker):
@@ -39,6 +40,7 @@ class Joiner(Worker):
         self._csv_initialized = {f: False for _, f in self.outputs}
         self._rows_written = {f: 0 for _, f in self.outputs}
         self.end_received = {queue: False for queue in self.multiple_input_queues}
+        self.current_request_id = 0  # Store current request_id
 
         # Temp dir: usar la carpeta del primer output si existe, sino CWD
         base_for_temp = os.path.dirname(self.outputs[0][1]) if self.outputs else os.getcwd()
@@ -60,8 +62,11 @@ class Joiner(Worker):
             "resultados_groupby_q3": ",",
         }
     
-    def _process_message(self, message, msg_type, data_type, timestamp, payload, queue_name=None):
+    def _process_message(self, message, msg_type, data_type, request_id, timestamp, payload, queue_name=None):
         """Process messages from input queues"""
+        # Store the request_id for later use
+        self.current_request_id = request_id
+        
         # Initialize CSV files on first message for single queue mode
         if len(self.multiple_input_queues) == 1:
             for i in range(len(self.outputs)):
@@ -98,9 +103,11 @@ class Joiner(Worker):
                         for i in range(len(self.outputs)):
                             self._write_rows_to_csv_idx(i, final_rows)
     
-    def _handle_end_signal(self, message, msg_type, data_type, queue_name=None):
+    def _handle_end_signal(self, message, msg_type, data_type, request_id, queue_name=None):
         """Handle end-of-data signals with joiner-specific logic"""
         with self._lock:
+            # Store request_id for use in sort request
+            self.current_request_id = request_id
             if not self.end_received[queue_name]:
                 self.end_received[queue_name] = True
                 logging.info(f"Received end signal from queue: {queue_name}")
@@ -183,11 +190,12 @@ class Joiner(Worker):
     def _send_sort_request(self):
         """Envía señal de sort/notify a CADA cola de salida, indicando su archivo asociado."""
         try:
-            header = struct.pack('>BBdI', 3, 0, time.time(), 0)  # Updated to include timestamp
+            sort_message = protocol.create_notification_message(0, b"", self.current_request_id)  # MSG_TYPE_NOTI with data_type 0
+            logging.info(f"Sending sort request with request_id={self.current_request_id}")
             for out_q, out_file in self.outputs:
                 try:
-                    out_q.send(header)
-                    logging.debug(f"Sent sort request for {out_file} to {out_q.queue_name}")
+                    out_q.send(sort_message)
+                    logging.info(f"Sent sort request for {out_file} to {out_q.queue_name} with request_id={self.current_request_id}")
                 except Exception as inner:
                     logging.error(f"Error sending sort to {out_q.queue_name} for {out_file}: {inner}")
         except Exception as e:
