@@ -52,6 +52,16 @@ services:
     depends_on:
       gateway:
         condition: service_started
+      sender_q1:
+        condition: service_started
+      sender_q2_a:
+        condition: service_started
+      sender_q2_b:
+        condition: service_started
+      sender_q3:
+        condition: service_started
+      sender_q4:
+        condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
       DATA_DIR: /app/.data
@@ -163,11 +173,11 @@ services:
       DATA_TYPE: menu_items
     networks:
     - coffee-net
-  coordinator_transactions:
+  coordinator_transaction:
     build:
       context: .
       dockerfile: coordinator/Dockerfile
-    container_name: coordinator_transactions
+    container_name: coordinator_transaction
     depends_on:
       rabbitmq:
         condition: service_healthy

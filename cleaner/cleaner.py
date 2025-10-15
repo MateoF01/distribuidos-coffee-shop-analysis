@@ -4,6 +4,7 @@ import sys
 import threading
 import configparser
 import time
+import heapq
 from middleware.coffeeMiddleware import CoffeeMessageMiddlewareQueue, CoffeeMessageMiddlewareExchange
 from shared import protocol
 import logging
@@ -11,7 +12,7 @@ from shared.logging_config import initialize_log
 from shared.worker import StreamProcessingWorker
 
 class Cleaner(StreamProcessingWorker):
-    def __init__(self, queue_in, queue_out, columns_have, columns_want, rabbitmq_host, keep_when_empty=None, exchange_name=None):
+    def __init__(self, queue_in, queue_out, columns_have, columns_want, rabbitmq_host, keep_when_empty=None, exchange_name=None, timeout_seconds=5.0):
         super().__init__(queue_in, queue_out, rabbitmq_host)
         self.columns_have = columns_have
         self.columns_want = columns_want
@@ -21,8 +22,14 @@ class Cleaner(StreamProcessingWorker):
         # Exchange subscriber for END messages
         self.exchange_name = exchange_name
         self.end_exchange = None
-        self.end_timestamps = {}  # Track END message timestamps by data_type
+        self.end_messages_heap = []  # Heap for all END messages - ordered by timestamp (timestamp, request_id, data_type)
         self.lock = threading.Lock()
+        
+        # Timeout mechanism for processing remaining END messages
+        self.timeout_seconds = timeout_seconds  # Configurable timeout from config
+        self.last_process_time = time.time()
+        self.timeout_timer = None
+        self.timeout_cancelled = threading.Event()  # Flag to cancel timeout processing
         
         # Race condition detection counters
         self.data_messages_count = 0
@@ -52,6 +59,9 @@ class Cleaner(StreamProcessingWorker):
                 daemon=True
             ).start()
             logging.info(f"Started consuming END messages from exchange: {self.exchange_name}")
+            
+            # Start the timeout timer
+            self._reset_timeout_timer()
         except Exception as e:
             logging.error(f"Failed to setup exchange subscriber: {e}")
     
@@ -60,54 +70,114 @@ class Cleaner(StreamProcessingWorker):
         try:
             msg_type, data_type, request_id, timestamp, payload = protocol.unpack_message(message)
             with self.lock:
-                self.end_timestamps[data_type] = timestamp
+                # Add all END messages to the single heap, ordered by timestamp
+                heapq.heappush(self.end_messages_heap, (timestamp, request_id, data_type))
                 self.end_messages_count += 1
-                logging.info(f"[RACE_DETECTION] Received END message #{self.end_messages_count} for data_type {data_type} with timestamp {timestamp}")
+                logging.info(f"[RACE_DETECTION] Received END message #{self.end_messages_count} for request_id {request_id} (data_type {data_type}) with timestamp {timestamp}")
                 logging.info(f"[RACE_DETECTION] Current stats - Data: {self.data_messages_count}, END: {self.end_messages_count}, Held: {self.held_back_messages_count}, Processed: {self.processed_messages_count}")
         except Exception as e:
             logging.error(f"Error handling END message: {e}")
 
+    def _process_remaining_end_messages(self):
+        """Process all remaining END messages in the heap when timeout occurs."""
+        # Check if timeout processing was cancelled before starting
+        if self.timeout_cancelled.is_set():
+            logging.debug("[TIMEOUT] Timeout processing cancelled before starting")
+            return
+            
+        with self.lock:
+            processed_count = 0
+            while self.end_messages_heap and not self.timeout_cancelled.is_set():
+                end_timestamp, end_request_id, end_data_type = heapq.heappop(self.end_messages_heap)
+                logging.info(f"[TIMEOUT] Processing END message from heap due to timeout: timestamp={end_timestamp}, request_id={end_request_id}, data_type={end_data_type}")
+                # Process the END message outside the lock
+                self.lock.release()
+                try:
+                    # Check again if cancelled while we were outside the lock
+                    if self.timeout_cancelled.is_set():
+                        logging.info(f"[TIMEOUT] Timeout processing cancelled, stopping after {processed_count} messages")
+                        # Put the message back in the heap since we didn't process it
+                        with self.lock:
+                            heapq.heappush(self.end_messages_heap, (end_timestamp, end_request_id, end_data_type))
+                        return
+                    
+                    self._handle_data_end_message(protocol.MSG_TYPE_END, end_data_type, end_request_id, end_timestamp, b"")
+                    processed_count += 1
+                finally:
+                    self.lock.acquire()
+            
+            if processed_count > 0:
+                if self.timeout_cancelled.is_set():
+                    logging.info(f"[TIMEOUT] Processed {processed_count} END messages from heap before cancellation")
+                else:
+                    logging.info(f"[TIMEOUT] Processed {processed_count} END messages from heap due to timeout")
+    
+    def _reset_timeout_timer(self):
+        """Reset the timeout timer."""
+        # Signal any running timeout processing to stop
+        self.timeout_cancelled.set()
+        
+        # Cancel existing timer if any
+        if self.timeout_timer:
+            self.timeout_timer.cancel()
+        
+        # Clear the cancellation flag for the new timer
+        self.timeout_cancelled.clear()
+        
+        # Start new timer
+        self.timeout_timer = threading.Timer(self.timeout_seconds, self._process_remaining_end_messages)
+        self.timeout_timer.start()
+        self.last_process_time = time.time()
+        logging.debug("[TIMEOUT] Timer reset - any running timeout processing will be cancelled")
+
     def _process_message(self, message, msg_type, data_type, request_id, timestamp, payload, queue_name=None):
         """Override to add timestamp comparison logic."""
+        # Reset timeout timer when any message is processed
+        if self.exchange_name:
+            self._reset_timeout_timer()
+        
         if msg_type == protocol.MSG_TYPE_END:
             # Handle END messages with timestamp comparison
-            logging.info(f"[RACE_DETECTION] Processing END message for data_type {data_type} with timestamp {timestamp}")
+            logging.info(f"[RACE_DETECTION] Processing END message for request_id {request_id} (data_type {data_type}) with timestamp {timestamp}")
             self._handle_data_end_message(msg_type, data_type, request_id, timestamp, payload)
         else:
             # For data messages, check if we should send based on END timestamp
             with self.lock:
                 self.data_messages_count += 1
                 
-            should_send = self._should_send_message(data_type, timestamp)
-            if should_send:
+            # Check if exchange_name is configured
+            if self.exchange_name is None:
+                # No exchange configured, process normally
                 with self.lock:
                     self.processed_messages_count += 1
-                logging.debug(f"[RACE_DETECTION] Processing data message #{self.data_messages_count} (data_type: {data_type}, timestamp: {timestamp}) - SENDING")
+                logging.debug(f"[RACE_DETECTION] Processing data message #{self.data_messages_count} (request_id: {request_id}, data_type: {data_type}, timestamp: {timestamp}) - SENDING")
                 super()._process_message(message, msg_type, data_type, request_id, timestamp, payload, queue_name)
             else:
+                # Exchange configured, process END messages with lower timestamps first
                 with self.lock:
-                    self.held_back_messages_count += 1
-                logging.warning(f"[RACE_DETECTION] Holding back data message #{self.data_messages_count} (data_type: {data_type}, timestamp: {timestamp}) - HELD BACK #{self.held_back_messages_count}")
+                    # Process all END messages with timestamps lower than current data message
+                    while (self.end_messages_heap and 
+                           self.end_messages_heap[0][0] < timestamp):  # heap[0][0] is the timestamp
+                        end_timestamp, end_request_id, end_data_type = heapq.heappop(self.end_messages_heap)
+                        logging.info(f"[RACE_DETECTION] Processing END message from heap: timestamp={end_timestamp}, request_id={end_request_id}, data_type={end_data_type}")
+                        # Process the END message outside the lock
+                        self.lock.release()
+                        try:
+                            self._handle_data_end_message(protocol.MSG_TYPE_END, end_data_type, end_request_id, end_timestamp, b"")
+                        finally:
+                            self.lock.acquire()
+                    
+                    # Now process the data message
+                    self.processed_messages_count += 1
                 
+                logging.debug(f"[RACE_DETECTION] Processing data message #{self.data_messages_count} (request_id: {request_id}, data_type: {data_type}, timestamp: {timestamp}) - SENDING")
+                super()._process_message(message, msg_type, data_type, request_id, timestamp, payload, queue_name)
             # Log periodic statistics
             if self.data_messages_count % 5000 == 0:
                 with self.lock:
                     logging.info(f"[RACE_DETECTION] Periodic stats - Data messages: {self.data_messages_count}, Processed: {self.processed_messages_count}, Held back: {self.held_back_messages_count}, END messages: {self.end_messages_count}")
     
-    def _should_send_message(self, data_type, timestamp):
-        """Check if message should be sent based on END timestamp comparison."""
-        with self.lock:
-            end_timestamp = self.end_timestamps.get(data_type)
-            if end_timestamp is None:
-                # No END message received yet, send the message
-                logging.debug(f"[RACE_DETECTION] No END timestamp for data_type {data_type} - ALLOWING message (timestamp: {timestamp})")
-                return True
-            # Send if END timestamp is higher (meaning END came after this data)
-            should_send = end_timestamp > timestamp
-            comparison_result = "ALLOWING" if should_send else "BLOCKING"
-            logging.debug(f"[RACE_DETECTION] Timestamp comparison for data_type {data_type}: data={timestamp} vs end={end_timestamp} - {comparison_result}")
-            return should_send
-    
+
     def _handle_data_end_message(self, msg_type, data_type, request_id, timestamp, payload):
         """Handle END messages - always forward with new timestamp."""
         with self.lock:
@@ -189,8 +259,11 @@ if __name__ == '__main__':
         columns_want = [col.strip() for col in config[data_type]['want'].split(',')]
         keep_when_empty_str = config[data_type].get('keep_when_empty', '').strip()
         keep_when_empty = [col.strip() for col in keep_when_empty_str.split(',')] if keep_when_empty_str else None
+        
+        # Read timeout from config with default fallback
+        timeout_seconds = float(config[data_type].get('timeout_seconds', '5.0'))
 
-        return Cleaner(queue_in, queue_out, columns_have, columns_want, rabbitmq_host, keep_when_empty, exchange_name)
+        return Cleaner(queue_in, queue_out, columns_have, columns_want, rabbitmq_host, keep_when_empty, exchange_name, timeout_seconds)
     
     # Use the Worker base class main entry point
     config_path = os.path.join(os.path.dirname(__file__), 'config.ini')
