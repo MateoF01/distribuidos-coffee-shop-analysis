@@ -174,11 +174,11 @@ services:
       DATA_TYPE: menu_items
     networks:
     - coffee-net
-  coordinator_transactions:
+  coordinator_transaction:
     build:
       context: .
       dockerfile: coordinator/Dockerfile
-    container_name: coordinator_transactions
+    container_name: coordinator_transaction
     depends_on:
       rabbitmq:
         condition: service_healthy
