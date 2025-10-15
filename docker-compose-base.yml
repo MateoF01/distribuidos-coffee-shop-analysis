@@ -60,7 +60,7 @@ services:
       BATCH_MAX_AMOUNT: 5000
     volumes:
     - ./data:/app/.data
-    - ./results:/app/results
+    - ./client/results:/app/client/results
     networks:
     - coffee-net
   cleaner_transactions:

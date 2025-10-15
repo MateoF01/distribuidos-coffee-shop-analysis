@@ -12,13 +12,26 @@ class Client:
         self.requests_amount = requests_amount
 
         # Ruta de salida dentro de la carpeta client/
-        base_dir = os.path.dirname(__file__)   # carpeta client/common
-        client_dir = os.path.dirname(base_dir) # sube a carpeta client/
-        self.out_dir = out_dir or os.path.join(client_dir, "results")
+        # In Docker container: __file__ = /app/common/client.py, but we need /app/client/results
+        base_dir = os.path.dirname(__file__)   # /app/common
+        app_dir = os.path.dirname(base_dir)    # /app
+        
+        # Create results folder inside the client container directory (matching volume mapping)
+        client_results_base = os.path.join(app_dir, "client", "results")
+        # Debug print to see path construction
+        print(f"[DEBUG] Path construction: __file__={__file__}, base_dir={base_dir}, app_dir={app_dir}, client_results_base={client_results_base}")
+        
+        # Extract client number from client_id for folder naming
+        client_number = self.client_id.replace("client", "") if self.client_id.startswith("client") else self.client_id
+        self.client_results_dir = os.path.join(client_results_base, f"client_{client_number}")
+        
+        # Create base client directory if it doesn't exist
+        os.makedirs(self.client_results_dir, exist_ok=True)
+        print(f"[INFO] Client will save results to directory: {self.client_results_dir}")
 
-        # Crear carpeta si no existe
-        os.makedirs(self.out_dir, exist_ok=True)
-        print(f"[INFO] Client will save results to: {self.out_dir}")
+        # Current request directory (will be set when processing each request)
+        self.current_request_dir = None
+        self.current_request_num = 0
 
         # Diccionario para guardar archivos abiertos por data_type
         self.csv_files = {}
@@ -29,6 +42,17 @@ class Client:
         self.final_end_received = False
         
         print(f"[INFO] Client expecting query results: {self.expected_queries}")
+
+    def _setup_request_directory(self, request_num):
+        """Setup the directory for the current request"""
+        self.current_request_num = request_num
+        self.current_request_dir = os.path.join(self.client_results_dir, f"request_{request_num}")
+        os.makedirs(self.current_request_dir, exist_ok=True)
+        print(f"[INFO] Created request directory: {self.current_request_dir}")
+        
+        # Reset query tracking for this request
+        self.queries_received = set()
+        self.final_end_received = False
 
     def create_socket(self):
         host, port = self.server_address.split(":")
@@ -70,7 +94,9 @@ class Client:
         print(f"[INFO] - Expected queries: {self.expected_queries}")
         print(f"[INFO] - Received queries: {self.queries_received}")
         print(f"[INFO] - Final END received: {self.final_end_received}")
-        print(f"[INFO] - Output directory: {self.out_dir}")
+        print(f"[INFO] - Client results directory: {self.client_results_dir}")
+        print(f"[INFO] - Current request directory: {self.current_request_dir}")
+        print(f"[INFO] - Total requests processed: {self.requests_amount}")
 
     def _listen_for_responses(self):
         """Hilo que escucha respuestas del gateway y escribe CSVs por data_type"""
@@ -120,6 +146,13 @@ class Client:
         """Escribe filas en un CSV correspondiente al data_type usando file.write"""
         if not rows:
             return
+        
+        # Ensure we have a current request directory set up
+        if self.current_request_dir is None:
+            print("[WARN] No current request directory set, using client base directory")
+            output_dir = self.client_results_dir
+        else:
+            output_dir = self.current_request_dir
             
         # Map data_type to query names for output files
         query_names = {
@@ -134,7 +167,7 @@ class Client:
             # This is query result data
             query_name = query_names[data_type]
             filename = f'{query_name}_results.csv'
-            filepath = os.path.join(self.out_dir, filename)
+            filepath = os.path.join(output_dir, filename)
             
             # Check if file exists to determine if we need to write headers
             file_exists = os.path.exists(filepath)
@@ -147,15 +180,15 @@ class Client:
                         f.write('\n')
                         rows_written += 1
                         
-            print(f"[INFO] Wrote {rows_written} rows to {filename}")
+            print(f"[INFO] REQ {self.current_request_num}: Wrote {rows_written} rows to {filename}")
             
             # Track that we've received data for this query
             if data_type not in self.queries_received:
-                print(f"[INFO] Started receiving data for {query_name}")
+                print(f"[INFO] REQ {self.current_request_num}: Started receiving data for {query_name}")
         else:
             # This is input data being echoed back (shouldn't happen normally)
             print(f"[WARN] Received unexpected data_type: {data_type}")
-            filepath = os.path.join(self.out_dir, f'unknown_{data_type}.csv')
+            filepath = os.path.join(output_dir, f'unknown_{data_type}.csv')
             with open(filepath, 'a', encoding='utf-8') as f:
                 for row in rows:
                     if row.strip():
@@ -200,8 +233,6 @@ class Client:
 
 
     def start_client_loop(self):
-        self.queries_received = set()
-        self.final_end_received = False
         try:
             self.create_socket()
 
@@ -210,6 +241,8 @@ class Client:
             listener_thread.start()
 
             for request_num in range(self.requests_amount):
+                # Set up directory for this request
+                self._setup_request_directory(request_num + 1)
                 print(f"[INFO] Iteration {request_num+1}/{self.requests_amount}: Sending files from data folder")
 
                 # Agrupar archivos por tipo
