@@ -97,29 +97,37 @@ class Sorter(FileProcessingWorker):
 
     def _initialize_request_paths(self, request_id):
         """Initialize input/output paths with request_id subdirectory"""
-        if self.request_id_initialized and self.current_request_id == request_id:
+        if hasattr(self, "_initialized_requests") and request_id in self._initialized_requests:
             return
-        
-        # Create request_id-based paths for input and output files
-        def update_path_with_request_id(base_path, request_id):
-            dir_path = os.path.dirname(base_path)
-            filename = os.path.basename(base_path)
-            new_path = os.path.join(dir_path, str(request_id), filename)
-            # Ensure the directory exists
-            os.makedirs(os.path.dirname(new_path), exist_ok=True)
-            return new_path
-        
-        # Update paths
-        self.input_file = update_path_with_request_id(self.base_input_file, request_id)
-        self.output_file = update_path_with_request_id(self.base_output_file, request_id)
-        
-        # Clear temp files list for new request
+        if not hasattr(self, "_initialized_requests"):
+            self._initialized_requests = set()
+        self._initialized_requests.add(request_id)
+
+        # Base path recibido del compose (sin el request_id)
+        dir_in = os.path.dirname(self.base_input_file)
+        file_in = os.path.basename(self.base_input_file)
+        new_input = os.path.join(dir_in, str(request_id), file_in)
+
+        dir_out = os.path.dirname(self.base_output_file)
+        file_out = os.path.basename(self.base_output_file)
+        new_output = os.path.join(dir_out, str(request_id), file_out)
+
+        # Crear carpetas
+        os.makedirs(os.path.dirname(new_input), exist_ok=True)
+        os.makedirs(os.path.dirname(new_output), exist_ok=True)
+
+        # Actualizar paths activos
+        self.input_file = new_input
+        self.output_file = new_output
+        self.current_request_id = request_id
+
+        # Inicializar lista de temporales
         self._temp_files_by_request[request_id] = []
-        
-        self.request_id_initialized = True
-        print(f"Initialized sorter paths for request_id {request_id}")
-        print(f"  Input file: {self.input_file}")
-        print(f"  Output file: {self.output_file}")
+
+        print(f"[Sorter] Initialized paths for request_id={request_id}")
+        print(f"[Sorter]   Input file: {self.input_file}")
+        print(f"[Sorter]   Output file: {self.output_file}")
+
 
     def _write_sorted_chunk(self, chunk_data):
         """Write a sorted chunk to a temporary file"""
@@ -134,7 +142,7 @@ class Sorter(FileProcessingWorker):
             
             # Create temporary file manually in the same directory as output file
             timestamp = str(int(time.time() * 1000000))  # microsecond precision
-            chunk_id = len(self._temp_files)
+            chunk_id = len(self._temp_files_by_request[self.current_request_id])
             temp_filename = f"{self.config.temp_file_prefix}{timestamp}_{chunk_id}{self.config.temp_file_suffix}"
             
             # Place temp files in the same directory as the output file to maintain request_id organization
@@ -215,14 +223,13 @@ class Sorter(FileProcessingWorker):
                 if not f.closed:
                     f.close()
                     
-            # Remove temporary files
-            for temp_file in self._temp_files:
+            # Remove temporary files per request
+            for temp_file in temp_files:
                 try:
                     os.unlink(temp_file)
                 except OSError:
                     pass
 
-            del self._temp_files_by_request[request_id]
             print(f"Successfully merged {len(self._temp_files)} sorted chunks into {self.output_file}")
             
         except Exception as e:
