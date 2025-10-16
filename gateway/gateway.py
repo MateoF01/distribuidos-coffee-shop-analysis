@@ -42,7 +42,16 @@ class Server:
         # self._setup_rabbitmq()  # Moved to per-client handler
         self._setup_socket()
         self._setup_signal_handlers()
+        
+        # Use local dictionaries - multiprocessing with Manager causes socket issues
         self.requests = {}  # {request_id: conn}
+        self.request_counts = {}  # {(conn, request_id): client_request_count}
+        self.request_end_counts = {}  # {request_id: data_end_count}
+        self.request_end_expected = {}  # {request_id: data_end_expected}
+        self.request_final_end_sent = {}  # {request_id: final_end_sent}
+        self.connection_requests = {}  # {conn: set_of_request_ids}
+        self.connection_final_end_sent = {}  # {conn: final_end_sent}
+        
         # Use shared request id counter if provided, else create one
         if shared_request_id is not None:
             self.next_request_id = shared_request_id
@@ -131,61 +140,82 @@ class Server:
         transaction_items_end_exchange = CoffeeMessageMiddlewareExchange(
             host=rabbitmq_host, exchange_name='transaction_items_end_exchange', route_keys=[])
 
-        data_end_count = 0
-        data_end_expected = 5  # Wait for 5 DATA_END signals before sending final DATA_END
-        final_end_sent = False
-
         def on_result(message):
-            nonlocal data_end_count, final_end_sent
             try:
+                # Use standard internal protocol to receive from workers (no request_count)
                 msg_type, data_type, request_id, timestamp, payload = protocol.unpack_message(message)
                 
-                # Log all received messages with request_id for debugging
-                if msg_type == protocol.MSG_TYPE_DATA:
-                    logging.info(f"[GATEWAY] Received DATA message: data_type={data_type}, request_id={request_id}, payload_size={len(payload)}")
-                elif msg_type == protocol.MSG_TYPE_END:
-                    logging.info(f"[GATEWAY] Received END message: data_type={data_type}, request_id={request_id}")
-                else:
-                    logging.info(f"[GATEWAY] Received message: msg_type={msg_type}, data_type={data_type}, request_id={request_id}")
-                
+                # Find the target connection and get client request count
                 target_conn = self.requests.get(request_id)
+                if target_conn is not None:
+                    client_req_count = self.request_counts.get((target_conn, request_id), 0)
+                else:
+                    client_req_count = "unknown"
+                
+                if msg_type == protocol.MSG_TYPE_DATA:
+                    logging.info(f"[GATEWAY] Received DATA message: data_type={data_type}, request_id={request_id}, client_request_count={client_req_count}, payload_size={len(payload)}")
+                elif msg_type == protocol.MSG_TYPE_END:
+                    logging.info(f"[GATEWAY] Received END message: data_type={data_type}, request_id={request_id}, client_request_count={client_req_count}")
+                else:
+                    logging.info(f"[GATEWAY] Received message: msg_type={msg_type}, data_type={data_type}, request_id={request_id}, client_request_count={client_req_count}")
+                
                 if target_conn is None:
                     logging.warning(f"[GATEWAY] No connection found for request_id={request_id}, dropping message")
                     return
 
+                # Initialize tracking for this request if not exists
+                if request_id not in self.request_end_counts:
+                    self.request_end_counts[request_id] = 0
+                    self.request_end_expected[request_id] = 5  # Wait for 5 DATA_END signals
+                    self.request_final_end_sent[request_id] = False
+
                 if msg_type == protocol.MSG_TYPE_END and data_type == protocol.DATA_END:
                     # Count DATA_END signals but don't forward them yet
-                    data_end_count += 1
+                    self.request_end_counts[request_id] += 1
+                    data_end_count = self.request_end_counts[request_id]
+                    data_end_expected = self.request_end_expected[request_id]
                     logging.info(f"[GATEWAY] DATA_END received for request_id={request_id} ({data_end_count}/{data_end_expected})")
 
-                    if data_end_count == data_end_expected and not final_end_sent:
-                        # Send final DATA_END signal to client
-                        protocol.send_message(target_conn, protocol.MSG_TYPE_END, protocol.DATA_END, b"")
-                        final_end_sent = True
-                        logging.info("All queries completed. Sent final DATA_END to client.")
+                    if data_end_count == data_end_expected and not self.request_final_end_sent[request_id]:
+                        self.request_final_end_sent[request_id] = True
+                        logging.info(f"All queries completed for request_id={request_id}.")
+                        
+                        # Check if all requests for this connection have completed
+                        if target_conn not in self.connection_requests:
+                            self.connection_requests[target_conn] = set()
+                        
+                        connection_request_ids = self.connection_requests[target_conn]
+                        completed_requests = [rid for rid in connection_request_ids if self.request_final_end_sent.get(rid, False)]
+                        
+                        logging.info(f"Connection progress: {len(completed_requests)}/{len(connection_request_ids)} requests completed")
+                        
+                        # Only send final END if ALL requests for this connection completed
+                        if len(completed_requests) == len(connection_request_ids) and not self.connection_final_end_sent.get(target_conn, False):
+                            # Send final DATA_END signal to client with the request's count
+                            protocol.send_client_message(target_conn, protocol.MSG_TYPE_END, protocol.DATA_END, b"", client_req_count)
+                            self.connection_final_end_sent[target_conn] = True
+                            logging.info(f"ALL requests completed for connection. Sent final DATA_END to client with client_request_count={client_req_count}.")
 
-                        # Clean up all requests for this connection
-                        to_remove = [rid for rid, c in self.requests.items() if c == target_conn]
-                        for rid in to_remove:
-                            del self.requests[rid]
+                            # DO NOT clean up request mappings here - they're still needed for incoming result messages
+                            # Cleanup will happen when the connection actually closes
 
-                        # Close connection after a short delay
-                        def close_connection():
-                            time.sleep(0.5)
-                            try:
-                                conn.shutdown(socket.SHUT_RDWR)
-                            except OSError:
-                                pass
-                            conn.close()
+                            # Close connection after a short delay to allow final messages to be processed
+                            def close_connection():
+                                time.sleep(2.0)  # Increased delay to allow all result messages to arrive
+                                try:
+                                    conn.shutdown(socket.SHUT_RDWR)
+                                except OSError:
+                                    pass
+                                conn.close()
 
-                        threading.Thread(target=close_connection, daemon=True).start()
+                            threading.Thread(target=close_connection, daemon=True).start()
                 else:
-                    # Forward all other messages to client
-                    protocol.send_message(target_conn, msg_type, data_type, payload)
+                    # Forward all other messages to client with request_count
+                    protocol.send_client_message(target_conn, msg_type, data_type, payload, client_req_count)
                     if msg_type == protocol.MSG_TYPE_END:
-                        logging.info(f"[GATEWAY] Forwarded END message with data_type={data_type} for request_id={request_id}")
+                        logging.info(f"[GATEWAY] Forwarded END message with data_type={data_type} for request_id={request_id}, client_request_count={client_req_count}")
                     elif msg_type == protocol.MSG_TYPE_DATA:
-                        logging.info(f"[GATEWAY] Forwarded DATA message with data_type={data_type} for request_id={request_id}, payload_size={len(payload)}")
+                        logging.info(f"[GATEWAY] Forwarded DATA message with data_type={data_type} for request_id={request_id}, client_request_count={client_req_count}, payload_size={len(payload)}")
 
             except (BrokenPipeError, OSError) as e:
                 logging.warning(f"Cliente desconectado: {e}")
@@ -206,10 +236,19 @@ class Server:
             data_end_received = set()
             current_request_id = self._get_next_request_id()
             self.requests[current_request_id] = conn
+            self.request_counts[(conn, current_request_id)] = 0  # Will be updated when first message arrives
+            # Initialize per-request tracking
+            self.request_end_counts[current_request_id] = 0
+            self.request_end_expected[current_request_id] = 5
+            self.request_final_end_sent[current_request_id] = False
+            # Track this request for the connection
+            if conn not in self.connection_requests:
+                self.connection_requests[conn] = set()
+            self.connection_requests[conn].add(current_request_id)
             logging.info(f"Client {addr} new request_id: {current_request_id}")
 
             while True:
-                msg_type, data_type, timestamp, payload = protocol.receive_message(conn)
+                msg_type, data_type, timestamp, client_request_count, payload = protocol.receive_client_message(conn)
                 if not msg_type:
                     break
 
@@ -218,8 +257,21 @@ class Server:
                     # New request detected
                     current_request_id = self._get_next_request_id()
                     self.requests[current_request_id] = conn
+                    self.request_counts[(conn, current_request_id)] = client_request_count
+                    # Initialize per-request tracking for new request
+                    self.request_end_counts[current_request_id] = 0
+                    self.request_end_expected[current_request_id] = 5
+                    self.request_final_end_sent[current_request_id] = False
+                    # Track this request for the connection
+                    if conn not in self.connection_requests:
+                        self.connection_requests[conn] = set()
+                    self.connection_requests[conn].add(current_request_id)
                     data_end_received.clear()
-                    logging.info(f"Client {addr} new request_id: {current_request_id} (new batch detected)")
+                    logging.info(f"Client {addr} new request_id: {current_request_id} (new batch detected) with client_request_count: {client_request_count}")
+                
+                # Update request count mapping for existing requests
+                if current_request_id and current_request_id in self.requests:
+                    self.request_counts[(conn, current_request_id)] = client_request_count
 
                 # Use per-hop timestamps: generate new timestamp for this forwarding step
                 if msg_type == protocol.MSG_TYPE_DATA:
@@ -228,6 +280,10 @@ class Server:
                     message = protocol.create_end_message(data_type, current_request_id)
                 else:
                     message = protocol.create_notification_message(data_type, payload, current_request_id)
+                
+                # Log request mapping for debugging
+                client_req_count = self.request_counts.get((conn, current_request_id), "unknown")
+                logging.debug(f"[GATEWAY] Processing message: request_id={current_request_id}, client_request_count={client_req_count}, msg_type={msg_type}, data_type={data_type}")
 
                 if msg_type == protocol.MSG_TYPE_DATA:
                     if data_type in queue_names:
@@ -275,11 +331,22 @@ class Server:
             to_remove = [rid for rid, c in self.requests.items() if c == conn]
             for rid in to_remove:
                 del self.requests[rid]
+                if (conn, rid) in self.request_counts:
+                    del self.request_counts[(conn, rid)]
+                if rid in self.request_end_counts:
+                    del self.request_end_counts[rid]
+                if rid in self.request_end_expected:
+                    del self.request_end_expected[rid]
+                if rid in self.request_final_end_sent:
+                    del self.request_final_end_sent[rid]
+            # Clean up connection tracking
+            if conn in self.connection_requests:
+                del self.connection_requests[conn]
+            if conn in self.connection_final_end_sent:
+                del self.connection_final_end_sent[conn]
             logging.info(f"Cleaned up mappings for client {addr}")
 
     def close(self):
-        for q in self.queues.values():
-            q.close()
         self._server_socket.close()
 
 if __name__ == '__main__':

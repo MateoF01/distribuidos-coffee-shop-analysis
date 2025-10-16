@@ -38,6 +38,21 @@ def send_message(conn, msg_type: int, data_type: int, payload: bytes, timestamp:
     header = struct.pack(">BBdI", msg_type, data_type, timestamp, len(payload))
     conn.sendall(header + payload)
 
+def send_client_message(conn, msg_type: int, data_type: int, payload: bytes, request_count: int, timestamp: float = None):
+    """
+    Send messages over a socket connection with client request count
+    - 1 byte: message type
+    - 1 byte: data type
+    - 8 bytes: timestamp (double) 
+    - 4 bytes: request count
+    - 4 bytes: payload len
+    - N bytes: payload
+    """
+    if timestamp is None:
+        timestamp = time.time()
+    header = struct.pack(">BBdII", msg_type, data_type, timestamp, request_count, len(payload))
+    conn.sendall(header + payload)
+
 def receive_message(conn):
     """
     Receive messages over a socket connection
@@ -51,6 +66,21 @@ def receive_message(conn):
     msg_type, data_type, timestamp, length = struct.unpack(">BBdI", header)
     payload = _read_full(conn, length) if length > 0 else b""
     return msg_type, data_type, timestamp, payload
+
+def receive_client_message(conn):
+    """
+    Receive messages over a socket connection with client request count
+    - 1 byte: message type
+    - 1 byte: data type
+    - 8 bytes: timestamp (double)
+    - 4 bytes: request count
+    - 4 bytes: payload len
+    - N bytes: payload
+    """
+    header = _read_full(conn, 18)  # 1 type msg + 1 type dato + 8 timestamp + 4 request_count + 4 len
+    msg_type, data_type, timestamp, request_count, length = struct.unpack(">BBdII", header)
+    payload = _read_full(conn, length) if length > 0 else b""
+    return msg_type, data_type, timestamp, request_count, payload
 
 def _read_full(conn, n):
     buf = b""

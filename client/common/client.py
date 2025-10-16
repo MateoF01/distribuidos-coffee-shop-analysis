@@ -10,6 +10,7 @@ class Client:
         self.batch_max_amount = batch_max_amount
         self.conn = None
         self.requests_amount = requests_amount
+        self.current_request_count = 0  # Track the current request count for this client
 
         # Ruta de salida dentro de la carpeta client/
         # In Docker container: __file__ = /app/common/client.py, but we need /app/client/results
@@ -36,23 +37,26 @@ class Client:
         # Diccionario para guardar archivos abiertos por data_type
         self.csv_files = {}
         
-        # Track query results received
-        self.queries_received = set()
+        # Track query results received per request
+        self.queries_received_per_request = {}  # {request_count: set_of_received_queries}
         self.expected_queries = {protocol.Q1_RESULT, protocol.Q2_RESULT_a, protocol.Q2_RESULT_b, protocol.Q3_RESULT, protocol.Q4_RESULT}
         self.final_end_received = False
         
         print(f"[INFO] Client expecting query results: {self.expected_queries}")
+        print(f"[INFO] Client will process {self.requests_amount} requests")
 
     def _setup_request_directory(self, request_num):
         """Setup the directory for the current request"""
         self.current_request_num = request_num
+        self.current_request_count = request_num  # Update request count for protocol
         self.current_request_dir = os.path.join(self.client_results_dir, f"request_{request_num}")
         os.makedirs(self.current_request_dir, exist_ok=True)
         print(f"[INFO] Created request directory: {self.current_request_dir}")
+        print(f"[INFO] Client request count: {self.current_request_count}")
         
-        # Reset query tracking for this request
-        self.queries_received = set()
-        self.final_end_received = False
+        # Initialize query tracking for this request
+        if self.current_request_count not in self.queries_received_per_request:
+            self.queries_received_per_request[self.current_request_count] = set()
 
     def create_socket(self):
         host, port = self.server_address.split(":")
@@ -92,18 +96,23 @@ class Client:
         # Print summary
         print(f"[INFO] Client session summary:")
         print(f"[INFO] - Expected queries: {self.expected_queries}")
-        print(f"[INFO] - Received queries: {self.queries_received}")
         print(f"[INFO] - Final END received: {self.final_end_received}")
         print(f"[INFO] - Client results directory: {self.client_results_dir}")
-        print(f"[INFO] - Current request directory: {self.current_request_dir}")
         print(f"[INFO] - Total requests processed: {self.requests_amount}")
+        print(f"[INFO] - Per-request query completion:")
+        for request_count in range(1, self.requests_amount + 1):
+            if request_count in self.queries_received_per_request:
+                received = self.queries_received_per_request[request_count]
+                print(f"[INFO]   Request {request_count}: {len(received)}/{len(self.expected_queries)} queries completed - {received}")
+            else:
+                print(f"[INFO]   Request {request_count}: 0/{len(self.expected_queries)} queries completed - No data received")
 
     def _listen_for_responses(self):
         """Hilo que escucha respuestas del gateway y escribe CSVs por data_type"""
         try:
             while True:
                 try:
-                    msg_type, data_type, timestamp, payload = protocol.receive_message(self.conn)
+                    msg_type, data_type, timestamp, request_count, payload = protocol.receive_client_message(self.conn)
                 except Exception as e:
                     print(f"[ERROR] Failed to receive message: {e}")
                     break
@@ -112,25 +121,28 @@ class Client:
                     print("[INFO] Connection closed by server")
                     break
 
-                print(f"[INFO] Received MSG type: {msg_type}, data_type: {data_type}, payload_size: {len(payload)} bytes")
+                print(f"[INFO] Received MSG type: {msg_type}, data_type: {data_type}, request_count: {request_count}, payload_size: {len(payload)} bytes")
 
                 if msg_type == protocol.MSG_TYPE_DATA:
                     payload_str = payload.decode("utf-8")
                     rows = [row for row in payload_str.split("\n") if row.strip()]
-                    print(f"[INFO] Received {len(rows)} rows for data_type={data_type}")
+                    print(f"[INFO] Received {len(rows)} rows for data_type={data_type}, request_count={request_count}")
                     
-                    self._write_rows(data_type, rows)
+                    self._write_rows(data_type, rows, request_count)
 
                 elif msg_type == protocol.MSG_TYPE_END:
                     if data_type == protocol.DATA_END:
-                        print("[INFO] Final END signal received")
+                        print(f"[INFO] Final END signal received for request_count={request_count}")
                         self.final_end_received = True
                     elif data_type in self.expected_queries:
-                        print(f"[INFO] Query result END received for query type {data_type}")
-                        self.queries_received.add(data_type)
-                        self._write_query_result_file(data_type)
+                        print(f"[INFO] Query result END received for query type {data_type}, request_count={request_count}")
+                        # Initialize request tracking if not exists
+                        if request_count not in self.queries_received_per_request:
+                            self.queries_received_per_request[request_count] = set()
+                        self.queries_received_per_request[request_count].add(data_type)
+                        self._write_query_result_file(data_type, request_count)
                     else:
-                        print(f"[INFO] END received for data_type={data_type}")
+                        print(f"[INFO] END received for data_type={data_type}, request_count={request_count}")
                     
                     # Check if we should close connection
                     if self._should_close_connection():
@@ -142,17 +154,15 @@ class Client:
         finally:
             self.close()
 
-    def _write_rows(self, data_type, rows):
+    def _write_rows(self, data_type, rows, request_count):
         """Escribe filas en un CSV correspondiente al data_type usando file.write"""
         if not rows:
             return
         
-        # Ensure we have a current request directory set up
-        if self.current_request_dir is None:
-            print("[WARN] No current request directory set, using client base directory")
-            output_dir = self.client_results_dir
-        else:
-            output_dir = self.current_request_dir
+        # Use request_count to determine the output directory
+        request_dir = os.path.join(self.client_results_dir, f"request_{request_count}")
+        os.makedirs(request_dir, exist_ok=True)
+        output_dir = request_dir
             
         # Map data_type to query names for output files
         query_names = {
@@ -180,14 +190,16 @@ class Client:
                         f.write('\n')
                         rows_written += 1
                         
-            print(f"[INFO] REQ {self.current_request_num}: Wrote {rows_written} rows to {filename}")
+            print(f"[INFO] REQ {request_count}: Wrote {rows_written} rows to {filename}")
             
-            # Track that we've received data for this query
-            if data_type not in self.queries_received:
-                print(f"[INFO] REQ {self.current_request_num}: Started receiving data for {query_name}")
+            # Track that we've received data for this query (initialize if needed)
+            if request_count not in self.queries_received_per_request:
+                self.queries_received_per_request[request_count] = set()
+            if data_type not in self.queries_received_per_request[request_count]:
+                print(f"[INFO] REQ {request_count}: Started receiving data for {query_name}")
         else:
             # This is input data being echoed back (shouldn't happen normally)
-            print(f"[WARN] Received unexpected data_type: {data_type}")
+            print(f"[WARN] Received unexpected data_type: {data_type} for request_count={request_count}")
             filepath = os.path.join(output_dir, f'unknown_{data_type}.csv')
             with open(filepath, 'a', encoding='utf-8') as f:
                 for row in rows:
@@ -195,7 +207,7 @@ class Client:
                         f.write(row.strip())
                         f.write('\n')
 
-    def _write_query_result_file(self, data_type):
+    def _write_query_result_file(self, data_type, request_count):
         """Create a completion marker file for the query result"""
         query_names = {
             protocol.Q1_RESULT: 'Q1',
@@ -212,22 +224,42 @@ class Client:
             # with open(marker_file, 'w') as f:
             #     f.write(f'Query {query_name} completed successfully\n')
             #     f.write(f'Timestamp: {time.strftime("%Y-%m-%d %H:%M:%S")}\n')
-            print(f"[INFO] Query {query_name} completed")
+            print(f"[INFO] Query {query_name} completed for request_count={request_count}")
 
     def _should_close_connection(self):
         """Determine if we should close the connection based on received results"""
-        # Close if we received final END or if we got all expected query results
-        if self.final_end_received:
+        # Check if all requests have completed all their expected queries
+        expected_requests = set(range(1, self.requests_amount + 1))  # requests 1, 2, ..., requests_amount
+        completed_requests = set()
+        
+        for request_count in expected_requests:
+            if request_count in self.queries_received_per_request:
+                received_queries = self.queries_received_per_request[request_count]
+                if received_queries >= self.expected_queries:
+                    completed_requests.add(request_count)
+        
+        # Close only if we received final END AND all requests completed all queries
+        all_queries_completed = (completed_requests == expected_requests)
+        
+        if self.final_end_received and all_queries_completed:
+            print(f"[INFO] All {self.requests_amount} requests completed all queries and final END received")
             return True
-            
-        # Check if we received all expected query results
-        if self.queries_received >= self.expected_queries:
-            print(f"[INFO] Received all expected queries: {self.queries_received}")
-            return True
-            
-        missing_queries = self.expected_queries - self.queries_received
-        if missing_queries:
-            print(f"[INFO] Still waiting for queries: {missing_queries}")
+        elif self.final_end_received and not all_queries_completed:
+            print(f"[WARN] Final END received but not all requests completed. Completed: {len(completed_requests)}/{len(expected_requests)}")
+        elif all_queries_completed and not self.final_end_received:
+            print(f"[INFO] All queries completed but still waiting for final END signal")
+        
+        # Log progress if not completed
+        if not all_queries_completed:
+            print(f"[INFO] Progress: {len(completed_requests)}/{len(expected_requests)} requests completed")
+            for request_count in expected_requests:
+                if request_count in self.queries_received_per_request:
+                    received = self.queries_received_per_request[request_count]
+                    missing = self.expected_queries - received
+                    if missing:
+                        print(f"[INFO] Request {request_count} still waiting for: {missing}")
+                else:
+                    print(f"[INFO] Request {request_count} not yet started")
             
         return False
 
@@ -257,20 +289,41 @@ class Client:
                         print(f"[INFO] REQ {request_num+1}/{self.requests_amount}: Sending file {filepath} (type={data_type})")
                         for batch in csv_loaders.load_csv_batch(filepath, self.batch_max_amount):
                             payload = "\n".join(batch).encode()
-                            protocol.send_message(self.conn, protocol.MSG_TYPE_DATA, data_type, payload)
+                            protocol.send_client_message(self.conn, protocol.MSG_TYPE_DATA, data_type, payload, self.current_request_count)
                             #print(f"[INFO] Sent batch of {len(batch)} rows from {filepath.name}")
-                    protocol.send_message(self.conn, protocol.MSG_TYPE_END, data_type, b"")
-                    print(f"[INFO] REQ {request_num+1}/{self.requests_amount}: Sent END for data_type={data_type}")
+                    protocol.send_client_message(self.conn, protocol.MSG_TYPE_END, data_type, b"", self.current_request_count)
+                    print(f"[INFO] REQ {request_num+1}/{self.requests_amount}: Sent END for data_type={data_type} with request_count={self.current_request_count}")
 
             # END final
-            protocol.send_message(self.conn, protocol.MSG_TYPE_END, protocol.DATA_END, b"")
-            print("[INFO] Sent END FINAL - waiting for query results...")
+            protocol.send_client_message(self.conn, protocol.MSG_TYPE_END, protocol.DATA_END, b"", self.current_request_count)
+            print(f"[INFO] Sent END FINAL with request_count={self.current_request_count} - waiting for query results...")
 
             # Wait for listener thread to complete
             print(f"[INFO] Waiting for results from queries: {self.expected_queries}")
             listener_thread.join()
             
-            print("[INFO] All query results received successfully")
+            # Check if all requests completed successfully
+            expected_requests = set(range(1, self.requests_amount + 1))
+            completed_requests = set()
+            
+            for request_count in expected_requests:
+                if request_count in self.queries_received_per_request:
+                    received = self.queries_received_per_request[request_count]
+                    if received >= self.expected_queries:
+                        completed_requests.add(request_count)
+            
+            if completed_requests == expected_requests:
+                print("[INFO] All query results received successfully for all requests")
+            else:
+                print(f"[WARN] Client finished but not all requests completed. Completed: {len(completed_requests)}/{len(expected_requests)} requests")
+                for request_count in expected_requests:
+                    if request_count not in completed_requests:
+                        if request_count in self.queries_received_per_request:
+                            received = self.queries_received_per_request[request_count]
+                            missing = self.expected_queries - received
+                            print(f"[WARN] Request {request_count} missing queries: {missing}")
+                        else:
+                            print(f"[WARN] Request {request_count} received no results")
                 
         except Exception as e:
             print(f"[ERROR] Client loop failed: {e}")
