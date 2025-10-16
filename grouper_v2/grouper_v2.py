@@ -239,7 +239,7 @@ class GrouperV2(StreamProcessingWorker):
 
     #tuve que sobreescribir este metodo porque no hay clase para recibir rows y enviar una notificacion
     def _handle_end_signal(self, message, msg_type, data_type, request_id, queue_name=None):
-        logging.info(f"[{self.replica_id}] END recibido — enviando notificación de completado con request_id={request_id}.")
+        #logging.info(f"[{self.replica_id}] END recibido — enviando notificación de completado con request_id={request_id}.")
 
         noti_payload = f"completed_by={self.replica_id}".encode("utf-8")
         noti_message = protocol.create_notification_message(data_type, noti_payload, request_id)
@@ -247,7 +247,7 @@ class GrouperV2(StreamProcessingWorker):
         for q in self.out_queues:
             q.send(noti_message)
 
-        logging.info(f"[{self.replica_id}] Notificación enviada a reducer(s): {[q.queue_name for q in self.out_queues]} con request_id={request_id}")
+        #logging.info(f"[{self.replica_id}] Notificación enviada a reducer(s): {[q.queue_name for q in self.out_queues]} con request_id={request_id}")
 
     def _initialize_request_paths(self, request_id: int):
         """Crea/actualiza las rutas de salida para este request."""
@@ -263,7 +263,7 @@ class GrouperV2(StreamProcessingWorker):
         os.makedirs(self.temp_dir, exist_ok=True)
 
         self.request_id_initialized = True
-        logging.info(f"[GrouperV2:{self.grouper_mode}] temp_dir={self.temp_dir} (request_id={request_id})")
+        #logging.info(f"[GrouperV2:{self.grouper_mode}] temp_dir={self.temp_dir} (request_id={request_id})")
 
 # ====================
 # Main

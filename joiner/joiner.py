@@ -63,45 +63,48 @@ class Joiner(Worker):
             "resultados_groupby_q3": ",",
         }
 
+        self.end_received_by_request = {}
+
+
     def _initialize_request_paths(self, request_id):
-        """Initialize output paths and temp directory with request_id subdirectory"""
+        """
+        Inicializa rutas (outputs y temp) por request.
+        Si cambia el request_id, reconfigura paths aunque ya se hayan inicializado antes.
+        """
+        # Si ya estamos en este mismo request, no hagas nada
         if self.request_id_initialized and self.current_request_id == request_id:
             return
-        
-        # Create request_id-based paths for output files
+
+        # --- construir paths con subcarpeta del request ---
         updated_output_files = []
         for base_path in self.base_output_files:
-            # Extract directory and filename
             dir_path = os.path.dirname(base_path)
             filename = os.path.basename(base_path)
-            
-            # Create new path with request_id subdirectory
+            # output_dir/<request_id>/<filename>
             new_path = os.path.join(dir_path, str(request_id), filename)
             updated_output_files.append(new_path)
-            
-            # Ensure the directory exists
             os.makedirs(os.path.dirname(new_path), exist_ok=True)
-        
-        # Update outputs with new paths
+
         self.outputs = list(zip(self.out_queues, updated_output_files))
-        
-        # Update CSV initialization state for new paths
+
+        # reiniciar estado de escritura para estos nuevos archivos
         self._csv_initialized = {f: False for _, f in self.outputs}
         self._rows_written = {f: 0 for _, f in self.outputs}
-        
-        # Set up temp directory within request_id subdirectory
+
+        # temp por request (queda en .../<request_id>/temp)
         base_for_temp = os.path.dirname(updated_output_files[0]) if updated_output_files else os.getcwd()
         self.temp_dir = os.path.join(base_for_temp, 'temp')
         os.makedirs(self.temp_dir, exist_ok=True)
-        
+
+        # AHORA sí, actualizá el request activo
+        self.current_request_id = request_id
         self.request_id_initialized = True
-        logging.info(f"Initialized paths for request_id {request_id}: {updated_output_files}")
+
+        logging.info(f"[Joiner] request_id={request_id} → outputs={ [f for _, f in self.outputs] } temp_dir={self.temp_dir}")
+
     
     def _process_message(self, message, msg_type, data_type, request_id, timestamp, payload, queue_name=None):
-        """Process messages from input queues"""
-        # Store the request_id for later use
-        self.current_request_id = request_id
-        
+        """Process messages from input queues"""        
         # Initialize request-specific paths if needed
         self._initialize_request_paths(request_id)
         
@@ -142,27 +145,42 @@ class Joiner(Worker):
                             self._write_rows_to_csv_idx(i, final_rows)
     
     def _handle_end_signal(self, message, msg_type, data_type, request_id, queue_name=None):
-        """Handle end-of-data signals with joiner-specific logic"""
+        """
+        Handle END signals per request_id and per input queue.
+        Evita mezclar los END de distintos requests.
+        """
         with self._lock:
-            # Store request_id for use in sort request
-            self.current_request_id = request_id
-            
-            # Initialize request-specific paths if needed (in case we only receive end signals)
+            # 1️⃣ Asegurar paths del request actual
             self._initialize_request_paths(request_id)
-            
-            if not self.end_received[queue_name]:
-                self.end_received[queue_name] = True
-                logging.info(f"Received end signal from queue: {queue_name}")
-                if all(self.end_received.values()):
-                    logging.info("All queues have sent end signals. Processing joined data...")
+
+            # 2️⃣ Inicializar estado para este request si no existe
+            if request_id not in self.end_received_by_request:
+                self.end_received_by_request[request_id] = {q: False for q in self.multiple_input_queues}
+
+            end_state = self.end_received_by_request[request_id]
+
+            # 3️⃣ Procesar el END recibido
+            if not end_state.get(queue_name, False):
+                end_state[queue_name] = True
+                logging.info(f"[Joiner:{self.query_type}] END recibido de {queue_name} (request_id={request_id})")
+
+                # 4️⃣ Si todas las colas de este request completaron, procesar join
+                if all(end_state.values()):
+                    logging.info(f"[Joiner:{self.query_type}] Todas las colas completaron (request_id={request_id}). Procesando join...")
+
+                    self.current_request_id = request_id
                     if len(self.multiple_input_queues) > 1:
                         self._process_joined_data()
                     else:
                         self._send_sort_request()
                         total_rows = sum(self._rows_written.values())
-                        logging.info(f'CSV data collection complete with {total_rows} total rows. Sort request sent.')
+                        logging.info(f"[Joiner:{self.query_type}] CSV collection complete ({total_rows} filas). Sort request sent.")
+
+                    # Limpieza del estado del request procesado
+                    del self.end_received_by_request[request_id]
+
             else:
-                logging.warning(f'Already received END signal from {queue_name}, ignoring duplicate')
+                logging.warning(f"[Joiner:{self.query_type}] END duplicado ignorado de {queue_name} (request_id={request_id})")
 
     # =====================
     # Utils de CSV por salida

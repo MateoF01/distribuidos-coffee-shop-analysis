@@ -86,7 +86,9 @@ class Sorter(FileProcessingWorker):
         self.config = config
         self.completion_queue_name = completion_queue
         self._temp_files = []
-        
+        self._temp_files_by_request = {}
+
+
         # Store base paths for request_id-based subdirectory creation
         self.base_input_file = input_file
         self.base_output_file = output_file
@@ -112,7 +114,7 @@ class Sorter(FileProcessingWorker):
         self.output_file = update_path_with_request_id(self.base_output_file, request_id)
         
         # Clear temp files list for new request
-        self._temp_files = []
+        self._temp_files_by_request[request_id] = []
         
         self.request_id_initialized = True
         print(f"Initialized sorter paths for request_id {request_id}")
@@ -139,7 +141,9 @@ class Sorter(FileProcessingWorker):
             output_dir = os.path.dirname(self.output_file)
             temp_path = os.path.join(output_dir, temp_filename)
             
-            self._temp_files.append(temp_path)
+            if self.current_request_id not in self._temp_files_by_request:
+                self._temp_files_by_request[self.current_request_id] = []
+            self._temp_files_by_request[self.current_request_id].append(temp_path)
             
             with open(temp_path, 'w', newline=self.config.newline_mode, encoding=self.config.encoding) as temp_file:
                 writer = csv.writer(temp_file)
@@ -150,16 +154,17 @@ class Sorter(FileProcessingWorker):
         except Exception as e:
             print(f"Error writing sorted chunk: {e}")
 
-    def _merge_sorted_files(self, header):
-        """Merge all sorted temporary files into the final output file"""
-        if not self._temp_files:
+    def _merge_sorted_files(self, header, request_id):
+        temp_files = self._temp_files_by_request.get(request_id, [])
+        if not temp_files:
             return
+
             
         try:
             # Open all temporary files
             file_readers = []
             
-            for temp_file in self._temp_files:
+            for temp_file in temp_files:
                 f = open(temp_file, 'r', newline=self.config.newline_mode, encoding=self.config.encoding)
                 reader = csv.reader(f)
                 file_readers.append((reader, f))
@@ -216,7 +221,8 @@ class Sorter(FileProcessingWorker):
                     os.unlink(temp_file)
                 except OSError:
                     pass
-            
+
+            del self._temp_files_by_request[request_id]
             print(f"Successfully merged {len(self._temp_files)} sorted chunks into {self.output_file}")
             
         except Exception as e:
@@ -250,7 +256,7 @@ class Sorter(FileProcessingWorker):
                     self._write_sorted_chunk(current_chunk)
             
             # Merge all sorted chunks
-            self._merge_sorted_files(header)
+            self._merge_sorted_files(header, self.current_request_id)
             
             if len(self.config.sort_columns) > 1:
                 print(f"Successfully sorted {self.input_file} by columns {self.config.sort_columns} and saved to {self.output_file}")

@@ -20,23 +20,34 @@ class Sender(FileProcessingWorker):
         # Store base path for request_id-based subdirectory creation
         self.base_input_file = input_file
         self.request_id_initialized = False
+        self._initialized_requests = set()
+
 
     def _initialize_request_paths(self, request_id):
         """Initialize input path with request_id subdirectory"""
-        if self.request_id_initialized and self.current_request_id == request_id:
+        # Evita reinit innecesario para el mismo request
+        if hasattr(self, "_initialized_requests") and request_id in self._initialized_requests:
             return
-        
-        # Create request_id-based path for input file
+        if not hasattr(self, "_initialized_requests"):
+            self._initialized_requests = set()
+
+        self._initialized_requests.add(request_id)
+
+        # Base path recibido del compose (sin el request_id)
         dir_path = os.path.dirname(self.base_input_file)
         filename = os.path.basename(self.base_input_file)
+
+        # Construir path con el request_id intermedio
         new_path = os.path.join(dir_path, str(request_id), filename)
-        
-        # Update input file path
+        os.makedirs(os.path.dirname(new_path), exist_ok=True)
+
+        # Actualizar input_file
         self.input_file = new_path
-        
-        self.request_id_initialized = True
+        self.current_request_id = request_id
+
         print(f"[INFO] Initialized sender paths for request_id {request_id}")
-        print(f"[INFO]   Input file: {self.input_file}")
+        print(f"[INFO]   Input file set to: {self.input_file}")
+
 
     def _process_message(self, message, msg_type, data_type, request_id, timestamp, payload, queue_name=None):
         """Process message - handles completion signals and initializes request_id paths."""
