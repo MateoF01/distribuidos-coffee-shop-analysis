@@ -32,20 +32,35 @@ class GrouperV2(StreamProcessingWorker):
         self.temp_dir = ''
         self.replica_id = replica_id
 
+        # raíz para outputs temporales (se puede parametrizar vía env si querés)
+        self.base_temp_root = os.environ.get('BASE_TEMP_DIR', os.path.join(os.path.dirname(__file__), 'temp'))
+        # ej: <repo>/grouper_v2/temp
+        self.temp_dir = None
+        self.current_request_id = None
+        self.request_id_initialized = False
+
+    def _process_message(self, message, msg_type, data_type, request_id, timestamp, payload, queue_name=None):
+        """
+        Intercepta TODOS los mensajes para:
+          - inicializar carpetas por request
+          - luego delegar al flujo normal del StreamProcessingWorker
+        """
+        self._initialize_request_paths(request_id)
+        # delegamos al comportamiento del padre (que terminará llamando a _process_rows)
+        return super()._process_message(message, msg_type, data_type, request_id, timestamp, payload, queue_name=queue_name)
+
     def _process_rows(self, rows, queue_name=None):
         """Agrupa las filas recibidas y acumula sumas."""
+        if not self.temp_dir:
+            logging.error("temp_dir no inicializado (falta request_id).")
+            return
+
         if self.grouper_mode == 'q2':
-            BASE_TEMP_DIR = os.path.join(os.path.dirname(__file__), 'temp/grouper_v2_q2')
-            os.makedirs(BASE_TEMP_DIR, exist_ok=True)
-            self._q2_agg(rows, BASE_TEMP_DIR)
-        if self.grouper_mode == 'q3':
-            BASE_TEMP_DIR = os.path.join(os.path.dirname(__file__), 'temp/grouper_v2_q3')
-            os.makedirs(BASE_TEMP_DIR, exist_ok=True)
-            self._q3_agg(rows, BASE_TEMP_DIR)
-        if self.grouper_mode == 'q4':
-            BASE_TEMP_DIR = os.path.join(os.path.dirname(__file__), 'temp/grouper_v2_q4')
-            os.makedirs(BASE_TEMP_DIR, exist_ok=True)
-            self._q4_agg(rows, BASE_TEMP_DIR)
+            self._q2_agg(rows, self.temp_dir)
+        elif self.grouper_mode == 'q3':
+            self._q3_agg(rows, self.temp_dir)
+        elif self.grouper_mode == 'q4':
+            self._q4_agg(rows, self.temp_dir)
 
     def _q2_agg(self, rows, temp_dir):
         # Use pre-compiled indices
@@ -59,6 +74,7 @@ class GrouperV2(StreamProcessingWorker):
         
         # Process rows more efficiently
         for row in rows:
+
             items = row.split('|')
             if len(items) <= max(idx_item, idx_quantity, idx_subtotal, idx_created):
                 continue
@@ -232,6 +248,23 @@ class GrouperV2(StreamProcessingWorker):
             q.send(noti_message)
 
         logging.info(f"[{self.replica_id}] Notificación enviada a reducer(s): {[q.queue_name for q in self.out_queues]} con request_id={request_id}")
+
+    def _initialize_request_paths(self, request_id: int):
+        """Crea/actualiza las rutas de salida para este request."""
+        if self.request_id_initialized and self.current_request_id == request_id:
+            return
+
+        self.current_request_id = request_id
+
+        # carpeta por modo + request + replica (para que 2 réplicas no pisen archivos)
+        # ej: <base>/grouper_v2_q4/123/<hostname>/
+        mode_dir = f"grouper_v2_{self.grouper_mode}"
+        self.temp_dir = os.path.join(self.base_temp_root, mode_dir, str(request_id), self.replica_id)
+        os.makedirs(self.temp_dir, exist_ok=True)
+
+        self.request_id_initialized = True
+        logging.info(f"[GrouperV2:{self.grouper_mode}] temp_dir={self.temp_dir} (request_id={request_id})")
+
 # ====================
 # Main
 # ====================

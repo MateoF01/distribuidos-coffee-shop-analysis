@@ -29,25 +29,48 @@ class ReducerV2(SignalProcessingWorker):
     # ======================================================
 
     def _process_signal(self, request_id):
-        if not os.path.exists(self.input_dir):
-            logging.warning(f"[Reducer {self.reducer_mode.upper()}] Input directory not found: {self.input_dir}")
+        """
+        Reúne todos los CSV parciales de cada réplica para un request_id,
+        los combina y genera los archivos reducidos en output_dir/<request_id>/.
+        """
+        base_input = self.input_dir
+        base_output = self.output_dir
+
+        request_path = os.path.join(base_input, str(request_id))
+        if not os.path.exists(request_path):
+            logging.warning(f"[Reducer {self.reducer_mode.upper()}] No existe input_dir para request_id={request_id}")
             return
 
-        logging.info(f"[Reducer {self.reducer_mode.upper()}] Iniciando reducción en {self.input_dir}")
+        replicas = [
+            os.path.join(request_path, r)
+            for r in os.listdir(request_path)
+            if os.path.isdir(os.path.join(request_path, r))
+        ]
 
-        # Agrupar archivos por prefijo (antes del último '_')
+        if not replicas:
+            logging.warning(f"[Reducer {self.reducer_mode.upper()}] No hay réplicas dentro de {request_path}")
+            return
+
+        logging.info(f"[Reducer {self.reducer_mode.upper()}] Iniciando reducción para request_id={request_id} ({len(replicas)} réplicas detectadas)")
+
+        # Crear carpeta de salida específica del request
+        output_request_dir = os.path.join(base_output, str(request_id))
+        os.makedirs(output_request_dir, exist_ok=True)
+
+        # Agrupar archivos por prefijo común (antes del "_replica")
         groups = defaultdict(list)
-        for filename in os.listdir(self.input_dir):
-            if not filename.endswith(".csv"):
-                continue
-            prefix = "_".join(filename.split("_")[:-1])  # ej. 2024_01_hostA -> 2024_01
-            groups[prefix].append(os.path.join(self.input_dir, filename))
 
-        logging.info(f"[Reducer {self.reducer_mode.upper()}] Se encontraron {len(groups)} grupos.")
+        for replica_dir in replicas:
+            for filename in os.listdir(replica_dir):
+                if not filename.endswith(".csv"):
+                    continue
+                prefix = "_".join(filename.split("_")[:-1])  # ej: 2024-05 o 1 o 2024-H1_6
+                groups[prefix].append(os.path.join(replica_dir, filename))
+
+        logging.info(f"[Reducer {self.reducer_mode.upper()}] Se encontraron {len(groups)} grupos para combinar.")
 
         DATA_TYPE = ''
         for prefix, filepaths in groups.items():
-            # Elegir función de reducción
             if self.reducer_mode == "q2":
                 combined = self._reduce_q2(filepaths)
                 DATA_TYPE = protocol.DATA_TRANSACTION_ITEMS
@@ -61,7 +84,8 @@ class ReducerV2(SignalProcessingWorker):
                 logging.error(f"[Reducer] Modo desconocido: {self.reducer_mode}")
                 return
 
-            output_path = os.path.join(self.output_dir, f"{prefix}.csv")
+            # Guardar el resultado del grupo en la carpeta del request
+            output_path = os.path.join(output_request_dir, f"{prefix}.csv")
 
             try:
                 with open(output_path, "w", newline="") as f:
@@ -73,8 +97,9 @@ class ReducerV2(SignalProcessingWorker):
                 logging.error(f"[Reducer {self.reducer_mode.upper()}] Error al escribir {output_path}: {e}")
 
         gc.collect()
-        logging.info(f"[Reducer {self.reducer_mode.upper()}] Reducción completa de todos los grupos.")
+        logging.info(f"[Reducer {self.reducer_mode.upper()}] Reducción completa para request_id={request_id}.")
         self._notify_completion(DATA_TYPE, request_id)
+
 
         
 

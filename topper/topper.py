@@ -45,6 +45,13 @@ class Topper(Worker):
         if self.request_id_initialized and self.current_request_id == request_id:
             return
         
+        self.input_dir = os.path.join(self.input_dir, str(request_id))
+        if not os.path.exists(self.input_dir):
+            logging.warning(f"[Topper] Input directory for request_id={request_id} not found: {self.input_dir}")
+        else:
+            logging.info(f"[Topper] Using input directory for request_id={request_id}: {self.input_dir}")
+
+
         # Create request_id-based paths
         self.output_dir = os.path.join(self.base_output_dir, str(request_id))
         os.makedirs(self.output_dir, exist_ok=True)
