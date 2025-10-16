@@ -87,7 +87,7 @@ class Sorter(FileProcessingWorker):
         self.completion_queue_name = completion_queue
         self._temp_files = []
         self._temp_files_by_request = {}
-
+        self._processed_requests = set()  # Track processed request IDs
 
         # Store base paths for request_id-based subdirectory creation
         self.base_input_file = input_file
@@ -230,7 +230,7 @@ class Sorter(FileProcessingWorker):
                 except OSError:
                     pass
 
-            print(f"Successfully merged {len(self._temp_files)} sorted chunks into {self.output_file}")
+            print(f"Successfully merged {len(temp_files)} sorted chunks into {self.output_file}")
             
         except Exception as e:
             print(f"Error merging sorted files: {e}")
@@ -292,6 +292,14 @@ class Sorter(FileProcessingWorker):
     def _process_message(self, message, msg_type, data_type, request_id, timestamp, payload, queue_name=None):
         """Process sort signal messages"""
         if msg_type == self.config.sort_signal_type:
+            # Check if this request has already been processed
+            if request_id in self._processed_requests:
+                print(f'Sort signal for request_id={request_id} already processed, ignoring duplicate')
+                return
+            
+            # Mark this request as processed
+            self._processed_requests.add(request_id)
+            
             # Store request_id from the sort signal for use in completion message
             self.current_request_id = request_id
             

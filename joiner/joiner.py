@@ -64,6 +64,7 @@ class Joiner(Worker):
         }
 
         self.end_received_by_request = {}
+        self._processed_requests = set()  # Track completed requests to prevent reprocessing
 
 
     def _initialize_request_paths(self, request_id):
@@ -153,18 +154,23 @@ class Joiner(Worker):
             # 1️⃣ Asegurar paths del request actual
             self._initialize_request_paths(request_id)
 
-            # 2️⃣ Inicializar estado para este request si no existe
+            # 2️⃣ Check if this request has already been fully processed
+            if request_id in self._processed_requests:
+                logging.info(f"[Joiner:{self.query_type}] END ignorado de {queue_name} - request_id={request_id} ya fue procesado completamente")
+                return
+
+            # 3️⃣ Inicializar estado para este request si no existe
             if request_id not in self.end_received_by_request:
                 self.end_received_by_request[request_id] = {q: False for q in self.multiple_input_queues}
 
             end_state = self.end_received_by_request[request_id]
 
-            # 3️⃣ Procesar el END recibido
+            # 4️⃣ Procesar el END recibido
             if not end_state.get(queue_name, False):
                 end_state[queue_name] = True
                 logging.info(f"[Joiner:{self.query_type}] END recibido de {queue_name} (request_id={request_id})")
 
-                # 4️⃣ Si todas las colas de este request completaron, procesar join
+                # 5️⃣ Si todas las colas de este request completaron, procesar join
                 if all(end_state.values()):
                     logging.info(f"[Joiner:{self.query_type}] Todas las colas completaron (request_id={request_id}). Procesando join...")
 
@@ -176,7 +182,8 @@ class Joiner(Worker):
                         total_rows = sum(self._rows_written.values())
                         logging.info(f"[Joiner:{self.query_type}] CSV collection complete ({total_rows} filas). Sort request sent.")
 
-                    # Limpieza del estado del request procesado
+                    # Mark request as fully processed and clean up state
+                    self._processed_requests.add(request_id)
                     del self.end_received_by_request[request_id]
 
             else:
