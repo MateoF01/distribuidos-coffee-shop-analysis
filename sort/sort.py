@@ -86,6 +86,38 @@ class Sorter(FileProcessingWorker):
         self.config = config
         self.completion_queue_name = completion_queue
         self._temp_files = []
+        
+        # Store base paths for request_id-based subdirectory creation
+        self.base_input_file = input_file
+        self.base_output_file = output_file
+        self.request_id_initialized = False
+        self.current_request_id = 0
+
+    def _initialize_request_paths(self, request_id):
+        """Initialize input/output paths with request_id subdirectory"""
+        if self.request_id_initialized and self.current_request_id == request_id:
+            return
+        
+        # Create request_id-based paths for input and output files
+        def update_path_with_request_id(base_path, request_id):
+            dir_path = os.path.dirname(base_path)
+            filename = os.path.basename(base_path)
+            new_path = os.path.join(dir_path, str(request_id), filename)
+            # Ensure the directory exists
+            os.makedirs(os.path.dirname(new_path), exist_ok=True)
+            return new_path
+        
+        # Update paths
+        self.input_file = update_path_with_request_id(self.base_input_file, request_id)
+        self.output_file = update_path_with_request_id(self.base_output_file, request_id)
+        
+        # Clear temp files list for new request
+        self._temp_files = []
+        
+        self.request_id_initialized = True
+        print(f"Initialized sorter paths for request_id {request_id}")
+        print(f"  Input file: {self.input_file}")
+        print(f"  Output file: {self.output_file}")
 
     def _write_sorted_chunk(self, chunk_data):
         """Write a sorted chunk to a temporary file"""
@@ -98,10 +130,14 @@ class Sorter(FileProcessingWorker):
                 # Single column sorting (backward compatibility)
                 chunk_data.sort(key=lambda row: row[self.sort_column_index])
             
-            # Create temporary file manually
+            # Create temporary file manually in the same directory as output file
             timestamp = str(int(time.time() * 1000000))  # microsecond precision
             chunk_id = len(self._temp_files)
-            temp_path = f"{self.config.temp_file_prefix}{timestamp}_{chunk_id}{self.config.temp_file_suffix}"
+            temp_filename = f"{self.config.temp_file_prefix}{timestamp}_{chunk_id}{self.config.temp_file_suffix}"
+            
+            # Place temp files in the same directory as the output file to maintain request_id organization
+            output_dir = os.path.dirname(self.output_file)
+            temp_path = os.path.join(output_dir, temp_filename)
             
             self._temp_files.append(temp_path)
             
@@ -245,6 +281,10 @@ class Sorter(FileProcessingWorker):
         if msg_type == self.config.sort_signal_type:
             # Store request_id from the sort signal for use in completion message
             self.current_request_id = request_id
+            
+            # Initialize request-specific paths
+            self._initialize_request_paths(request_id)
+            
             print(f'Sort signal received for file: {self.input_file} with request_id={request_id}')
             self._process_file()
             print(f'Sort complete. Output saved to: {self.output_file}')

@@ -29,16 +29,39 @@ class Topper(Worker):
         self.top_n = top_n
         self.completion_queue_name = completion_queue
         self.query_id = queue_in
-        self.output_dir = os.path.join(BASE_TEMP_DIR, self.query_id)
-        os.makedirs(self.output_dir, exist_ok=True)
-        output_filename = os.path.basename(output_file)
-        self.output_file = os.path.join(self.output_dir, output_filename)
+        # Store base paths for request_id-based subdirectory creation
+        self.base_output_dir = os.path.join(BASE_TEMP_DIR, self.query_id)
+        self.base_output_file = output_file
+        self.output_filename = os.path.basename(output_file)
+        # These will be set when request_id is received
+        self.output_dir = None
+        self.output_file = None
         self.topper_mode = topper_mode
         self.current_request_id = 0
+        self.request_id_initialized = False
+
+    def _initialize_request_paths(self, request_id):
+        """Initialize output paths with request_id subdirectory"""
+        if self.request_id_initialized and self.current_request_id == request_id:
+            return
+        
+        # Create request_id-based paths
+        self.output_dir = os.path.join(self.base_output_dir, str(request_id))
+        os.makedirs(self.output_dir, exist_ok=True)
+        self.output_file = os.path.join(self.output_dir, self.output_filename)
+        
+        self.request_id_initialized = True
+        print(f"[Topper] Initialized paths for request_id {request_id}")
+        print(f"[Topper]   Output directory: {self.output_dir}")
+        print(f"[Topper]   Output file: {self.output_file}")
 
     def _process_message(self, message, msg_type, data_type, request_id, timestamp, payload, queue_name=None):
         """Process completion signals to start CSV processing"""
         self.current_request_id = request_id
+        
+        # Initialize request-specific paths
+        self._initialize_request_paths(request_id)
+        
         if msg_type == protocol.MSG_TYPE_NOTI:
             logging.info('[Topper] Received completion signal, starting CSV processing...')
             if self.topper_mode == 'Q2':

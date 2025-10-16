@@ -33,7 +33,9 @@ class Joiner(Worker):
                 f"QUEUE_OUT ({len(self.out_queues)}) y OUTPUT_FILE ({len(output_files)}) deben tener la MISMA cantidad para mapeo 1–a–1."
             )
 
-        # Pares (queue, file) en el mismo orden
+        # Store base output paths (will be modified with request_id subdirectories)
+        self.base_output_files = output_files
+        # Pares (queue, file) en el mismo orden - initially set to base paths
         self.outputs = list(zip(self.out_queues, output_files))
 
         # Estado por archivo (usamos dict por file_path)
@@ -42,10 +44,9 @@ class Joiner(Worker):
         self.end_received = {queue: False for queue in self.multiple_input_queues}
         self.current_request_id = 0  # Store current request_id
 
-        # Temp dir: usar la carpeta del primer output si existe, sino CWD
-        base_for_temp = os.path.dirname(self.outputs[0][1]) if self.outputs else os.getcwd()
-        self.temp_dir = os.path.join(base_for_temp, 'temp')
-        os.makedirs(self.temp_dir, exist_ok=True)
+        # Temp dir will be set up after receiving request_id
+        self.temp_dir = None
+        self.request_id_initialized = False
 
         # strategies
         self.strategies = {
@@ -61,11 +62,48 @@ class Joiner(Worker):
             "resultados_groupby_q2": ",",
             "resultados_groupby_q3": ",",
         }
+
+    def _initialize_request_paths(self, request_id):
+        """Initialize output paths and temp directory with request_id subdirectory"""
+        if self.request_id_initialized and self.current_request_id == request_id:
+            return
+        
+        # Create request_id-based paths for output files
+        updated_output_files = []
+        for base_path in self.base_output_files:
+            # Extract directory and filename
+            dir_path = os.path.dirname(base_path)
+            filename = os.path.basename(base_path)
+            
+            # Create new path with request_id subdirectory
+            new_path = os.path.join(dir_path, str(request_id), filename)
+            updated_output_files.append(new_path)
+            
+            # Ensure the directory exists
+            os.makedirs(os.path.dirname(new_path), exist_ok=True)
+        
+        # Update outputs with new paths
+        self.outputs = list(zip(self.out_queues, updated_output_files))
+        
+        # Update CSV initialization state for new paths
+        self._csv_initialized = {f: False for _, f in self.outputs}
+        self._rows_written = {f: 0 for _, f in self.outputs}
+        
+        # Set up temp directory within request_id subdirectory
+        base_for_temp = os.path.dirname(updated_output_files[0]) if updated_output_files else os.getcwd()
+        self.temp_dir = os.path.join(base_for_temp, 'temp')
+        os.makedirs(self.temp_dir, exist_ok=True)
+        
+        self.request_id_initialized = True
+        logging.info(f"Initialized paths for request_id {request_id}: {updated_output_files}")
     
     def _process_message(self, message, msg_type, data_type, request_id, timestamp, payload, queue_name=None):
         """Process messages from input queues"""
         # Store the request_id for later use
         self.current_request_id = request_id
+        
+        # Initialize request-specific paths if needed
+        self._initialize_request_paths(request_id)
         
         # Initialize CSV files on first message for single queue mode
         if len(self.multiple_input_queues) == 1:
@@ -108,6 +146,10 @@ class Joiner(Worker):
         with self._lock:
             # Store request_id for use in sort request
             self.current_request_id = request_id
+            
+            # Initialize request-specific paths if needed (in case we only receive end signals)
+            self._initialize_request_paths(request_id)
+            
             if not self.end_received[queue_name]:
                 self.end_received[queue_name] = True
                 logging.info(f"Received end signal from queue: {queue_name}")

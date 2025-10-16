@@ -16,6 +16,42 @@ class Sender(FileProcessingWorker):
         self.batch_size = batch_size
         self.query_type = query_type
         self.include_headers = include_headers
+        
+        # Store base path for request_id-based subdirectory creation
+        self.base_input_file = input_file
+        self.request_id_initialized = False
+
+    def _initialize_request_paths(self, request_id):
+        """Initialize input path with request_id subdirectory"""
+        if self.request_id_initialized and self.current_request_id == request_id:
+            return
+        
+        # Create request_id-based path for input file
+        dir_path = os.path.dirname(self.base_input_file)
+        filename = os.path.basename(self.base_input_file)
+        new_path = os.path.join(dir_path, str(request_id), filename)
+        
+        # Update input file path
+        self.input_file = new_path
+        
+        self.request_id_initialized = True
+        print(f"[INFO] Initialized sender paths for request_id {request_id}")
+        print(f"[INFO]   Input file: {self.input_file}")
+
+    def _process_message(self, message, msg_type, data_type, request_id, timestamp, payload, queue_name=None):
+        """Process message - handles completion signals and initializes request_id paths."""
+        if msg_type == protocol.MSG_TYPE_NOTI:
+            # Store request_id from notification for use in outgoing messages
+            self.current_request_id = request_id
+            
+            # Initialize request-specific paths
+            self._initialize_request_paths(request_id)
+            
+            print(f'[INFO] Completion signal received with request_id {request_id}. Starting file processing: {self.input_file}')
+            self._process_file()
+            print('[INFO] File processing complete')
+        else:
+            print(f"[WARNING] Received unexpected message type: {msg_type}/{data_type}")
 
     def _process_file(self):
         """Read CSV file and send it in batches to output queue"""
