@@ -334,6 +334,8 @@ class Server:
                         # Special handling for DATA_END - send to all data queues and exchanges
                         logging.info("Received DATA_END from client, broadcasting to all queues and exchanges")
                         for queue_name in queue_names.values():
+                            if queue_name == 'transaction_items_queue' or queue_name == 'transactions_queue':
+                                continue
                             queues[queue_name].send(message)
                             logging.debug(f"Sent DATA_END to {queue_name} with request_id={current_request_id}")
                         # Also broadcast DATA_END to exchanges for cleaners
@@ -341,9 +343,6 @@ class Server:
                         transaction_items_end_exchange.send(message)
                         logging.debug("Sent DATA_END to cleaner exchanges")
                     elif data_type in queue_names:
-                        queues[queue_names[data_type]].send(message)
-                        logging.debug(f"Sent END message for {data_type_names.get(data_type, data_type)} to queue with request_id={current_request_id}")
-
                         # Additionally send END messages to exchanges for transactions and transaction_items
                         if data_type == protocol.DATA_TRANSACTIONS:
                             transactions_end_exchange.send(message)
@@ -351,6 +350,10 @@ class Server:
                         elif data_type == protocol.DATA_TRANSACTION_ITEMS:
                             transaction_items_end_exchange.send(message)
                             logging.debug(f"Sent END message for transaction_items to exchange")
+                        else:
+                            queues[queue_names[data_type]].send(message)
+                            logging.debug(f"Sent END message for {data_type_names.get(data_type, data_type)} to queue with request_id={current_request_id}")
+
                     else:
                         logging.warning(f"Unknown data type in END message: {data_type}")
                 else:
