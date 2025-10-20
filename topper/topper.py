@@ -29,40 +29,83 @@ class Topper(Worker):
         self.top_n = top_n
         self.completion_queue_name = completion_queue
         self.query_id = queue_in
-        self.output_dir = os.path.join(BASE_TEMP_DIR, self.query_id)
-        os.makedirs(self.output_dir, exist_ok=True)
-        output_filename = os.path.basename(output_file)
-        self.output_file = os.path.join(self.output_dir, output_filename)
+        # Store base paths for request_id-based subdirectory creation
+        self.base_output_dir = os.path.join(BASE_TEMP_DIR, self.query_id)
+        self.base_output_file = output_file
+        self.output_filename = os.path.basename(output_file)
+        # These will be set when request_id is received
+        self.output_dir = None
+        self.output_file = None
         self.topper_mode = topper_mode
+        self.current_request_id = 0
+        self.request_id_initialized = False
 
-    def _process_message(self, message, msg_type, data_type, timestamp, payload, queue_name=None):
+    def _initialize_request_paths(self, request_id):
+        """Initialize output paths with request_id subdirectory"""
+
+        if not hasattr(self, "_initialized_requests"):
+            self._initialized_requests = set()
+
+        if request_id in self._initialized_requests:
+            logging.info(f"[Topper] Request {request_id} already initialized, skipping reinit.")
+            return
+
+        self._initialized_requests.add(request_id)
+
+        
+        # Crear input específico del request
+        request_input_dir = os.path.join(self.input_dir, str(request_id))
+        if not os.path.exists(request_input_dir):
+            logging.warning(f"[Topper] Input directory for request_id={request_id} not found: {request_input_dir}")
+        else:
+            logging.info(f"[Topper] Using input directory for request_id={request_id}: {request_input_dir}")
+
+
+        # Create request_id-based paths
+        self.output_dir = os.path.join(self.base_output_dir, str(request_id))
+        os.makedirs(self.output_dir, exist_ok=True)
+        
+        self.request_id_initialized = True
+        print(f"[Topper] Initialized paths for request_id {request_id}")
+        print(f"[Topper]   Output directory: {self.output_dir}")
+        print(f"[Topper]   Output file: {self.output_file}")
+
+    def _process_message(self, message, msg_type, data_type, request_id, timestamp, payload, queue_name=None):
         """Process completion signals to start CSV processing"""
+        self.current_request_id = request_id
+
+        # Initialize request-specific paths
+        self._initialize_request_paths(request_id)
+
+        request_input_dir = os.path.join(self.input_dir, str(request_id))
+
         if msg_type == protocol.MSG_TYPE_NOTI:
-            logging.info('[Topper] Received completion signal, starting CSV processing...')
+            logging.info(f"[Topper] Received completion signal for request_id={request_id}, starting CSV processing...")
             if self.topper_mode == 'Q2':
-                self.process_csv_files_Q2()
+                self.process_csv_files_Q2(request_input_dir)
             elif self.topper_mode == 'Q3':
-                self.process_csv_files_Q3()
+                self.process_csv_files_Q3(request_input_dir)
             elif self.topper_mode == 'Q4':
-                self.process_csv_files_Q4()
+                self.process_csv_files_Q4(request_input_dir)
         else:
             logging.warning(f"[Topper] Received unknown message type: {msg_type}")
 
-    def _get_csv_files(self):
+
+    def _get_csv_files(self, directory):
         """Devuelve lista ordenada de archivos CSV en input_dir"""
-        if not os.path.exists(self.input_dir):
-            print(f"[Topper] Input directory does not exist: {self.input_dir}")
+        if not os.path.exists(directory):
+            print(f"[Topper] Input directory does not exist: {directory}")
             return []
 
         try:
-            all_files = os.listdir(self.input_dir)
+            all_files = os.listdir(directory)
             csv_files = [f for f in all_files if f.lower().endswith('.csv')]
         except OSError as e:
-            print(f"[Topper] Error reading directory {self.input_dir}: {e}")
+            print(f"[Topper] Error reading directory {directory}: {e}")
             return []
 
         if not csv_files:
-            print(f"[Topper] No CSV files found in {self.input_dir}")
+            print(f"[Topper] No CSV files found in {directory}")
             return []
 
         # Orden numérica de archivos
@@ -76,13 +119,13 @@ class Topper(Worker):
         print(f"[Topper] Found {len(csv_files)} CSV files to process")
         return csv_files
 
-    def _process_file(self, csv_filename, columns):
+    def _process_file(self, directory, csv_filename, columns):
         """
         Procesa un CSV y devuelve las filas top N para cada columna en `columns`.
         columns: lista de (index_col, etiqueta) → ej: [(1, "TOP_BY_COL1"), (2, "TOP_BY_COL2")]
         """
         filename_without_ext = os.path.splitext(csv_filename)[0]
-        csv_file_path = os.path.join(self.input_dir, csv_filename)
+        csv_file_path = os.path.join(directory, csv_filename)
         results = []
 
         try:
@@ -117,46 +160,45 @@ class Topper(Worker):
 
         return results
 
-    def _write_output(self, all_rows, header=None):
+    def _write_output(self, all_rows, header=None, output_path=None):
         """Escribe las filas al archivo de salida y manda signal si corresponde"""
         if not all_rows:
             print("[Topper] No data to process")
             return
 
-        output_dir = os.path.dirname(self.output_file)
-        if output_dir:
-            os.makedirs(output_dir, exist_ok=True)
+        output_file = output_path or self.output_file
+        output_dir = os.path.dirname(output_file)
+        os.makedirs(output_dir, exist_ok=True)
 
-        with open(self.output_file, 'w', newline='', encoding='utf-8') as f:
+        with open(output_file, 'w', newline='', encoding='utf-8') as f:
             csv_writer = csv.writer(f)
             if header:
                 csv_writer.writerow(header)
             csv_writer.writerows(all_rows)
 
-        print(f"[Topper] Successfully created output file: {self.output_file}")
+        print(f"[Topper] Successfully created output file: {output_file}")
         print(f"[Topper] Total rows in output: {len(all_rows)}")
 
-        # Si hay cola de completion configurada → manda signal
         self._send_completion_signal()
 
 
-    def process_csv_files_Q2(self):
-        print(f"[Topper-Q2] Processing CSV files from directory: {self.input_dir}")
-        csv_files = self._get_csv_files()
+
+    def process_csv_files_Q2(self, request_input_dir):
+        csv_files = self._get_csv_files(request_input_dir)
         if not csv_files:
             return
 
         all_rows = []
         for csv_filename in csv_files:
             print(f"[Topper-Q2] Processing file: {csv_filename}")
-            results = self._process_file(csv_filename, [(1, "quantity"), (2, "subtotal")])
+            results = self._process_file(request_input_dir,csv_filename, [(1, "quantity"), (2, "subtotal")])
             all_rows.extend(results)
 
-        self._write_output(all_rows, ['month_year','quantity_or_subtotal','item_id','quantity','subtotal'])
+        output_path = os.path.join(self.output_dir, f"q2_top.csv")
+        self._write_output(all_rows, ['month_year','quantity_or_subtotal','item_id','quantity','subtotal'], output_path)
 
-    def process_csv_files_Q3(self):
-        print(f"[Topper-Q3] Processing CSV files from directory: {self.input_dir}")
-        csv_files = self._get_csv_files()
+    def process_csv_files_Q3(self, request_input_dir):
+        csv_files = self._get_csv_files(request_input_dir)
         if not csv_files:
             return
 
@@ -176,7 +218,7 @@ class Topper(Worker):
             store_id = parts[1]   # "6"
             
             # Read the TPV value from the file
-            csv_file_path = os.path.join(self.input_dir, csv_filename)
+            csv_file_path = os.path.join(request_input_dir, csv_filename)
             try:
                 with open(csv_file_path, 'r', newline='', encoding='utf-8') as f:
                     tpv_str = f.read().strip()
@@ -194,30 +236,31 @@ class Topper(Worker):
             except Exception as e:
                 print(f"[Topper-Q3] Error reading file {csv_filename}: {e}")
 
-        self._write_output(all_rows, ['year_half_created_at', 'store_id', 'tpv'])
+        output_path = os.path.join(self.output_dir, f"q3_top.csv")
+        self._write_output(all_rows, ['year_half_created_at', 'store_id', 'tpv'], output_path)
 
-    def process_csv_files_Q4(self):
-        print(f"[Topper-Q4] Processing CSV files from directory: {self.input_dir}")
-        csv_files = self._get_csv_files()
+    def process_csv_files_Q4(self, request_input_dir):
+        csv_files = self._get_csv_files(request_input_dir)
         if not csv_files:
             return
 
         all_rows = []
         for csv_filename in csv_files:
             print(f"[Topper-Q4] Processing file: {csv_filename}")
-            results = self._process_file(csv_filename, [(1, "quantity")])
+            results = self._process_file(request_input_dir,csv_filename, [(1, "quantity")])
             all_rows.extend([[row[0]] + row[2:] for row in results])  
 
-        self._write_output(all_rows, ['store_id', 'purchases_qty', 'user_id'])
+        output_path = os.path.join(self.output_dir, f"q4_top.csv")
+        self._write_output(all_rows, ['store_id', 'purchases_qty', 'user_id'], output_path)
 
     def _send_completion_signal(self):
         """Send completion signal to the next stage if completion queue is configured"""
         if self.out_queues:
             try:
-                logging.info(f"[Topper:{self.query_id}] Sending completion signal to {self.completion_queue_name}")
-                completion_message = protocol.pack_message(protocol.MSG_TYPE_NOTI, protocol.DATA_END, b"", time.time())
+                logging.info(f"[Topper:{self.query_id}] Sending completion signal to {self.completion_queue_name} with request_id={self.current_request_id}")
+                completion_message = protocol.create_notification_message(protocol.DATA_END, b"", self.current_request_id)
                 self.out_queues[0].send(completion_message)
-                logging.info(f"[Topper:{self.query_id}] Completion signal sent successfully")
+                logging.info(f"[Topper:{self.query_id}] Completion signal sent successfully to {self.completion_queue_name} with request_id={self.current_request_id}")
             except Exception as e:
                 logging.error(f"[Topper:{self.query_id}] Error sending completion signal: {e}")
 

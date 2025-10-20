@@ -11,10 +11,10 @@ default: help
 help:
 	@echo "Available targets:"
 	@echo "  up      - Start all services"
-	@echo "  down    - Stop all services and clean up files"
+	@echo "  down    - Stop all services and clean up files (including client results)"
 	@echo "  restart - Stop, clean up, and start services"
 	@echo "  logs    - Show logs from all services"
-	@echo "  clean   - Clean up output and temp files from all components"
+	@echo "  clean   - Clean up output, temp, and client result files from all components"
 	@echo "  build   - Build all Docker images"
 	@echo ""
 	@echo "Replica configuration (can be overridden):"
@@ -40,7 +40,7 @@ up: build
 down:
 	docker compose stop -t 5
 	docker compose down
-	@echo "🧹 Cleaning up output and temp directories..."
+	@echo "🧹 Cleaning up output, temp, and client results directories..."
 	@docker run --rm \
 		-v $(PWD)/output:/tmp/output \
 		-v $(PWD)/grouper_v2/temp/q2:/tmp/grouper_q2 \
@@ -48,7 +48,8 @@ down:
 		-v $(PWD)/grouper_v2/temp/q4:/tmp/grouper_q4 \
 		-v $(PWD)/reducer/temp:/tmp/reducer_temp \
 		-v $(PWD)/topper/temp:/tmp/topper_temp \
-		alpine:latest sh -c "rm -rf /tmp/output/* /tmp/grouper_q2/* /tmp/grouper_q3/* /tmp/grouper_q4/* /tmp/reducer_temp/* /tmp/topper_temp/* 2>/dev/null || true"
+		-v $(PWD)/client/results:/tmp/client_results \
+		alpine:latest sh -c "rm -rf /tmp/output/* /tmp/grouper_q2/* /tmp/grouper_q3/* /tmp/grouper_q4/* /tmp/reducer_temp/* /tmp/topper_temp/* /tmp/client_results/* 2>/dev/null || true"
 	@echo "✅ All services stopped and cleanup completed!"
 
 .PHONY: restart
@@ -61,7 +62,7 @@ logs:
 
 .PHONY: clean
 clean:
-	@echo "🧹 Cleaning up output and temp directories..."
+	@echo "🧹 Cleaning up output, temp, and client results directories..."
 	@docker run --rm \
 		-v $(PWD)/output:/tmp/output \
 		-v $(PWD)/grouper_v2/temp/q2:/tmp/grouper_q2 \
@@ -69,7 +70,8 @@ clean:
 		-v $(PWD)/grouper_v2/temp/q4:/tmp/grouper_q4 \
 		-v $(PWD)/reducer/temp:/tmp/reducer_temp \
 		-v $(PWD)/topper/temp:/tmp/topper_temp \
-		alpine:latest sh -c "rm -rf /tmp/output/* /tmp/grouper_q2/* /tmp/grouper_q3/* /tmp/grouper_q4/* /tmp/reducer_temp/* /tmp/topper_temp/* 2>/dev/null || true"
+		-v $(PWD)/client/results:/tmp/client_results \
+		alpine:latest sh -c "rm -rf /tmp/output/* /tmp/grouper_q2/* /tmp/grouper_q3/* /tmp/grouper_q4/* /tmp/reducer_temp/* /tmp/topper_temp/* /tmp/client_results/* 2>/dev/null || true"
 	@echo "✅ Cleanup completed!"
 
 .PHONY: status

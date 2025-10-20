@@ -41,6 +41,7 @@ class Grouper:
         self._running = False
         self._shutdown_event = threading.Event()
         self.counter = 0  # Counter for processed rows
+        self.current_request_id = 0
         
         # Optimization: batch processing - load from config if available
         try:
@@ -76,7 +77,8 @@ class Grouper:
                 if not isinstance(message, bytes) or len(message) < 6:
                     logging.warning(f"Invalid message format or too short: {message}")
                     return
-                msg_type, data_type, timestamp, payload = protocol.unpack_message(message)
+                msg_type, data_type, request_id, timestamp, payload = protocol.unpack_message(message)
+                self.current_request_id = request_id
 
                 if msg_type == protocol.MSG_TYPE_END:
                     if data_type == protocol.DATA_END:
@@ -102,7 +104,7 @@ class Grouper:
                     if rows:  # Only process if we have valid rows
                         self.process_rows(rows)
             except Exception as e:
-                logging.error(f"[Grouper:{self.query_id}] Error processing message: {e} - Message: {message}")
+                logging.error(f"[Grouper:{self.query_id}] Error processing message: {e}")
 
         #print(f"Grouper listening on {self.queue_in}")
         self.in_queue.start_consuming(on_message)
@@ -130,10 +132,10 @@ class Grouper:
         """Send completion signal to the next stage if completion queue is configured"""
         if self.out_queue:
             try:
-                logging.info(f"[Grouper:{self.query_id}] Sending completion signal to {self.completion_queue}")
-                completion_message = protocol.pack_message(protocol.MSG_TYPE_NOTI, protocol.DATA_END, b"", time.time())
+                logging.info(f"[Grouper:{self.query_id}] Sending completion signal to {self.completion_queue} with request_id={self.current_request_id}")
+                completion_message = protocol.create_notification_message(protocol.DATA_END, b"", self.current_request_id)
                 self.out_queue.send(completion_message)
-                logging.info(f"[Grouper:{self.query_id}] Completion signal sent successfully")
+                logging.info(f"[Grouper:{self.query_id}] Completion signal sent successfully to {self.completion_queue} with request_id={self.current_request_id}")
             except Exception as e:
                 logging.error(f"[Grouper:{self.query_id}] Error sending completion signal: {e}")
 

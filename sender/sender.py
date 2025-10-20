@@ -16,6 +16,53 @@ class Sender(FileProcessingWorker):
         self.batch_size = batch_size
         self.query_type = query_type
         self.include_headers = include_headers
+        
+        # Store base path for request_id-based subdirectory creation
+        self.base_input_file = input_file
+        self.request_id_initialized = False
+        self._initialized_requests = set()
+
+
+    def _initialize_request_paths(self, request_id):
+        """Initialize input path with request_id subdirectory"""
+        # Evita reinit innecesario para el mismo request
+        if hasattr(self, "_initialized_requests") and request_id in self._initialized_requests:
+            return
+        if not hasattr(self, "_initialized_requests"):
+            self._initialized_requests = set()
+
+        self._initialized_requests.add(request_id)
+
+        # Base path recibido del compose (sin el request_id)
+        dir_path = os.path.dirname(self.base_input_file)
+        filename = os.path.basename(self.base_input_file)
+
+        # Construir path con el request_id intermedio
+        new_path = os.path.join(dir_path, str(request_id), filename)
+        os.makedirs(os.path.dirname(new_path), exist_ok=True)
+
+        # Actualizar input_file
+        self.input_file = new_path
+        self.current_request_id = request_id
+
+        print(f"[INFO] Initialized sender paths for request_id {request_id}")
+        print(f"[INFO]   Input file set to: {self.input_file}")
+
+
+    def _process_message(self, message, msg_type, data_type, request_id, timestamp, payload, queue_name=None):
+        """Process message - handles completion signals and initializes request_id paths."""
+        if msg_type == protocol.MSG_TYPE_NOTI:
+            # Store request_id from notification for use in outgoing messages
+            self.current_request_id = request_id
+            
+            # Initialize request-specific paths
+            self._initialize_request_paths(request_id)
+            
+            print(f'[INFO] Completion signal received with request_id {request_id}. Starting file processing: {self.input_file}')
+            self._process_file()
+            print('[INFO] File processing complete')
+        else:
+            print(f"[WARNING] Received unexpected message type: {msg_type}/{data_type}")
 
     def _process_file(self):
         """Read CSV file and send it in batches to output queue"""
@@ -86,8 +133,9 @@ class Sender(FileProcessingWorker):
                 'q4': protocol.Q4_RESULT
             }
             data_type = data_type_map.get(self.query_type, protocol.Q1_RESULT)
-            message = protocol.pack_message(protocol.MSG_TYPE_DATA, data_type, payload, time.time())
+            message = protocol.create_data_message(data_type, payload, self.current_request_id)
             self.out_queues[0].send(message)
+            print(f"[INFO] Sent batch to results queue: query_type={self.query_type}, request_id={self.current_request_id}, rows={len(batch)}")
         except Exception as e:
             print(f"[ERROR] Error sending batch: {e}")
             raise
@@ -104,14 +152,14 @@ class Sender(FileProcessingWorker):
                 'q4': protocol.Q4_RESULT
             }
             query_result_type = data_type_map.get(self.query_type, protocol.Q1_RESULT)
-            message1 = protocol.pack_message(protocol.MSG_TYPE_END, query_result_type, b"", time.time())
+            message1 = protocol.create_end_message(query_result_type, self.current_request_id)
             self.out_queues[0].send(message1)
-            print(f"[INFO] Sent MSG_TYPE_END with {self.query_type.upper()}_RESULT ({query_result_type})")
+            print(f"[INFO] Sent MSG_TYPE_END with {self.query_type.upper()}_RESULT ({query_result_type}) to results queue: request_id={self.current_request_id}")
             
             # Send second END signal with DATA_END
-            message2 = protocol.pack_message(protocol.MSG_TYPE_END, protocol.DATA_END, b"", time.time())
+            message2 = protocol.create_end_message(protocol.DATA_END, self.current_request_id)
             self.out_queues[0].send(message2)
-            print(f"[INFO] Sent MSG_TYPE_END with DATA_END")
+            print(f"[INFO] Sent MSG_TYPE_END with DATA_END to results queue: request_id={self.current_request_id}")
             
         except Exception as e:
             print(f"[ERROR] Error sending END signals: {e}")

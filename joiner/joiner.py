@@ -10,6 +10,7 @@ import time
 from shared.logging_config import initialize_log
 from middleware.coffeeMiddleware import CoffeeMessageMiddlewareQueue
 from shared.worker import Worker
+from shared import protocol
 
 
 class Joiner(Worker):
@@ -32,18 +33,20 @@ class Joiner(Worker):
                 f"QUEUE_OUT ({len(self.out_queues)}) y OUTPUT_FILE ({len(output_files)}) deben tener la MISMA cantidad para mapeo 1–a–1."
             )
 
-        # Pares (queue, file) en el mismo orden
+        # Store base output paths (will be modified with request_id subdirectories)
+        self.base_output_files = output_files
+        # Pares (queue, file) en el mismo orden - initially set to base paths
         self.outputs = list(zip(self.out_queues, output_files))
 
         # Estado por archivo (usamos dict por file_path)
         self._csv_initialized = {f: False for _, f in self.outputs}
         self._rows_written = {f: 0 for _, f in self.outputs}
         self.end_received = {queue: False for queue in self.multiple_input_queues}
+        self.current_request_id = 0  # Store current request_id
 
-        # Temp dir: usar la carpeta del primer output si existe, sino CWD
-        base_for_temp = os.path.dirname(self.outputs[0][1]) if self.outputs else os.getcwd()
-        self.temp_dir = os.path.join(base_for_temp, 'temp')
-        os.makedirs(self.temp_dir, exist_ok=True)
+        # Temp dir will be set up after receiving request_id
+        self.temp_dir = None
+        self.request_id_initialized = False
 
         # strategies
         self.strategies = {
@@ -59,9 +62,53 @@ class Joiner(Worker):
             "resultados_groupby_q2": ",",
             "resultados_groupby_q3": ",",
         }
+
+        self.end_received_by_request = {}
+        self._processed_requests = set()  # Track completed requests to prevent reprocessing
+
+
+    def _initialize_request_paths(self, request_id):
+        """
+        Inicializa rutas (outputs y temp) por request.
+        Si cambia el request_id, reconfigura paths aunque ya se hayan inicializado antes.
+        """
+        # Si ya estamos en este mismo request, no hagas nada
+        if self.request_id_initialized and self.current_request_id == request_id:
+            return
+
+        # --- construir paths con subcarpeta del request ---
+        updated_output_files = []
+        for base_path in self.base_output_files:
+            dir_path = os.path.dirname(base_path)
+            filename = os.path.basename(base_path)
+            # output_dir/<request_id>/<filename>
+            new_path = os.path.join(dir_path, str(request_id), filename)
+            updated_output_files.append(new_path)
+            os.makedirs(os.path.dirname(new_path), exist_ok=True)
+
+        self.outputs = list(zip(self.out_queues, updated_output_files))
+
+        # reiniciar estado de escritura para estos nuevos archivos
+        self._csv_initialized = {f: False for _, f in self.outputs}
+        self._rows_written = {f: 0 for _, f in self.outputs}
+
+        # temp por request (queda en .../<request_id>/temp)
+        base_for_temp = os.path.dirname(updated_output_files[0]) if updated_output_files else os.getcwd()
+        self.temp_dir = os.path.join(base_for_temp, 'temp')
+        os.makedirs(self.temp_dir, exist_ok=True)
+
+        # AHORA sí, actualizá el request activo
+        self.current_request_id = request_id
+        self.request_id_initialized = True
+
+        logging.info(f"[Joiner] request_id={request_id} → outputs={ [f for _, f in self.outputs] } temp_dir={self.temp_dir}")
+
     
-    def _process_message(self, message, msg_type, data_type, timestamp, payload, queue_name=None):
-        """Process messages from input queues"""
+    def _process_message(self, message, msg_type, data_type, request_id, timestamp, payload, queue_name=None):
+        """Process messages from input queues"""        
+        # Initialize request-specific paths if needed
+        self._initialize_request_paths(request_id)
+        
         # Initialize CSV files on first message for single queue mode
         if len(self.multiple_input_queues) == 1:
             for i in range(len(self.outputs)):
@@ -98,22 +145,49 @@ class Joiner(Worker):
                         for i in range(len(self.outputs)):
                             self._write_rows_to_csv_idx(i, final_rows)
     
-    def _handle_end_signal(self, message, msg_type, data_type, queue_name=None):
-        """Handle end-of-data signals with joiner-specific logic"""
+    def _handle_end_signal(self, message, msg_type, data_type, request_id, queue_name=None):
+        """
+        Handle END signals per request_id and per input queue.
+        Evita mezclar los END de distintos requests.
+        """
         with self._lock:
-            if not self.end_received[queue_name]:
-                self.end_received[queue_name] = True
-                logging.info(f"Received end signal from queue: {queue_name}")
-                if all(self.end_received.values()):
-                    logging.info("All queues have sent end signals. Processing joined data...")
+            # 1️⃣ Asegurar paths del request actual
+            self._initialize_request_paths(request_id)
+
+            # 2️⃣ Check if this request has already been fully processed
+            if request_id in self._processed_requests:
+                logging.info(f"[Joiner:{self.query_type}] END ignorado de {queue_name} - request_id={request_id} ya fue procesado completamente")
+                return
+
+            # 3️⃣ Inicializar estado para este request si no existe
+            if request_id not in self.end_received_by_request:
+                self.end_received_by_request[request_id] = {q: False for q in self.multiple_input_queues}
+
+            end_state = self.end_received_by_request[request_id]
+
+            # 4️⃣ Procesar el END recibido
+            if not end_state.get(queue_name, False):
+                end_state[queue_name] = True
+                logging.info(f"[Joiner:{self.query_type}] END recibido de {queue_name} (request_id={request_id})")
+
+                # 5️⃣ Si todas las colas de este request completaron, procesar join
+                if all(end_state.values()):
+                    logging.info(f"[Joiner:{self.query_type}] Todas las colas completaron (request_id={request_id}). Procesando join...")
+
+                    self.current_request_id = request_id
                     if len(self.multiple_input_queues) > 1:
                         self._process_joined_data()
                     else:
                         self._send_sort_request()
                         total_rows = sum(self._rows_written.values())
-                        logging.info(f'CSV data collection complete with {total_rows} total rows. Sort request sent.')
+                        logging.info(f"[Joiner:{self.query_type}] CSV collection complete ({total_rows} filas). Sort request sent.")
+
+                    # Mark request as fully processed and clean up state
+                    self._processed_requests.add(request_id)
+                    del self.end_received_by_request[request_id]
+
             else:
-                logging.warning(f'Already received END signal from {queue_name}, ignoring duplicate')
+                logging.warning(f"[Joiner:{self.query_type}] END duplicado ignorado de {queue_name} (request_id={request_id})")
 
     # =====================
     # Utils de CSV por salida
@@ -183,11 +257,12 @@ class Joiner(Worker):
     def _send_sort_request(self):
         """Envía señal de sort/notify a CADA cola de salida, indicando su archivo asociado."""
         try:
-            header = struct.pack('>BBdI', 3, 0, time.time(), 0)  # Updated to include timestamp
+            sort_message = protocol.create_notification_message(0, b"", self.current_request_id)  # MSG_TYPE_NOTI with data_type 0
+            logging.info(f"Sending sort request with request_id={self.current_request_id}")
             for out_q, out_file in self.outputs:
                 try:
-                    out_q.send(header)
-                    logging.debug(f"Sent sort request for {out_file} to {out_q.queue_name}")
+                    out_q.send(sort_message)
+                    logging.info(f"Sent sort request for {out_file} to {out_q.queue_name} with request_id={self.current_request_id}")
                 except Exception as inner:
                     logging.error(f"Error sending sort to {out_q.queue_name} for {out_file}: {inner}")
         except Exception as e:

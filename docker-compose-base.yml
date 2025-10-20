@@ -52,6 +52,16 @@ services:
     depends_on:
       gateway:
         condition: service_started
+      sender_q1:
+        condition: service_started
+      sender_q2_a:
+        condition: service_started
+      sender_q2_b:
+        condition: service_started
+      sender_q3:
+        condition: service_started
+      sender_q4:
+        condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
       DATA_DIR: /app/.data
@@ -60,7 +70,7 @@ services:
       BATCH_MAX_AMOUNT: 5000
     volumes:
     - ./data:/app/.data
-    - ./results:/app/results
+    - ./client/results:/app/client/results
     networks:
     - coffee-net
   cleaner_transactions:
@@ -163,11 +173,11 @@ services:
       DATA_TYPE: menu_items
     networks:
     - coffee-net
-  coordinator_transactions:
+  coordinator_transaction:
     build:
       context: .
       dockerfile: coordinator/Dockerfile
-    container_name: coordinator_transactions
+    container_name: coordinator_transaction
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -573,7 +583,7 @@ services:
       RABBITMQ_PASS: secretpassword
       QUEUE_IN: sender_grouper_q4_signal
       QUEUE_OUT: resultados_groupby_q4
-      INPUT_FILE: /app/topper_temp/topper_q4_signal/q4_top3.csv
+      INPUT_FILE: /app/topper_temp/topper_q4_signal/q4_top.csv
       BATCH_SIZE: 5000
       QUERY_TYPE: q4
     volumes:
@@ -745,7 +755,7 @@ services:
       RABBITMQ_PASS: secretpassword
       QUEUE_IN: sender_grouper_q2_signal
       QUEUE_OUT: resultados_groupby_q2
-      INPUT_FILE: /app/topper_temp/topper_q2_signal/q2_top1.csv
+      INPUT_FILE: /app/topper_temp/topper_q2_signal/q2_top.csv
       BATCH_SIZE: 5000
       QUERY_TYPE: q2
     volumes:
@@ -769,7 +779,7 @@ services:
       RABBITMQ_PASS: secretpassword
       QUEUE_IN: sender_grouper_q3_signal
       QUEUE_OUT: resultados_groupby_q3
-      INPUT_FILE: /app/topper_temp/topper_q3_signal/q3_top1.csv
+      INPUT_FILE: /app/topper_temp/topper_q3_signal/q3_top.csv
       BATCH_SIZE: 5000
       QUERY_TYPE: q3
     volumes:

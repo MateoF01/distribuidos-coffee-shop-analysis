@@ -54,6 +54,9 @@ class Worker(ABC):
         # Handle multiple output queues
         self.out_queues = self._initialize_output_queues(queue_out)
         
+        # END message deduplication tracker: (request_id, data_type) -> bool
+        self._processed_end_messages = set()
+        
         # Store kwargs for subclass-specific initialization
         self.worker_kwargs = kwargs
     
@@ -113,14 +116,14 @@ class Worker(ABC):
                 
                 # Handle end-of-data signals
                 if msg_type == protocol.MSG_TYPE_END:
-                    self._handle_end_signal(message, msg_type, data_type, queue_name)
+                    self._handle_end_signal(message, msg_type, data_type, request_id, queue_name)
                     return
                 
                 # Process the message content
                 self._process_message(message, msg_type, data_type, request_id, timestamp, payload, queue_name)
                 
             except Exception as e:
-                logging.error(f"Error processing message: {e} - Message: {message}")
+                logging.error(f"Error processing message: {e}")
         
         return on_message
     
@@ -131,8 +134,18 @@ class Worker(ABC):
             return False
         return True
     
-    def _handle_end_signal(self, message, msg_type, data_type, queue_name=None):
-        """Handle end-of-data signals. Default implementation forwards to all output queues."""
+    def _handle_end_signal(self, message, msg_type, data_type, request_id, queue_name=None):
+        """Handle end-of-data signals. Default implementation forwards to all output queues with deduplication."""
+        # Check if we've already processed this END message
+        end_key = (request_id, data_type)
+        if end_key in self._processed_end_messages:
+            logging.info(f'Duplicate END signal ignored: request_id={request_id}, data_type={data_type}, queue={queue_name or self.queue_in}')
+            return
+        
+        # Mark this END message as processed
+        self._processed_end_messages.add(end_key)
+        
+        # Forward to all output queues
         for q in self.out_queues:
             q.send(message)
         
@@ -266,9 +279,16 @@ class StreamProcessingWorker(Worker):
     Handles common patterns for workers that process rows of data and forward them.
     """
     
+    def __init__(self, queue_in, queue_out, rabbitmq_host, **kwargs):
+        super().__init__(queue_in, queue_out, rabbitmq_host, **kwargs)
+        self.current_request_id = 0  # Store current request_id
+    
     def _process_message(self, message, msg_type, data_type, request_id, timestamp, payload, queue_name=None):
         """Process message by extracting rows, processing them, and forwarding results."""
         try:
+            # Store request_id for use by subclasses
+            self.current_request_id = request_id
+            
             # Decode payload
             payload_str = payload.decode('utf-8')
             rows = payload_str.split('\n')
@@ -316,14 +336,14 @@ class StreamProcessingWorker(Worker):
             self._send_rows_to_all_queues(processed_rows, msg_type, data_type, request_id, timestamp)
         else:
             # Complex processing results - delegate to subclass
-            self._send_complex_results(processed_rows, msg_type, data_type, request_id, request_id, timestamp)
+            self._send_complex_results(processed_rows, msg_type, data_type, request_id, timestamp)
     
     def _send_rows_to_all_queues(self, rows, msg_type, data_type, request_id, timestamp):
         """Send a list of row strings to all output queues."""
         new_payload_str = '\n'.join(rows)
         new_payload = new_payload_str.encode('utf-8')
         # Use per-hop timestamps: generate new timestamp for this forwarding step
-        new_message = protocol.pack_message(msg_type, data_type, new_payload, None)
+        new_message = protocol.create_data_message(data_type, new_payload, request_id)
         
         for q in self.out_queues:
             q.send(new_message)
@@ -346,11 +366,14 @@ class FileProcessingWorker(Worker):
         super().__init__(queue_in, queue_out, rabbitmq_host, **kwargs)
         self.input_file = input_file
         self.output_file = output_file
+        self.current_request_id = 0  # Store request_id from notification
     
     def _process_message(self, message, msg_type, data_type, request_id, timestamp, payload, queue_name=None):
         """Process message - typically handles completion signals."""
         if msg_type == protocol.MSG_TYPE_NOTI:
-            logging.info(f'Completion signal received. Starting file processing: {self.input_file}')
+            # Store request_id from notification for use in outgoing messages
+            self.current_request_id = request_id
+            logging.info(f'Completion signal received with request_id {request_id}. Starting file processing: {self.input_file}')
             self._process_file()
             logging.info('File processing complete')
         else:
@@ -368,35 +391,50 @@ class SignalProcessingWorker(Worker):
     NOTI signal upon completion.
     """
 
-    def _process_message(self, message, msg_type, data_type, timestamp, payload, queue_name=None):
+    def __init__(self, queue_in, queue_out, rabbitmq_host, **kwargs):
+        super().__init__(queue_in, queue_out, rabbitmq_host, **kwargs)
+        # Track processed notification signals to avoid duplicate processing
+        self._processed_notifications = set()
+
+    def _process_message(self, message, msg_type, data_type, request_id, timestamp, payload, queue_name=None):
         """
         Handle incoming messages. When a NOTI signal is received, perform the
         main processing and then notify downstream workers upon completion.
         """
         if msg_type == protocol.MSG_TYPE_NOTI:
-            logging.info(f"[{self.__class__.__name__}] Notification received — starting processing.")
+            # Check if we've already processed this notification for this request_id
+            if request_id in self._processed_notifications:
+                logging.info(f"[{self.__class__.__name__}] Notification for request_id={request_id} already processed, skipping duplicate.")
+                return
+            
+            # Mark as being processed to prevent duplicates
+            self._processed_notifications.add(request_id)
+            
+            logging.info(f"[{self.__class__.__name__}] Notification received for request_id={request_id} — starting processing.")
             try:
-                self._process_signal()
-                logging.info(f"[{self.__class__.__name__}] Processing complete. Completion signal sent.")
+                self._process_signal(request_id)
+                logging.info(f"[{self.__class__.__name__}] Processing complete for request_id={request_id}. Completion signal sent.")
             except Exception as e:
-                logging.error(f"[{self.__class__.__name__}] Error during processing: {e}")
+                logging.error(f"[{self.__class__.__name__}] Error during processing for request_id={request_id}: {e}")
+                # Remove from processed set if processing failed, so it can be retried
+                self._processed_notifications.discard(request_id)
         else:
             logging.warning(f"[{self.__class__.__name__}] Unexpected message type: {msg_type}/{data_type}")
 
     @abstractmethod
-    def _process_signal(self):
+    def _process_signal(self, request_id):
         """
         Core logic triggered when a NOTI signal is received.
         Should be implemented by subclasses (e.g., file merge, reducer logic, etc.).
         """
         pass
 
-    def _notify_completion(self, data_type):
+    def _notify_completion(self, data_type, request_id=0):
         """
         Send a NOTI message to downstream workers indicating that the processing is complete.
         """
         noti_payload = f"{self.__class__.__name__.lower()}_completed".encode("utf-8")
-        noti_message = protocol.pack_message(protocol.MSG_TYPE_NOTI, data_type, noti_payload)
+        noti_message = protocol.create_notification_message(data_type, noti_payload, request_id)
         for q in self.out_queues:
             q.send(noti_message)
-        logging.info(f"[{self.__class__.__name__}] Completion notification sent to {[q.queue_name for q in self.out_queues]}")
+        logging.info(f"[{self.__class__.__name__}] Completion notification sent to {[q.queue_name for q in self.out_queues]} with request_id={request_id}")

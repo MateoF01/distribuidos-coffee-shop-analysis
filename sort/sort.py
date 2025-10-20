@@ -9,6 +9,7 @@ import heapq
 import time
 from middleware.coffeeMiddleware import CoffeeMessageMiddlewareQueue
 from shared.worker import FileProcessingWorker
+from shared import protocol
 
 class SorterConfig:
     def __init__(self, config_parser, data_type):
@@ -85,6 +86,48 @@ class Sorter(FileProcessingWorker):
         self.config = config
         self.completion_queue_name = completion_queue
         self._temp_files = []
+        self._temp_files_by_request = {}
+        self._processed_requests = set()  # Track processed request IDs
+
+        # Store base paths for request_id-based subdirectory creation
+        self.base_input_file = input_file
+        self.base_output_file = output_file
+        self.request_id_initialized = False
+        self.current_request_id = 0
+
+    def _initialize_request_paths(self, request_id):
+        """Initialize input/output paths with request_id subdirectory"""
+        if hasattr(self, "_initialized_requests") and request_id in self._initialized_requests:
+            return
+        if not hasattr(self, "_initialized_requests"):
+            self._initialized_requests = set()
+        self._initialized_requests.add(request_id)
+
+        # Base path recibido del compose (sin el request_id)
+        dir_in = os.path.dirname(self.base_input_file)
+        file_in = os.path.basename(self.base_input_file)
+        new_input = os.path.join(dir_in, str(request_id), file_in)
+
+        dir_out = os.path.dirname(self.base_output_file)
+        file_out = os.path.basename(self.base_output_file)
+        new_output = os.path.join(dir_out, str(request_id), file_out)
+
+        # Crear carpetas
+        os.makedirs(os.path.dirname(new_input), exist_ok=True)
+        os.makedirs(os.path.dirname(new_output), exist_ok=True)
+
+        # Actualizar paths activos
+        self.input_file = new_input
+        self.output_file = new_output
+        self.current_request_id = request_id
+
+        # Inicializar lista de temporales
+        self._temp_files_by_request[request_id] = []
+
+        print(f"[Sorter] Initialized paths for request_id={request_id}")
+        print(f"[Sorter]   Input file: {self.input_file}")
+        print(f"[Sorter]   Output file: {self.output_file}")
+
 
     def _write_sorted_chunk(self, chunk_data):
         """Write a sorted chunk to a temporary file"""
@@ -97,12 +140,18 @@ class Sorter(FileProcessingWorker):
                 # Single column sorting (backward compatibility)
                 chunk_data.sort(key=lambda row: row[self.sort_column_index])
             
-            # Create temporary file manually
+            # Create temporary file manually in the same directory as output file
             timestamp = str(int(time.time() * 1000000))  # microsecond precision
-            chunk_id = len(self._temp_files)
-            temp_path = f"{self.config.temp_file_prefix}{timestamp}_{chunk_id}{self.config.temp_file_suffix}"
+            chunk_id = len(self._temp_files_by_request[self.current_request_id])
+            temp_filename = f"{self.config.temp_file_prefix}{timestamp}_{chunk_id}{self.config.temp_file_suffix}"
             
-            self._temp_files.append(temp_path)
+            # Place temp files in the same directory as the output file to maintain request_id organization
+            output_dir = os.path.dirname(self.output_file)
+            temp_path = os.path.join(output_dir, temp_filename)
+            
+            if self.current_request_id not in self._temp_files_by_request:
+                self._temp_files_by_request[self.current_request_id] = []
+            self._temp_files_by_request[self.current_request_id].append(temp_path)
             
             with open(temp_path, 'w', newline=self.config.newline_mode, encoding=self.config.encoding) as temp_file:
                 writer = csv.writer(temp_file)
@@ -113,16 +162,17 @@ class Sorter(FileProcessingWorker):
         except Exception as e:
             print(f"Error writing sorted chunk: {e}")
 
-    def _merge_sorted_files(self, header):
-        """Merge all sorted temporary files into the final output file"""
-        if not self._temp_files:
+    def _merge_sorted_files(self, header, request_id):
+        temp_files = self._temp_files_by_request.get(request_id, [])
+        if not temp_files:
             return
+
             
         try:
             # Open all temporary files
             file_readers = []
             
-            for temp_file in self._temp_files:
+            for temp_file in temp_files:
                 f = open(temp_file, 'r', newline=self.config.newline_mode, encoding=self.config.encoding)
                 reader = csv.reader(f)
                 file_readers.append((reader, f))
@@ -173,14 +223,14 @@ class Sorter(FileProcessingWorker):
                 if not f.closed:
                     f.close()
                     
-            # Remove temporary files
-            for temp_file in self._temp_files:
+            # Remove temporary files per request
+            for temp_file in temp_files:
                 try:
                     os.unlink(temp_file)
                 except OSError:
                     pass
-            
-            print(f"Successfully merged {len(self._temp_files)} sorted chunks into {self.output_file}")
+
+            print(f"Successfully merged {len(temp_files)} sorted chunks into {self.output_file}")
             
         except Exception as e:
             print(f"Error merging sorted files: {e}")
@@ -213,7 +263,7 @@ class Sorter(FileProcessingWorker):
                     self._write_sorted_chunk(current_chunk)
             
             # Merge all sorted chunks
-            self._merge_sorted_files(header)
+            self._merge_sorted_files(header, self.current_request_id)
             
             if len(self.config.sort_columns) > 1:
                 print(f"Successfully sorted {self.input_file} by columns {self.config.sort_columns} and saved to {self.output_file}")
@@ -230,19 +280,33 @@ class Sorter(FileProcessingWorker):
         """Send a completion signal to notify that sorting is done"""
         try:
             if self.out_queues:
-                # Create completion signal message (msg_type=3, data_type=0, timestamp, payload_len=0)
-                header = struct.pack('>BBdI', 3, 0, time.time(), 0)  # Completion signal with timestamp
-                self.out_queues[0].send(header)
-                print(f"Sent completion signal for {self.output_file}")
+                # Create completion signal message
+                message = protocol.create_notification_message(0, b'', self.current_request_id)
+                self.out_queues[0].send(message)
+                print(f"Sent completion signal for {self.output_file} with request_id={self.current_request_id}")
             else:
                 print("No completion queue configured")
         except Exception as e:
             print(f"Error sending completion signal: {e}")
 
-    def _process_message(self, message, msg_type, data_type, timestamp, payload, queue_name=None):
+    def _process_message(self, message, msg_type, data_type, request_id, timestamp, payload, queue_name=None):
         """Process sort signal messages"""
         if msg_type == self.config.sort_signal_type:
-            print(f'Sort signal received for file: {self.input_file}')
+            # Check if this request has already been processed
+            if request_id in self._processed_requests:
+                print(f'Sort signal for request_id={request_id} already processed, ignoring duplicate')
+                return
+            
+            # Mark this request as processed
+            self._processed_requests.add(request_id)
+            
+            # Store request_id from the sort signal for use in completion message
+            self.current_request_id = request_id
+            
+            # Initialize request-specific paths
+            self._initialize_request_paths(request_id)
+            
+            print(f'Sort signal received for file: {self.input_file} with request_id={request_id}')
             self._process_file()
             print(f'Sort complete. Output saved to: {self.output_file}')
         else:
