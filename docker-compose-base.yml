@@ -467,6 +467,8 @@ services:
         condition: service_healthy
       gateway:
         condition: service_started
+      wsm_grouper_q2:
+        condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
       RABBITMQ_HOST: rabbitmq
@@ -475,8 +477,25 @@ services:
       QUEUE_IN: transaction_items_filtered_Q2
       COMPLETION_QUEUE: reducer_q2_signal
       GROUPER_MODE: q2
+      WSM_HOST: wsm_grouper_q2
+      WSM_PORT: 9006
     volumes:
       - ./grouper_v2/temp/q2:/app/temp/grouper_v2_q2
+    networks:
+      - coffee-net
+
+  wsm_grouper_q2:
+    build:
+      context: .
+      dockerfile: WSM/Dockerfile
+    container_name: wsm_grouper_q2
+    environment:
+      PYTHONUNBUFFERED: 1
+      STATE_FILE_PATH: /app/output/worker_states_grouper_q2.json
+      HOST: 0.0.0.0
+      PORT: 9006
+    volumes:
+      - ./output_wsm:/app/output
     networks:
       - coffee-net
 
@@ -540,6 +559,8 @@ services:
         condition: service_healthy
       gateway:
         condition: service_started
+      wsm_grouper_q3:
+        condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
       RABBITMQ_HOST: rabbitmq
@@ -548,8 +569,25 @@ services:
       QUEUE_IN: transactions_filtered_Q3
       COMPLETION_QUEUE: reducer_q3_signal
       GROUPER_MODE: q3
+      WSM_HOST: wsm_grouper_q3
+      WSM_PORT: 9007
     volumes:
       - ./grouper_v2/temp/q3:/app/temp/grouper_v2_q3
+    networks:
+      - coffee-net
+
+  wsm_grouper_q3:
+    build:
+      context: .
+      dockerfile: WSM/Dockerfile
+    container_name: wsm_grouper_q3
+    environment:
+      PYTHONUNBUFFERED: 1
+      STATE_FILE_PATH: /app/output/worker_states_grouper_q3.json
+      HOST: 0.0.0.0
+      PORT: 9007
+    volumes:
+      - ./output_wsm:/app/output
     networks:
       - coffee-net
 
@@ -615,6 +653,8 @@ services:
         condition: service_healthy
       gateway:
         condition: service_started
+      wsm_grouper_q4:
+        condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
       RABBITMQ_HOST: rabbitmq
@@ -623,8 +663,25 @@ services:
       QUEUE_IN: transactions_cleaned_Q4
       COMPLETION_QUEUE: reducer_q4_signal
       GROUPER_MODE: q4
+      WSM_HOST: wsm_grouper_q4
+      WSM_PORT: 9008
     volumes:
       - ./grouper_v2/temp/q4:/app/temp/grouper_v2_q4
+    networks:
+      - coffee-net
+
+  wsm_grouper_q4:
+    build:
+      context: .
+      dockerfile: WSM/Dockerfile
+    container_name: wsm_grouper_q4
+    environment:
+      PYTHONUNBUFFERED: 1
+      STATE_FILE_PATH: /app/output/worker_states_grouper_q4.json
+      HOST: 0.0.0.0
+      PORT: 9008
+    volumes:
+      - ./output_wsm:/app/output
     networks:
       - coffee-net
 

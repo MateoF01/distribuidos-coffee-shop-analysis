@@ -1,0 +1,24 @@
+{
+  "grouper": {
+    "44be56b25e17": {
+      "state": "PROCESSING",
+      "request_id": 1
+    },
+    "ff7da3896249": {
+      "state": "WAITING",
+      "request_id": null
+    },
+    "47cb7007b781": {
+      "state": "WAITING",
+      "request_id": null
+    },
+    "9eb5e2eece84": {
+      "state": "WAITING",
+      "request_id": null
+    },
+    "084a012de6be": {
+      "state": "PROCESSING",
+      "request_id": 1
+    }
+  }
+}

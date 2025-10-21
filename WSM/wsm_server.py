@@ -55,7 +55,7 @@ class WorkerStateManager:
             if replica_id not in self.worker_states[worker_type]:
                 self.worker_states[worker_type][replica_id] = {"state": "WAITING", "request_id": None}
                 self._save_state()
-                logging.info(f"[WSM] {worker_type} → Replica {replica_id} registrada como WAITING")
+                #logging.info(f"[WSM] {worker_type} → Replica {replica_id} registrada como WAITING")
 
     def update_state(self, worker_type, replica_id, state, request_id):
         """
@@ -66,7 +66,7 @@ class WorkerStateManager:
                 self.worker_states[worker_type] = {}
             self.worker_states[worker_type][replica_id] = {"state": state, "request_id": request_id}
             self._save_state()
-            logging.info(f"[WSM] {worker_type}:{replica_id} → {state} ({request_id})")
+            #logging.info(f"[WSM] {worker_type}:{replica_id} → {state} ({request_id})")
 
     def can_send_end(self, worker_type, request_id):
         """

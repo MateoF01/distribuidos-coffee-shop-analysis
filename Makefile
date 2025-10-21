@@ -9,6 +9,11 @@ CLEANER_STORES_REPLICAS ?= 1
 CLEANER_MENU_ITEMS_REPLICAS ?= 1
 CLEANER_TRANSACTIONS_REPLICAS_Q4 ?= 5
 
+GROUPER_Q2_V2_REPLICAS ?= 5
+GROUPER_Q3_V2_REPLICAS ?= 5
+GROUPER_Q4_V2_REPLICAS ?= 5
+
+
 default: help
 
 .PHONY: help
@@ -28,6 +33,9 @@ help:
 	@echo "  cleaner_stores: $(CLEANER_STORES_REPLICAS)"
 	@echo "  cleaner_menu_items: $(CLEANER_MENU_ITEMS_REPLICAS)"
 	@echo "  cleaner_transactions_q4: $(CLEANER_TRANSACTIONS_REPLICAS_Q4)"
+	@echo "  grouper_q2_v2: $(GROUPER_Q2_V2_REPLICAS)"
+	@echo "  grouper_q3_v2: $(GROUPER_Q3_V2_REPLICAS)"
+	@echo "  grouper_q4_v2: $(GROUPER_Q4_V2_REPLICAS)"
 	@echo ""
 	@echo "Examples:"
 	@echo "  make up  # Start with defaults"
@@ -51,8 +59,10 @@ up: build
 	  --scale cleaner_users=$(CLEANER_USERS_REPLICAS) \
 	  --scale cleaner_stores=$(CLEANER_STORES_REPLICAS) \
 	  --scale cleaner_menu_items=$(CLEANER_MENU_ITEMS_REPLICAS) \
-	  --scale cleaner_transactions_q4=$(CLEANER_TRANSACTIONS_REPLICAS_Q4) 
-
+	  --scale cleaner_transactions_q4=$(CLEANER_TRANSACTIONS_REPLICAS_Q4) \
+	  --scale grouper_q2_v2=$(GROUPER_Q2_V2_REPLICAS) \
+	  --scale grouper_q3_v2=$(GROUPER_Q3_V2_REPLICAS) \
+	  --scale grouper_q4_v2=$(GROUPER_Q4_V2_REPLICAS) 
 
 # 🧹 Down and cleanup
 .PHONY: down
