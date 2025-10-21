@@ -1,105 +1,165 @@
 SHELL := /bin/bash
 PWD := $(shell pwd)
 
-# Replica configuration - can be overridden via environment variables or command line
-CLEANER_TRANSACTIONS_REPLICAS ?= 1
-CLEANER_TRANSACTION_ITEMS_REPLICAS ?= 1
+# 🧩 Replica configuration (default values)
+CLEANER_TRANSACTIONS_REPLICAS ?= 5
+CLEANER_TRANSACTION_ITEMS_REPLICAS ?= 5
+CLEANER_USERS_REPLICAS ?= 1
+CLEANER_STORES_REPLICAS ?= 1
+CLEANER_MENU_ITEMS_REPLICAS ?= 1
+CLEANER_TRANSACTIONS_REPLICAS_Q4 ?= 5
 
 default: help
 
 .PHONY: help
 help:
 	@echo "Available targets:"
-	@echo "  up      - Start all services"
-	@echo "  down    - Stop all services and clean up files (including client results)"
-	@echo "  restart - Stop, clean up, and start services"
+	@echo "  up      - Build and start all services with scaling"
+	@echo "  down    - Stop all services and clean up files"
+	@echo "  restart - Stop, clean, and start services"
 	@echo "  logs    - Show logs from all services"
-	@echo "  clean   - Clean up output, temp, and client result files from all components"
-	@echo "  build   - Build all Docker images"
+	@echo "  clean   - Remove output, temp, and client result files"
+	@echo "  status  - Show running containers"
 	@echo ""
 	@echo "Replica configuration (can be overridden):"
-	@echo "  Current cleaner_transactions replicas: $(CLEANER_TRANSACTIONS_REPLICAS)"
-	@echo "  Current cleaner_transaction_items replicas: $(CLEANER_TRANSACTION_ITEMS_REPLICAS)"
+	@echo "  cleaner_transactions: $(CLEANER_TRANSACTIONS_REPLICAS)"
+	@echo "  cleaner_transaction_items: $(CLEANER_TRANSACTION_ITEMS_REPLICAS)"
+	@echo "  cleaner_users: $(CLEANER_USERS_REPLICAS)"
+	@echo "  cleaner_stores: $(CLEANER_STORES_REPLICAS)"
+	@echo "  cleaner_menu_items: $(CLEANER_MENU_ITEMS_REPLICAS)"
+	@echo "  cleaner_transactions_q4: $(CLEANER_TRANSACTIONS_REPLICAS_Q4)"
 	@echo ""
 	@echo "Examples:"
-	@echo "  make up  # Use default replica counts"
-	@echo "  CLEANER_TRANSACTIONS_REPLICAS=5 make up  # Override transactions replicas"
-	@echo "  make up CLEANER_TRANSACTIONS_REPLICAS=2 CLEANER_TRANSACTION_ITEMS_REPLICAS=4"
+	@echo "  make up  # Start with defaults"
+	@echo "  CLEANER_TRANSACTIONS_REPLICAS=5 make up  # Only scale transactions cleaners"
+	@echo "  CLEANER_TRANSACTIONS_REPLICAS=3 CLEANER_USERS_REPLICAS=4 make up"
+	@echo "  make scale-cleaners CLEANER_TRANSACTIONS_REPLICAS=2 CLEANER_STORES_REPLICAS=5"
 
-
+# 🛠️ Build
 .PHONY: build
 build:
 	docker compose build
 
+# 🚀 Up
 .PHONY: up
 up: build
-	@echo "Starting services with cleaner_transactions replicas: $(CLEANER_TRANSACTIONS_REPLICAS), cleaner_transaction_items replicas: $(CLEANER_TRANSACTION_ITEMS_REPLICAS)"
-	docker compose up -d --scale cleaner_transactions=$(CLEANER_TRANSACTIONS_REPLICAS) --scale cleaner_transaction_items=$(CLEANER_TRANSACTION_ITEMS_REPLICAS)
+	@echo "Starting services with replicas:"
+	@echo "  transactions=$(CLEANER_TRANSACTIONS_REPLICAS), transaction_items=$(CLEANER_TRANSACTION_ITEMS_REPLICAS), users=$(CLEANER_USERS_REPLICAS), stores=$(CLEANER_STORES_REPLICAS), menu_items=$(CLEANER_MENU_ITEMS_REPLICAS)"
+	docker compose up -d \
+	  --scale cleaner_transactions=$(CLEANER_TRANSACTIONS_REPLICAS) \
+	  --scale cleaner_transaction_items=$(CLEANER_TRANSACTION_ITEMS_REPLICAS) \
+	  --scale cleaner_users=$(CLEANER_USERS_REPLICAS) \
+	  --scale cleaner_stores=$(CLEANER_STORES_REPLICAS) \
+	  --scale cleaner_menu_items=$(CLEANER_MENU_ITEMS_REPLICAS) \
+	  --scale cleaner_transactions_q4=$(CLEANER_TRANSACTIONS_REPLICAS_Q4) 
 
+
+# 🧹 Down and cleanup
 .PHONY: down
 down:
 	docker compose stop -t 5
 	docker compose down
-	@echo "🧹 Cleaning up output, temp, and client results directories..."
+	@echo "🧹 Cleaning up output, temp, WSM, and client results..."
 	@docker run --rm \
 		-v $(PWD)/output:/tmp/output \
+		-v $(PWD)/output_wsm:/tmp/output_wsm \
 		-v $(PWD)/grouper_v2/temp/q2:/tmp/grouper_q2 \
 		-v $(PWD)/grouper_v2/temp/q3:/tmp/grouper_q3 \
 		-v $(PWD)/grouper_v2/temp/q4:/tmp/grouper_q4 \
 		-v $(PWD)/reducer/temp:/tmp/reducer_temp \
 		-v $(PWD)/topper/temp:/tmp/topper_temp \
 		-v $(PWD)/client/results:/tmp/client_results \
-		alpine:latest sh -c "rm -rf /tmp/output/* /tmp/grouper_q2/* /tmp/grouper_q3/* /tmp/grouper_q4/* /tmp/reducer_temp/* /tmp/topper_temp/* /tmp/client_results/* 2>/dev/null || true"
-	@echo "✅ All services stopped and cleanup completed!"
+		alpine:latest sh -c "rm -rf \
+			/tmp/output/* \
+			/tmp/output_wsm/* \
+			/tmp/grouper_q2/* \
+			/tmp/grouper_q3/* \
+			/tmp/grouper_q4/* \
+			/tmp/reducer_temp/* \
+			/tmp/topper_temp/* \
+			/tmp/client_results/* 2>/dev/null || true"
+	@echo "✅ Cleanup complete!"
 
+
+# 🔁 Restart
 .PHONY: restart
 restart: down up
 	@echo "🔁 Services restarted with cleanup!"
 
+# 🧾 Logs
 .PHONY: logs
 logs:
 	docker compose logs -f
 
+# 🧽 Clean output/temp files
 .PHONY: clean
 clean:
-	@echo "🧹 Cleaning up output, temp, and client results directories..."
+	@echo "🧹 Cleaning up output, temp, WSM, and client result directories..."
 	@docker run --rm \
 		-v $(PWD)/output:/tmp/output \
+		-v $(PWD)/output_wsm:/tmp/output_wsm \
 		-v $(PWD)/grouper_v2/temp/q2:/tmp/grouper_q2 \
 		-v $(PWD)/grouper_v2/temp/q3:/tmp/grouper_q3 \
 		-v $(PWD)/grouper_v2/temp/q4:/tmp/grouper_q4 \
 		-v $(PWD)/reducer/temp:/tmp/reducer_temp \
 		-v $(PWD)/topper/temp:/tmp/topper_temp \
 		-v $(PWD)/client/results:/tmp/client_results \
-		alpine:latest sh -c "rm -rf /tmp/output/* /tmp/grouper_q2/* /tmp/grouper_q3/* /tmp/grouper_q4/* /tmp/reducer_temp/* /tmp/topper_temp/* /tmp/client_results/* 2>/dev/null || true"
-	@echo "✅ Cleanup completed!"
+		alpine:latest sh -c "rm -rf \
+			/tmp/output/* \
+			/tmp/output_wsm/* \
+			/tmp/grouper_q2/* \
+			/tmp/grouper_q3/* \
+			/tmp/grouper_q4/* \
+			/tmp/reducer_temp/* \
+			/tmp/topper_temp/* \
+			/tmp/client_results/* 2>/dev/null || true"
+	@echo "✅ Cleanup complete!"
 
+# 📊 Status
 .PHONY: status
 status:
 	docker compose ps
 
+# 🛑 Stop
 .PHONY: stop
 stop:
 	docker compose stop
 
+# ❌ Remove
 .PHONY: rm
 rm: stop
 	docker compose rm -f
 
-# Replica management targets
+# 📈 Scale cleaner replicas dynamically
 .PHONY: scale-cleaners
 scale-cleaners:
-	@echo "Scaling cleaner services to transactions: $(CLEANER_TRANSACTIONS_REPLICAS), transaction_items: $(CLEANER_TRANSACTION_ITEMS_REPLICAS)"
-	docker compose up -d --scale cleaner_transactions=$(CLEANER_TRANSACTIONS_REPLICAS) --scale cleaner_transaction_items=$(CLEANER_TRANSACTION_ITEMS_REPLICAS)
+	@echo "Scaling cleaner services:"
+	@echo "  transactions=$(CLEANER_TRANSACTIONS_REPLICAS)"
+	@echo "  transaction_items=$(CLEANER_TRANSACTION_ITEMS_REPLICAS)"
+	@echo "  users=$(CLEANER_USERS_REPLICAS)"
+	@echo "  stores=$(CLEANER_STORES_REPLICAS)"
+	@echo "  menu_items=$(CLEANER_MENU_ITEMS_REPLICAS)"
+	docker compose up -d \
+	  --scale cleaner_transactions=$(CLEANER_TRANSACTIONS_REPLICAS) \
+	  --scale cleaner_transaction_items=$(CLEANER_TRANSACTION_ITEMS_REPLICAS) \
+	  --scale cleaner_users=$(CLEANER_USERS_REPLICAS) \
+	  --scale cleaner_stores=$(CLEANER_STORES_REPLICAS) \
+	  --scale cleaner_menu_items=$(CLEANER_MENU_ITEMS_REPLICAS)
 
+# 🔍 Show current replica setup
 .PHONY: show-replicas
 show-replicas:
 	@echo "Current replica configuration:"
 	@echo "  cleaner_transactions: $(CLEANER_TRANSACTIONS_REPLICAS)"
 	@echo "  cleaner_transaction_items: $(CLEANER_TRANSACTION_ITEMS_REPLICAS)"
+	@echo "  cleaner_users: $(CLEANER_USERS_REPLICAS)"
+	@echo "  cleaner_stores: $(CLEANER_STORES_REPLICAS)"
+	@echo "  cleaner_menu_items: $(CLEANER_MENU_ITEMS_REPLICAS)"
+	@echo ""
 	@echo "Running containers:"
-	@docker compose ps | grep -E "(cleaner_transactions|cleaner_transaction_items)" || echo "No cleaner containers running"
+	@docker compose ps | grep -E "(cleaner_transactions|cleaner_transaction_items|cleaner_users|cleaner_stores|cleaner_menu_items)" || echo "No cleaner containers running"
 
+# 🪵 Logs for cleaner services only
 .PHONY: logs-cleaners
 logs-cleaners:
-	docker compose logs -f cleaner_transactions cleaner_transaction_items
+	docker compose logs -f cleaner_transactions cleaner_transaction_items cleaner_users cleaner_stores cleaner_menu_items

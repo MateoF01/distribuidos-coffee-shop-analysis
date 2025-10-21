@@ -94,7 +94,7 @@ class WSMServer:
     def start(self):
         server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server_socket.bind((self.host, self.port))
-        server_socket.listen(10)
+        server_socket.listen(100)
         logging.info(f"[WSM] Servidor escuchando en {self.host}:{self.port}")
 
         while True:

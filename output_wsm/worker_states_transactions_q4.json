@@ -1,0 +1,24 @@
+{
+  "cleaner": {
+    "d778fcaba8cd": {
+      "state": "WAITING",
+      "request_id": null
+    },
+    "21d9da6f891d": {
+      "state": "WAITING",
+      "request_id": null
+    },
+    "8685cae46489": {
+      "state": "WAITING",
+      "request_id": null
+    },
+    "ffc4a06906d4": {
+      "state": "WAITING",
+      "request_id": null
+    },
+    "e167babe3473": {
+      "state": "WAITING",
+      "request_id": null
+    }
+  }
+}
