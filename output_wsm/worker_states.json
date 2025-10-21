@@ -1,82 +1,22 @@
 {
   "cleaner": {
-    "c502f67bd00b": {
+    "b241dc4051d5": {
       "state": "WAITING",
       "request_id": null
     },
-    "345e93b8257c": {
+    "80823c071687": {
       "state": "WAITING",
       "request_id": null
     },
-    "c0b686b2b3e2": {
+    "63f5c31a12bf": {
       "state": "WAITING",
       "request_id": null
     },
-    "9d3150716d2b": {
+    "a6fb05f06848": {
       "state": "WAITING",
       "request_id": null
     },
-    "4d4466734254": {
-      "state": "WAITING",
-      "request_id": null
-    },
-    "bcdb063c144d": {
-      "state": "WAITING",
-      "request_id": null
-    },
-    "44dd5081ee2d": {
-      "state": "WAITING",
-      "request_id": null
-    },
-    "82ce1c97260b": {
-      "state": "WAITING",
-      "request_id": null
-    },
-    "da7ad554449e": {
-      "state": "WAITING",
-      "request_id": null
-    },
-    "b4e199c4d5a7": {
-      "state": "WAITING",
-      "request_id": null
-    },
-    "6a89e8fd0167": {
-      "state": "WAITING",
-      "request_id": null
-    },
-    "e90d330b0301": {
-      "state": "WAITING",
-      "request_id": null
-    },
-    "7caa06cb3e63": {
-      "state": "WAITING",
-      "request_id": null
-    },
-    "c30f7eebd539": {
-      "state": "WAITING",
-      "request_id": null
-    },
-    "ad1a6098aedb": {
-      "state": "WAITING",
-      "request_id": null
-    },
-    "b29a670d8325": {
-      "state": "WAITING",
-      "request_id": null
-    },
-    "a65135487798": {
-      "state": "WAITING",
-      "request_id": null
-    },
-    "721c90c39288": {
-      "state": "WAITING",
-      "request_id": null
-    },
-    "ff9576e77bfb": {
-      "state": "WAITING",
-      "request_id": null
-    },
-    "4cc5a603e5f3": {
+    "07c0d3818d19": {
       "state": "WAITING",
       "request_id": null
     }

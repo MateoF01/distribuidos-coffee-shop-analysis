@@ -86,85 +86,97 @@
   {
     "msg_type": 1,
     "data_type": 1,
-    "request_id": 1,
+    "request_id": 2,
     "payload": "d64509aa-7308-4145-ae52-056d3e0488de|46.0|2024-01-01 10:07:13|6|"
+  },
+  {
+    "msg_type": 2,
+    "data_type": 1,
+    "request_id": 1,
+    "payload": "END"
   },
   {
     "msg_type": 1,
     "data_type": 1,
-    "request_id": 1,
+    "request_id": 2,
     "payload": "f490970d-3037-4ff6-84b8-86eff83faac3|22.0|2024-01-01 10:07:14|5|"
   },
   {
     "msg_type": 1,
     "data_type": 1,
-    "request_id": 1,
+    "request_id": 2,
     "payload": "86652dc6-f350-4aeb-8e41-ce3a94d27825|9.5|2025-01-01 12:52:56|10|13060"
   },
   {
     "msg_type": 1,
     "data_type": 1,
-    "request_id": 1,
+    "request_id": 2,
     "payload": "7ce4bf6d-ac0d-4884-a7dc-99ffcdab4362|64.0|2025-01-01 07:00:03|7|203872"
   },
   {
     "msg_type": 1,
     "data_type": 1,
-    "request_id": 1,
+    "request_id": 2,
     "payload": "04d07ed4-7b7a-421d-a932-2bf749038bc4|63.0|2025-01-01 07:00:04|1|137339"
   },
   {
     "msg_type": 1,
     "data_type": 1,
-    "request_id": 1,
+    "request_id": 2,
     "payload": "bf9589d4-bc46-4c2f-b6a5-fdb337bb5ba3|27.0|2025-01-01 07:00:05|4|215915"
   },
   {
     "msg_type": 1,
     "data_type": 1,
-    "request_id": 1,
+    "request_id": 2,
     "payload": "bd61057c-cbfb-42d7-a45e-b205d3c9bda9|38.0|2025-01-01 07:00:11|8|63253"
   },
   {
     "msg_type": 1,
     "data_type": 1,
-    "request_id": 1,
+    "request_id": 2,
     "payload": "e1239b67-8841-4522-aa52-6f152cc1369d|43.0|2025-01-01 07:00:21|6|975811"
   },
   {
     "msg_type": 1,
     "data_type": 1,
-    "request_id": 1,
+    "request_id": 2,
     "payload": "9bfdb0eb-4001-4071-a3aa-0dbc6d873bfb|44.5|2025-01-01 07:00:36|8|1006607"
   },
   {
     "msg_type": 1,
     "data_type": 1,
-    "request_id": 1,
+    "request_id": 2,
     "payload": "d0715b60-f9bc-4630-836c-079a876658d7|14.0|2025-01-01 07:00:38|1|1038745"
   },
   {
     "msg_type": 1,
     "data_type": 1,
-    "request_id": 1,
+    "request_id": 2,
     "payload": "eb8d5958-029d-45d0-bb52-26529ff064b3|46.0|2025-01-01 07:00:54|2|3296"
   },
   {
     "msg_type": 1,
     "data_type": 1,
-    "request_id": 1,
+    "request_id": 2,
     "payload": "9de81fd2-89c1-4f62-ba70-1f992b084943|48.0|2025-01-01 07:00:56|2|1127828"
   },
   {
     "msg_type": 1,
     "data_type": 1,
-    "request_id": 1,
+    "request_id": 2,
     "payload": "0d81ea81-4417-4976-a5d4-21a265ccff50|65.0|2025-01-01 07:00:59|8|1019870"
   },
   {
     "msg_type": 1,
     "data_type": 1,
-    "request_id": 1,
+    "request_id": 2,
     "payload": "82e005cd-945d-4d95-a60a-6b565fe5f1a0|9.0|2025-01-01 07:01:00|1|846704"
+  },
+  {
+    "msg_type": 2,
+    "data_type": 1,
+    "request_id": 2,
+    "payload": "END"
   }
 ]
