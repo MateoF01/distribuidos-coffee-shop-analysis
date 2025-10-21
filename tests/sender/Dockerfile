@@ -6,7 +6,7 @@ COPY tests/sender/sender_transactions.py .
 
 COPY middleware/ /app/middleware/
 COPY shared/ /app/shared/
-COPY data/ /app/data/
+COPY tests/data /app/data/
 COPY WSM/ /app/WSM/
 
 RUN pip install --no-cache-dir pika

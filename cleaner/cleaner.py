@@ -1,15 +1,13 @@
 import os
-import signal
-import sys
-import threading
-import configparser
+import socket
 import time
 import logging
-from middleware.coffeeMiddleware import CoffeeMessageMiddlewareQueue
+import configparser
 from shared import protocol
 from shared.logging_config import initialize_log
 from shared.worker import StreamProcessingWorker
 from WSM.wsm_client import WSMClient
+
 
 class Cleaner(StreamProcessingWorker):
     def __init__(self, queue_in, queue_out, columns_have, columns_want, rabbitmq_host, keep_when_empty=None):
@@ -18,63 +16,71 @@ class Cleaner(StreamProcessingWorker):
         self.columns_want = columns_want
         self.keep_indices = [self.columns_have.index(col) for col in self.columns_want]
         self.keep_when_empty = [self.columns_want.index(col) for col in keep_when_empty] if keep_when_empty else []
-        
+
         # 🔗 Conexión con el Worker State Manager
-        replica_id = os.environ.get("REPLICA_ID", f"cleaner_{os.getpid()}")
+        replica_id = socket.gethostname()
         wsm_host = os.environ.get("WSM_HOST", "wsm")
         wsm_port = int(os.environ.get("WSM_PORT", "9000"))
-        self.wsm_client = WSMClient(replica_id, wsm_host, wsm_port)
-        
-        logging.info(f"Cleaner {replica_id} inicializado - input: {queue_in}, output: {queue_out}")
+        self.wsm_client = WSMClient(
+            worker_type="cleaner",
+            replica_id=replica_id,
+            host=wsm_host,
+            port=wsm_port
+        )
 
-    # -----------------------------
-    # 🔁 Lógica principal de procesamiento
-    # -----------------------------
+        logging.info(f"[Cleaner:{replica_id}] Inicializado - input: {queue_in}, output: {queue_out}")
+
+    # ------------------------------------------------------------
+    # 🔁 Lógica de procesamiento normal (DATA)
+    # ------------------------------------------------------------
     def _process_message(self, message, msg_type, data_type, request_id, timestamp, payload, queue_name=None):
-        """
-        Procesa un mensaje individual (datos o END).
-        """
-        if msg_type == protocol.MSG_TYPE_END:
-            self._handle_end_message(data_type, request_id)
-            return
-
+        """Procesa mensajes de datos (no END)."""
         # 1️⃣ Marcar inicio de procesamiento
         self.wsm_client.update_state("PROCESSING", request_id)
+
         rows = payload.decode("utf-8").split("\n")
         cleaned_rows = self._process_rows(rows)
+
         if cleaned_rows:
             new_payload = "\n".join(cleaned_rows).encode("utf-8")
             new_msg = protocol.pack_message(msg_type, data_type, new_payload, request_id)
             for q in self.out_queues:
                 q.send(new_msg)
-        
+
         # 2️⃣ Marcar fin de procesamiento
         self.wsm_client.update_state("WAITING")
 
-    # -----------------------------
-    # 🧹 Lógica de END sincronizado
-    # -----------------------------
-    def _handle_end_message(self, data_type, request_id):
+    # ------------------------------------------------------------
+    # 🧩 Lógica de END sincronizado (sobrescribe el padre)
+    # ------------------------------------------------------------
+    def _handle_end_signal(self, message, msg_type, data_type, request_id, queue_name=None):
         """
-        Sincroniza el envío del END con el WSM.
+        Extiende el manejo base del END.
+        Primero sincroniza con el WSM, y luego llama a la implementación del padre,
+        que reenvía el END automáticamente a las colas de salida.
         """
+        # Registrar estado END en el WSM
         self.wsm_client.update_state("END", request_id)
         logging.info(f"[Cleaner] Recibido END para request {request_id}. Consultando WSM...")
 
-        while not self.wsm_client.can_send_end(request_id):
-            logging.info(f"[Cleaner] Esperando permiso para enviar END de {request_id}...")
+        # Esperar permiso del WSM para enviar END
+        while not self.wsm_client.can_send_end(request_id): #arreglar buzy loop
+            logging.info(f"[Cleaner] Esperando permiso para reenviar END de {request_id}...")
             time.sleep(1)
 
-        logging.info(f"[Cleaner] ✅ Permiso otorgado, enviando END para {request_id}")
-        new_message = protocol.create_end_message(data_type, request_id)
-        for q in self.out_queues:
-            q.send(new_message)
+        logging.info(f"[Cleaner] ✅ Permiso otorgado para enviar END de {request_id}")
+
+        # Llamar al manejo normal del END (reenvío a colas de salida)
+        super()._handle_end_signal(message, msg_type, data_type, request_id, queue_name)
+
+        # Volver a estado de espera
         self.wsm_client.update_state("WAITING")
 
-    # -----------------------------
+    # ------------------------------------------------------------
     # 🧽 Limpieza de datos
-    # -----------------------------
+    # ------------------------------------------------------------
     def _process_rows(self, rows, queue_name=None):
+        """Filtra y limpia las filas del dataset."""
         filtered_rows = []
         for row in rows:
             if row.strip():
@@ -82,7 +88,7 @@ class Cleaner(StreamProcessingWorker):
                 if cleaned_row:
                     filtered_rows.append(cleaned_row)
         return filtered_rows
-    
+
     def _filter_row(self, row):
         items = row.split('|')
 
@@ -105,15 +111,16 @@ class Cleaner(StreamProcessingWorker):
                 except Exception as e:
                     logging.warning(f"No se pudo convertir user_id '{selected[user_id_idx]}' a int: {e}")
 
+        # Eliminar filas vacías si no están en keep_when_empty
         if any(selected[i] == '' and i not in self.keep_when_empty for i in range(len(selected))):
             return None
 
         return '|'.join(selected)
 
 
-# -----------------------------
+# ------------------------------------------------------------
 # 🚀 Entry point del worker
-# -----------------------------
+# ------------------------------------------------------------
 if __name__ == '__main__':
     def create_cleaner():
         queue_in = os.environ.get('QUEUE_IN')
@@ -127,13 +134,13 @@ if __name__ == '__main__':
 
         if data_type not in config:
             raise ValueError(f"Unknown data type: {data_type}")
-        
+
         columns_have = [col.strip() for col in config[data_type]['have'].split(',')]
         columns_want = [col.strip() for col in config[data_type]['want'].split(',')]
         keep_when_empty_str = config[data_type].get('keep_when_empty', '').strip()
         keep_when_empty = [col.strip() for col in keep_when_empty_str.split(',')] if keep_when_empty_str else None
-        
+
         return Cleaner(queue_in, queue_out, columns_have, columns_want, rabbitmq_host, keep_when_empty)
-    
+
     config_path = os.path.join(os.path.dirname(__file__), 'config.ini')
     Cleaner.run_worker_main(create_cleaner, config_path)

@@ -1,45 +1,65 @@
 import os
+import json
 import logging
 from datetime import datetime
 from shared import protocol
 from shared.worker import Worker
 
+OUTPUT_DIR = "/app/output"
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+
 class ReceiverWorker(Worker):
     """
-    Worker de test que recibe mensajes del cleaner, los imprime
-    y los guarda en un archivo local.
+    Worker que recibe mensajes procesados y los guarda en un archivo JSON,
+    registrando también los END para verificar determinismo.
     """
-
-    def __init__(self, queue_in, rabbitmq_host, output_dir="/app/output"):
+    def __init__(self, queue_in, rabbitmq_host):
         super().__init__(queue_in=queue_in, queue_out=None, rabbitmq_host=rabbitmq_host)
-        self.output_dir = output_dir
-        os.makedirs(self.output_dir, exist_ok=True)
-        self.received_file = os.path.join(
-            self.output_dir, f"receiver_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+        self.received_data = []
+        self.output_path = os.path.join(
+            OUTPUT_DIR, f"receiver_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         )
-        self.state_file = os.path.join(self.output_dir, "receiver_state.txt")
 
     def _process_message(self, message, msg_type, data_type, request_id, timestamp, payload, queue_name=None):
-        """Guarda cada mensaje recibido en un archivo."""
-        payload_str = payload.decode("utf-8") if payload else "(sin payload)"
-        log_entry = (
-            f"[RECEIVER] msg_type={msg_type}, data_type={data_type}, "
-            f"request_id={request_id}, rows={len(payload_str.splitlines())}\n"
-        )
+        payload_str = payload.decode("utf-8", errors="ignore")
+        record = {
+            "msg_type": msg_type,
+            "data_type": data_type,
+            "request_id": request_id,
+            "payload": payload_str,
+        }
 
-        # Mostrar por consola y guardar en archivo
-        logging.info(log_entry.strip())
-        with open(self.received_file, "a", encoding="utf-8") as f:
-            f.write(log_entry)
-            f.write(payload_str + "\n")
+        logging.info(f"[RECEIVER] DATA recibido ({len(payload)} bytes) → {payload_str}")
+        self.received_data.append(record)
+        self._flush_to_disk()
 
-        # Si es END, actualizar estado
-        if msg_type == protocol.MSG_TYPE_END:
-            logging.info(f"[RECEIVER] 🚀 END recibido para request_id={request_id}")
-            with open(self.state_file, "a", encoding="utf-8") as f:
-                f.write(f"END recibido para request_id={request_id}\n")
+    def _handle_end_signal(self, message, msg_type, data_type, request_id, queue_name=None):
+        """Sobrescribe el manejo base del END para loguearlo y guardarlo."""
+        logging.info(f"[RECEIVER] END recibido para request_id={request_id}")
+
+        record = {
+            "msg_type": msg_type,
+            "data_type": data_type,
+            "request_id": request_id,
+            "payload": "END"
+        }
+        self.received_data.append(record)
+        self._flush_to_disk()
+
+        # No hay colas downstream, pero igual llamamos al padre
+        # (por consistencia, marca el END como procesado)
+        super()._handle_end_signal(message, msg_type, data_type, request_id, queue_name)
+
+    def _flush_to_disk(self):
+        with open(self.output_path, "w", encoding="utf-8") as f:
+            json.dump(self.received_data, f, indent=2, ensure_ascii=False)
+
 
 if __name__ == "__main__":
     Worker.setup_logging()
-    receiver = ReceiverWorker(queue_in="transactions_cleaned", rabbitmq_host="rabbitmq")
+    queue_in = os.getenv("QUEUE_IN", "transactions_cleaned")
+    rabbitmq_host = os.getenv("RABBITMQ_HOST", "rabbitmq")
+
+    receiver = ReceiverWorker(queue_in=queue_in, rabbitmq_host=rabbitmq_host)
     receiver.run()

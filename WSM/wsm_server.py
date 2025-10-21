@@ -4,9 +4,14 @@ import json
 import os
 import logging
 
-STATE_FILE = "worker_states.json"
-HOST = "0.0.0.0"
-PORT = 9000
+# -------------------------------
+# ⚙️ Configuración inicial
+# -------------------------------
+HOST = os.environ.get("HOST", "0.0.0.0")
+PORT = int(os.environ.get("PORT", "9000"))
+STATE_FILE = os.environ.get("STATE_FILE_PATH", "/app/output/worker_states.json")
+
+os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
@@ -16,53 +21,63 @@ class WorkerStateManager:
         self.state_file = state_file
         self.lock = threading.Lock()
         self.worker_states = self._load_state()
+        logging.info(f"[WSM] Archivo de estado: {self.state_file}")
 
     # -------------------------------
     # 🔄 Persistencia
     # -------------------------------
     def _load_state(self):
         if os.path.exists(self.state_file):
-            with open(self.state_file, "r") as f:
-                return json.load(f)
+            try:
+                with open(self.state_file, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception as e:
+                logging.error(f"[WSM] Error cargando estado: {e}")
         return {}
 
     def _save_state(self):
-        with open(self.state_file, "w") as f:
-            json.dump(self.worker_states, f, indent=2)
-
-    # -------------------------------
-    # 🧱 Operaciones básicas
-    # -------------------------------
-    def register_worker(self, replica_id):
-        with self.lock:
-            if replica_id not in self.worker_states:
-                self.worker_states[replica_id] = {"state": "WAITING", "request_id": None}
-                self._save_state()
-                logging.info(f"Worker {replica_id} registrado como WAITING")
-
-    def update_state(self, replica_id, state, request_id):
-        with self.lock:
-            self.worker_states[replica_id] = {"state": state, "request_id": request_id}
-            self._save_state_to_file()
-            logging.info(f"[WSM] {replica_id} -> {state} ({request_id})")
-
-
-
-    def _save_state_to_file(self):
-        """Guarda el estado actual en disco."""
         try:
             with open(self.state_file, "w", encoding="utf-8") as f:
                 json.dump(self.worker_states, f, indent=2, ensure_ascii=False)
         except Exception as e:
-            print(f"[WSM] Error guardando archivo de estado: {e}")
+            logging.error(f"[WSM] Error guardando archivo de estado: {e}")
 
-
-    def can_send_end(self, request_id):
-        """Devuelve True si no hay ningún worker procesando el mismo request_id"""
+    # -------------------------------
+    # 🧱 Operaciones básicas
+    # -------------------------------
+    def register_worker(self, worker_type, replica_id):
+        """
+        Registra una réplica de un tipo de worker.
+        """
         with self.lock:
-            for rid, info in self.worker_states.items():
+            if worker_type not in self.worker_states:
+                self.worker_states[worker_type] = {}
+            if replica_id not in self.worker_states[worker_type]:
+                self.worker_states[worker_type][replica_id] = {"state": "WAITING", "request_id": None}
+                self._save_state()
+                logging.info(f"[WSM] {worker_type} → Replica {replica_id} registrada como WAITING")
+
+    def update_state(self, worker_type, replica_id, state, request_id):
+        """
+        Actualiza el estado de una réplica específica.
+        """
+        with self.lock:
+            if worker_type not in self.worker_states:
+                self.worker_states[worker_type] = {}
+            self.worker_states[worker_type][replica_id] = {"state": state, "request_id": request_id}
+            self._save_state()
+            logging.info(f"[WSM] {worker_type}:{replica_id} → {state} ({request_id})")
+
+    def can_send_end(self, worker_type, request_id):
+        """
+        Devuelve True si todas las réplicas de un mismo tipo de worker
+        terminaron de procesar el request dado.
+        """
+        with self.lock:
+            replicas = self.worker_states.get(worker_type, {})
+            for rid, info in replicas.items():
                 if info["state"] == "PROCESSING" and info["request_id"] == request_id:
-                    logging.debug(f"[WSM] {rid} todavía procesando {request_id}")
+                    logging.debug(f"[WSM] {worker_type}:{rid} todavía procesando {request_id}")
                     return False
             return True
 
@@ -108,14 +123,17 @@ class WSMServer:
             conn.close()
 
     def _handle_action(self, action, msg):
+        worker_type = msg.get("worker_type")
+        replica_id = msg.get("replica_id")
+
         if action == "register":
-            self.manager.register_worker(msg["replica_id"])
+            self.manager.register_worker(worker_type, replica_id)
             return "OK"
         elif action == "update_state":
-            self.manager.update_state(msg["replica_id"], msg["state"], msg.get("request_id"))
+            self.manager.update_state(worker_type, replica_id, msg["state"], msg.get("request_id"))
             return "OK"
         elif action == "can_send_end":
-            can_send = self.manager.can_send_end(msg["request_id"])
+            can_send = self.manager.can_send_end(worker_type, msg["request_id"])
             return "OK" if can_send else "WAIT"
         else:
             return "ERROR: unknown action"

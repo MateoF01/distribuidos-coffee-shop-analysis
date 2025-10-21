@@ -10,7 +10,7 @@ class SenderWorker(Worker):
     a la cola indicada y luego manda el END.
     """
 
-    def __init__(self, queue_out, rabbitmq_host, data_dir="data_full/transactions", batch_size=5000):
+    def __init__(self, queue_out, rabbitmq_host, data_dir="data_full/transactions", batch_size=1):
         super().__init__(queue_in=None, queue_out=queue_out, rabbitmq_host=rabbitmq_host)
         self.request_id = 1
         self.data_type = protocol.DATA_TRANSACTIONS
@@ -67,6 +67,7 @@ class SenderWorker(Worker):
             q.send(end_msg)
 
         logging.info(f"[SENDER] ✅ Todos los mensajes enviados. Total batches: {batch_count}")
+        time.sleep(1) #Esto es para que el test mande el end sin cerrar el canal antes
 
     def _process_message(self, *args, **kwargs):
         """No recibe mensajes, solo envía."""

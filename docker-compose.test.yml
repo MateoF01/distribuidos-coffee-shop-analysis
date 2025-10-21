@@ -26,10 +26,14 @@ services:
     container_name: wsm
     environment:
       PYTHONUNBUFFERED: 1
+      STATE_FILE_PATH: /app/output/worker_states.json   # ✅ nueva variable de entorno
+      HOST: 0.0.0.0
+      PORT: 9000
     volumes:
-      - ./output_wsm:/app/output
+      - ./output_wsm:/app/output                        # ✅ ruta persistente en tu host
     networks:
       - coffee-net
+
 
   sender_transactions:
     build:
@@ -65,6 +69,8 @@ services:
       RABBITMQ_USER: admin
       RABBITMQ_PASS: secretpassword
       QUEUE_IN: transactions_cleaned
+    volumes:
+      - ./output_test:/app/output   # 👈 guarda los resultados persistentes
     networks:
       - coffee-net
 
