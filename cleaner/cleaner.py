@@ -4,7 +4,6 @@ import time
 import logging
 import configparser
 from shared import protocol
-from shared.logging_config import initialize_log
 from shared.worker import StreamProcessingWorker
 from WSM.wsm_client import WSMClient
 

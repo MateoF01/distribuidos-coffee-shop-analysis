@@ -95,7 +95,6 @@ services:
       QUEUE_IN: transactions_queue
       QUEUE_OUT: transactions_cleaned
       DATA_TYPE: transactions
-      EXCHANGE_NAME: transactions_end_exchange
     networks:
     - coffee-net
   cleaner_transaction_items:
@@ -298,46 +297,6 @@ services:
     - ./output_wsm:/app/output
     networks:
     - coffee-net
-  coordinator_transaction:
-    build:
-      context: .
-      dockerfile: coordinator/Dockerfile
-    container_name: coordinator_transaction
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-      gateway:
-        condition: service_started
-    environment:
-      PYTHONUNBUFFERED: 1
-      RABBITMQ_HOST: rabbitmq
-      RABBITMQ_USER: admin
-      RABBITMQ_PASS: secretpassword
-      QUEUE_IN: transactions_cleaned
-      QUEUE_OUT: transactions_coordinated
-      NUM_REPLICAS: ${CLEANER_TRANSACTIONS_REPLICAS:-1}
-    networks:
-    - coffee-net
-  coordinator_transaction_items:
-    build:
-      context: .
-      dockerfile: coordinator/Dockerfile
-    container_name: coordinator_transaction_items
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-      gateway:
-        condition: service_started
-    environment:
-      PYTHONUNBUFFERED: 1
-      RABBITMQ_HOST: rabbitmq
-      RABBITMQ_USER: admin
-      RABBITMQ_PASS: secretpassword
-      QUEUE_IN: transaction_items_cleaned
-      QUEUE_OUT: transaction_items_coordinated
-      NUM_REPLICAS: ${CLEANER_TRANSACTION_ITEMS_REPLICAS:-1}
-    networks:
-    - coffee-net
   temporal_filter_transactions:
     build:
       context: .
@@ -353,7 +312,7 @@ services:
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_USER: admin
       RABBITMQ_PASS: secretpassword
-      QUEUE_IN: transactions_coordinated
+      QUEUE_IN: transactions_cleaned
       QUEUE_OUT: transactions_filtered_Q1,transactions_filtered_Q3, transactions_filtered_Q4
       DATA_TYPE: transactions
       FILTER_TYPE: temporal
@@ -374,7 +333,7 @@ services:
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_USER: admin
       RABBITMQ_PASS: secretpassword
-      QUEUE_IN: transaction_items_coordinated
+      QUEUE_IN: transaction_items_cleaned
       QUEUE_OUT: transaction_items_filtered_Q2
       DATA_TYPE: transaction_items
       FILTER_TYPE: temporal
