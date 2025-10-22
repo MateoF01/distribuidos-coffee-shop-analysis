@@ -117,7 +117,6 @@ services:
       QUEUE_IN: transaction_items_queue
       QUEUE_OUT: transaction_items_cleaned
       DATA_TYPE: transaction_items
-      EXCHANGE_NAME: transaction_items_end_exchange
     networks:
     - coffee-net
   cleaner_users:
@@ -320,7 +319,7 @@ services:
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_USER: admin
       RABBITMQ_PASS: secretpassword
-      QUEUE_IN: transactions_coordinated
+      QUEUE_IN: transactions_cleaned
       QUEUE_OUT: transactions_filtered_Q1,transactions_filtered_Q3, transactions_filtered_Q4
       DATA_TYPE: transactions
       FILTER_TYPE: temporal
@@ -360,7 +359,7 @@ services:
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_USER: admin
       RABBITMQ_PASS: secretpassword
-      QUEUE_IN: transaction_items_coordinated
+      QUEUE_IN: transaction_items_cleaned
       QUEUE_OUT: transaction_items_filtered_Q2
       DATA_TYPE: transaction_items
       FILTER_TYPE: temporal

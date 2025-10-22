@@ -331,7 +331,7 @@ class Server:
                         logging.warning(f"Unknown data type: {data_type}")
                 elif msg_type == protocol.MSG_TYPE_END:
                     if data_type == protocol.DATA_END:
-                        logging.info("Received DATA_END from client, broadcasting to all queues and exchanges")
+                        logging.info("Received DATA_END from client, broadcasting to all queues")
                         for queue_name in queue_names.values():
                             queues[queue_name].send(message)
                             logging.debug(f"Sent DATA_END to {queue_name} with request_id={current_request_id}")
