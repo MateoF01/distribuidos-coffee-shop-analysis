@@ -39,9 +39,13 @@ class Client:
         # Track query results received
         self.queries_received = set()
         self.expected_queries = {protocol.Q1_RESULT, protocol.Q2_RESULT_a, protocol.Q2_RESULT_b, protocol.Q3_RESULT, protocol.Q4_RESULT}
-        self.final_end_received = False
+        
+        # Track final DATA_END signals (one per request)
+        self.received_data_ends = 0  # Count of final DATA_END signals received
+        self.expected_data_ends = self.requests_amount  # We expect one DATA_END per request
         
         print(f"[INFO] Client expecting query results: {self.expected_queries}")
+        print(f"[INFO] Expected final DATA_END signals: {self.expected_data_ends}")
 
     def _setup_request_directory(self, request_num):
         """Setup the directory for the current request"""
@@ -52,7 +56,6 @@ class Client:
         
         # Reset query tracking for this request
         self.queries_received = set()
-        self.final_end_received = False
 
     def create_socket(self):
         host, port = self.server_address.split(":")
@@ -93,7 +96,7 @@ class Client:
         print(f"[INFO] Client session summary:")
         print(f"[INFO] - Expected queries: {self.expected_queries}")
         print(f"[INFO] - Received queries: {self.queries_received}")
-        print(f"[INFO] - Final END received: {self.final_end_received}")
+        print(f"[INFO] - DATA_END signals received: {self.received_data_ends}/{self.expected_data_ends}")
         print(f"[INFO] - Client results directory: {self.client_results_dir}")
         print(f"[INFO] - Current request directory: {self.current_request_dir}")
         print(f"[INFO] - Total requests processed: {self.requests_amount}")
@@ -102,12 +105,21 @@ class Client:
         """Hilo que escucha respuestas del gateway y escribe CSVs por data_type"""
         # Map from gateway request_id to local request directory
         request_id_to_local_request = {}  # gateway_request_id -> local_request_num
+        request_id_queries = {}  # gateway_request_id -> set of received query types for that request
         next_local_request = 1
         
         try:
             while True:
                 try:
                     msg_type, data_type, request_id, timestamp, payload = protocol.receive_message(self.conn)
+                except ConnectionError as e:
+                    # Socket closed - check if we've received all expected DATA_END signals
+                    if self.received_data_ends >= self.expected_data_ends:
+                        print(f"[INFO] Socket closed, but all {self.expected_data_ends} DATA_END signals received. Normal completion.")
+                        break
+                    else:
+                        print(f"[ERROR] Socket closed prematurely: {e} (received {self.received_data_ends}/{self.expected_data_ends} DATA_ENDs)")
+                        break
                 except Exception as e:
                     print(f"[ERROR] Failed to receive message: {e}")
                     break
@@ -121,6 +133,7 @@ class Client:
                 # Map gateway request_id to local request directory
                 if request_id not in request_id_to_local_request:
                     request_id_to_local_request[request_id] = next_local_request
+                    request_id_queries[request_id] = set()
                     print(f"[INFO] Mapping gateway request_id={request_id} to local request={next_local_request}")
                     # Set up the directory for this mapped local request
                     self._setup_request_directory(next_local_request)
@@ -134,40 +147,46 @@ class Client:
                     rows = [row for row in payload_str.split("\n") if row.strip()]
                     print(f"[INFO] Received {len(rows)} rows for data_type={data_type}")
                     
-                    self._write_rows(data_type, rows)
+                    # Write to the correct request_id folder
+                    self._write_rows(data_type, rows, request_id=request_id, local_request_num=local_request_num)
 
                 elif msg_type == protocol.MSG_TYPE_END:
                     if data_type == protocol.DATA_END:
-                        print("[INFO] Final END signal received")
-                        self.final_end_received = True
+                        self.received_data_ends += 1
+                        print(f"[INFO] Final DATA_END signal received for request_id={request_id} ({self.received_data_ends}/{self.expected_data_ends})")
+                        
+                        # Check if we should close connection (only after receiving all DATA_END signals)
+                        if self._should_close_connection():
+                            print("[INFO] All expected results received. Closing connection.")
+                            break
                     elif data_type in self.expected_queries:
                         print(f"[INFO] Query result END received for query type {data_type}")
                         self.queries_received.add(data_type)
                         self._write_query_result_file(data_type)
                     else:
                         print(f"[INFO] END received for data_type={data_type}")
-                    
-                    # Check if we should close connection
-                    if self._should_close_connection():
-                        print("[INFO] All expected results received. Closing connection.")
-                        break
 
         except Exception as e:
             print(f"[ERROR] Listening thread crashed: {e}")
         finally:
             self.close()
 
-    def _write_rows(self, data_type, rows):
+    def _write_rows(self, data_type, rows, request_id=None, local_request_num=None):
         """Escribe filas en un CSV correspondiente al data_type usando file.write"""
         if not rows:
             return
         
-        # Ensure we have a current request directory set up
-        if self.current_request_dir is None:
+        # Determine the output directory based on the request_id
+        if local_request_num is not None:
+            # Use the request_id to determine the correct folder
+            output_dir = os.path.join(self.client_results_dir, f"request_{local_request_num}")
+            os.makedirs(output_dir, exist_ok=True)
+            print(f"[DEBUG] Writing to folder for request_id={request_id} (local request {local_request_num}): {output_dir}")
+        elif self.current_request_dir is not None:
+            output_dir = self.current_request_dir
+        else:
             print("[WARN] No current request directory set, using client base directory")
             output_dir = self.client_results_dir
-        else:
-            output_dir = self.current_request_dir
             
         # Map data_type to query names for output files
         query_names = {
@@ -231,18 +250,11 @@ class Client:
 
     def _should_close_connection(self):
         """Determine if we should close the connection based on received results"""
-        # Close if we received final END or if we got all expected query results
-        if self.final_end_received:
+        # Close only when we've received all expected final DATA_END signals
+        # One DATA_END per request
+        if self.received_data_ends >= self.expected_data_ends:
+            print(f"[INFO] Received all {self.expected_data_ends} final DATA_END signals. Ready to close.")
             return True
-            
-        # Check if we received all expected query results
-        if self.queries_received >= self.expected_queries:
-            print(f"[INFO] Received all expected queries: {self.queries_received}")
-            return True
-            
-        missing_queries = self.expected_queries - self.queries_received
-        if missing_queries:
-            print(f"[INFO] Still waiting for queries: {missing_queries}")
             
         return False
 

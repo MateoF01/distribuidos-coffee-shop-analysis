@@ -119,7 +119,7 @@ class Server:
                 # Initialize logging for this request_id
                 if request_id not in message_log:
                     message_log[request_id] = {
-                        'data_messages': {},  # data_type -> count
+                        'data_messages': {},  # data_type -> {'count': int, 'rows': int, 'bytes': int}
                         'end_messages': {},   # data_type -> count
                         'total_payload_bytes': 0,
                         'first_seen': time.time()
@@ -127,11 +127,24 @@ class Server:
                 
                 # Log incoming message details
                 if msg_type == protocol.MSG_TYPE_DATA:
+                    # Count rows in payload (split by newlines)
+                    payload_str = payload.decode('utf-8', errors='ignore')
+                    row_count = len([row for row in payload_str.split('\n') if row.strip()])
+                    
                     if data_type not in message_log[request_id]['data_messages']:
-                        message_log[request_id]['data_messages'][data_type] = 0
-                    message_log[request_id]['data_messages'][data_type] += 1
+                        message_log[request_id]['data_messages'][data_type] = {
+                            'count': 0,
+                            'rows': 0,
+                            'bytes': 0
+                        }
+                    
+                    message_log[request_id]['data_messages'][data_type]['count'] += 1
+                    message_log[request_id]['data_messages'][data_type]['rows'] += row_count
+                    message_log[request_id]['data_messages'][data_type]['bytes'] += len(payload)
                     message_log[request_id]['total_payload_bytes'] += len(payload)
-                    logging.info(f"[GATEWAY ROUTER INCOMING] DATA: data_type={data_type}, request_id={request_id}, payload_size={len(payload)}, total_bytes_so_far={message_log[request_id]['total_payload_bytes']}, message_count={message_log[request_id]['data_messages'][data_type]}")
+                    
+                    logging.info(f"[GATEWAY ROUTER INCOMING] DATA: data_type={data_type}, request_id={request_id}, rows={row_count}, payload_size={len(payload)}, msg_count={message_log[request_id]['data_messages'][data_type]['count']}, total_rows_for_type={message_log[request_id]['data_messages'][data_type]['rows']}")
+                
                 elif msg_type == protocol.MSG_TYPE_END:
                     if data_type not in message_log[request_id]['end_messages']:
                         message_log[request_id]['end_messages'][data_type] = 0
@@ -156,7 +169,22 @@ class Server:
                     data_end_counts[request_id] += 1
                     
                     logging.info(f"[GATEWAY ROUTER] DATA_END for request_id={request_id} ({data_end_counts[request_id]}/{data_end_expected})")
-                    logging.info(f"[GATEWAY ROUTER] Message log for request_id={request_id}: DATA={message_log[request_id]['data_messages']}, END={message_log[request_id]['end_messages']}, total_bytes={message_log[request_id]['total_payload_bytes']}")
+                    
+                    # Build detailed summary
+                    summary = f"[GATEWAY ROUTER] Summary for request_id={request_id}:\n"
+                    summary += f"  Total payload bytes: {message_log[request_id]['total_payload_bytes']}\n"
+                    summary += f"  Data messages by type:\n"
+                    for dtype, stats in message_log[request_id]['data_messages'].items():
+                        dtype_name = {
+                            protocol.Q1_RESULT: 'Q1(7)', 
+                            protocol.Q2_RESULT_a: 'Q2_A(8)',
+                            protocol.Q2_RESULT_b: 'Q2_B(9)',
+                            protocol.Q3_RESULT: 'Q3(10)',
+                            protocol.Q4_RESULT: 'Q4(11)'
+                        }.get(dtype, f'type{dtype}')
+                        summary += f"    {dtype_name}: {stats['count']} messages, {stats['rows']} total rows, {stats['bytes']} bytes\n"
+                    summary += f"  END messages by type: {message_log[request_id]['end_messages']}"
+                    logging.info(summary)
 
                     if data_end_counts[request_id] == data_end_expected:
                         # Send final DATA_END to client
@@ -177,16 +205,9 @@ class Server:
                         elapsed = time.time() - message_log[request_id]['first_seen']
                         logging.info(f"[GATEWAY ROUTER] Request completed: request_id={request_id}, elapsed_seconds={elapsed:.2f}")
                         
-                        # Close connection after delay
-                        def close_conn():
-                            time.sleep(0.5)
-                            try:
-                                target_conn.shutdown(socket.SHUT_RDWR)
-                            except:
-                                pass
-                            target_conn.close()
-                        
-                        threading.Thread(target=close_conn, daemon=True).start()
+                        # NOTE: Connection lifecycle is managed by the client.
+                        # Gateway keeps the connection open for subsequent requests or graceful client-side close.
+                        # Do NOT close the connection here - let the client control when to close.
                 else:
                     # Forward all other messages directly to client (no buffering)
                     try:
