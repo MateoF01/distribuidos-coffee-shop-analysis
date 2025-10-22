@@ -342,6 +342,10 @@ class Server:
                         logging.warning(f"Unknown data type in END message: {data_type}")
                 else:
                     logging.warning(f"Unknown message type: {msg_type}")
+        except ConnectionError as e:
+            # Normal socket closure - either client closed cleanly or connection was broken
+            # This is expected when the client finishes receiving all its data
+            logging.debug(f"Connection closed with {addr}: {e}")
         except Exception as e:
             logging.error(f"Error in connection with {addr}: {type(e).__name__}: {e}")
             import traceback
