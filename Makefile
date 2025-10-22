@@ -13,6 +13,9 @@ GROUPER_Q2_V2_REPLICAS ?= 5
 GROUPER_Q3_V2_REPLICAS ?= 5
 GROUPER_Q4_V2_REPLICAS ?= 5
 
+TEMPORAL_FILTER_TRANSACTIONS_REPLICAS ?= 5
+TEMPORAL_FILTER_TRANSACTION_ITEMS_REPLICAS ?= 5
+AMOUNT_FILTER_TRANSACTIONS_REPLICAS ?= 5
 
 default: help
 
@@ -36,6 +39,9 @@ help:
 	@echo "  grouper_q2_v2: $(GROUPER_Q2_V2_REPLICAS)"
 	@echo "  grouper_q3_v2: $(GROUPER_Q3_V2_REPLICAS)"
 	@echo "  grouper_q4_v2: $(GROUPER_Q4_V2_REPLICAS)"
+	@echo "  temporal_filter_transactions: $(TEMPORAL_FILTER_TRANSACTIONS_REPLICAS)"
+	@echo "  temporal_filter_transaction_items: $(TEMPORAL_FILTER_TRANSACTION_ITEMS_REPLICAS)"
+	@echo "  amount_filter_transactions: $(AMOUNT_FILTER_TRANSACTIONS)"
 	@echo ""
 	@echo "Examples:"
 	@echo "  make up  # Start with defaults"
@@ -62,7 +68,12 @@ up: build
 	  --scale cleaner_transactions_q4=$(CLEANER_TRANSACTIONS_REPLICAS_Q4) \
 	  --scale grouper_q2_v2=$(GROUPER_Q2_V2_REPLICAS) \
 	  --scale grouper_q3_v2=$(GROUPER_Q3_V2_REPLICAS) \
-	  --scale grouper_q4_v2=$(GROUPER_Q4_V2_REPLICAS) 
+	  --scale grouper_q4_v2=$(GROUPER_Q4_V2_REPLICAS) \
+	  --scale temporal_filter_transactions=$(TEMPORAL_FILTER_TRANSACTIONS_REPLICAS) \
+	  --scale temporal_filter_transaction_items=$(TEMPORAL_FILTER_TRANSACTION_ITEMS_REPLICAS) \
+      --scale amount_filter_transactions=$(AMOUNT_FILTER_TRANSACTIONS_REPLICAS) 
+
+
 
 # 🧹 Down and cleanup
 .PHONY: down

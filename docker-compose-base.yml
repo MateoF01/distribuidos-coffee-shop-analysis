@@ -304,57 +304,97 @@ services:
     networks:
       - coffee-net
 
-  temporal_filter_transactions:
+ temporal_filter_transactions:
     build:
       context: .
       dockerfile: filter/Dockerfile
-    container_name: temporal_filter_transactions
     depends_on:
       rabbitmq:
         condition: service_healthy
       gateway:
+        condition: service_started
+      wsm_temporal_filter_transactions:
         condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_USER: admin
       RABBITMQ_PASS: secretpassword
-      QUEUE_IN: transactions_cleaned
+      QUEUE_IN: transactions_coordinated
       QUEUE_OUT: transactions_filtered_Q1,transactions_filtered_Q3, transactions_filtered_Q4
       DATA_TYPE: transactions
       FILTER_TYPE: temporal
+      WSM_HOST: wsm_temporal_filter_transactions
+      WSM_PORT: 9009
     networks:
     - coffee-net
+
+  wsm_temporal_filter_transactions:
+    build:
+      context: .
+      dockerfile: WSM/Dockerfile
+    container_name: wsm_temporal_filter_transactions
+    environment:
+      PYTHONUNBUFFERED: 1
+      STATE_FILE_PATH: /app/output/worker_states_temporal_filter_transactions.json
+      HOST: 0.0.0.0
+      PORT: 9009
+    volumes:
+      - ./output_wsm:/app/output
+    networks:
+      - coffee-net
+  
   temporal_filter_transaction_items:
     build:
       context: .
       dockerfile: filter/Dockerfile
-    container_name: temporal_filter_transaction_items
     depends_on:
       rabbitmq:
         condition: service_healthy
       gateway:
+        condition: service_started
+      wsm_temporal_filter_transaction_items:
         condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_USER: admin
       RABBITMQ_PASS: secretpassword
-      QUEUE_IN: transaction_items_cleaned
+      QUEUE_IN: transaction_items_coordinated
       QUEUE_OUT: transaction_items_filtered_Q2
       DATA_TYPE: transaction_items
       FILTER_TYPE: temporal
+      WSM_HOST: wsm_temporal_filter_transaction_items
+      WSM_PORT: 9010
     networks:
     - coffee-net
+
+  wsm_temporal_filter_transaction_items:
+    build:
+      context: .
+      dockerfile: WSM/Dockerfile
+    container_name: wsm_temporal_filter_transaction_items
+    environment:
+      PYTHONUNBUFFERED: 1
+      STATE_FILE_PATH: /app/output/worker_states_temporal_filter_transaction_items.json
+      HOST: 0.0.0.0
+      PORT: 9010
+    volumes:
+      - ./output_wsm:/app/output
+    networks:
+      - coffee-net
+
+
   amount_filter_transactions:
     build:
       context: .
       dockerfile: filter/Dockerfile
-    container_name: amount_filter_transactions
     depends_on:
       rabbitmq:
         condition: service_healthy
       gateway:
+        condition: service_started
+      wsm_amount_filter_transactions:
         condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
@@ -366,8 +406,25 @@ services:
       DATA_TYPE: transactions
       FILTER_TYPE: amount
       MIN_AMOUNT: 75
+      WSM_HOST: wsm_amount_filter_transactions
+      WSM_PORT: 9011
     networks:
     - coffee-net
+  
+  wsm_amount_filter_transactions:
+    build:
+      context: .
+      dockerfile: WSM/Dockerfile
+    container_name: wsm_amount_filter_transactions
+    environment:
+      PYTHONUNBUFFERED: 1
+      STATE_FILE_PATH: /app/output/worker_states_amount_filter_transactions.json
+      HOST: 0.0.0.0
+      PORT: 9011
+    volumes:
+      - ./output_wsm:/app/output
+    networks:
+      - coffee-net
   
   joiner_q1:
     build:
