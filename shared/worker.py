@@ -379,33 +379,18 @@ class SignalProcessingWorker(Worker):
     NOTI signal upon completion.
     """
 
-    def __init__(self, queue_in, queue_out, rabbitmq_host, **kwargs):
-        super().__init__(queue_in, queue_out, rabbitmq_host, **kwargs)
-        # Track processed notification signals to avoid duplicate processing
-        self._processed_notifications = set()
-
     def _process_message(self, message, msg_type, data_type, request_id, timestamp, payload, queue_name=None):
         """
         Handle incoming messages. When a NOTI signal is received, perform the
         main processing and then notify downstream workers upon completion.
         """
         if msg_type == protocol.MSG_TYPE_NOTI:
-            # Check if we've already processed this notification for this request_id
-            if request_id in self._processed_notifications:
-                logging.info(f"[{self.__class__.__name__}] Notification for request_id={request_id} already processed, skipping duplicate.")
-                return
-            
-            # Mark as being processed to prevent duplicates
-            self._processed_notifications.add(request_id)
-            
-            logging.info(f"[{self.__class__.__name__}] Notification received for request_id={request_id} — starting processing.")
+            logging.info(f"[{self.__class__.__name__}] Notification received — starting processing.")
             try:
                 self._process_signal(request_id)
-                logging.info(f"[{self.__class__.__name__}] Processing complete for request_id={request_id}. Completion signal sent.")
+                logging.info(f"[{self.__class__.__name__}] Processing complete. Completion signal sent.")
             except Exception as e:
-                logging.error(f"[{self.__class__.__name__}] Error during processing for request_id={request_id}: {e}")
-                # Remove from processed set if processing failed, so it can be retried
-                self._processed_notifications.discard(request_id)
+                logging.error(f"[{self.__class__.__name__}] Error during processing: {e}")
         else:
             logging.warning(f"[{self.__class__.__name__}] Unexpected message type: {msg_type}/{data_type}")
 
