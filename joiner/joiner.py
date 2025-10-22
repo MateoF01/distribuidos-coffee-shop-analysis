@@ -69,7 +69,6 @@ class Joiner(Worker):
         # Per-request CSV state tracking - FIX for concurrent requests
         self._csv_initialized_per_request = {}  # {request_id: {file_path: bool}}
         self._rows_written_per_request = {}     # {request_id: {file_path: count}}
-        self._temp_dir_per_request = {}         # {request_id: temp_dir_path}
 
 
     def _initialize_request_paths(self, request_id):
@@ -100,14 +99,8 @@ class Joiner(Worker):
 
         # temp por request (queda en .../<request_id>/temp)
         base_for_temp = os.path.dirname(updated_output_files[0]) if updated_output_files else os.getcwd()
-        request_temp_dir = os.path.join(base_for_temp, 'temp')
-        os.makedirs(request_temp_dir, exist_ok=True)
-
-        # Store temp_dir per request_id for Q4 and other multi-queue joins
-        self._temp_dir_per_request[request_id] = request_temp_dir
-        
-        # Also update self.temp_dir for backwards compatibility with ongoing operations
-        self.temp_dir = request_temp_dir
+        self.temp_dir = os.path.join(base_for_temp, 'temp')
+        os.makedirs(self.temp_dir, exist_ok=True)
 
         # AHORA sí, actualizá el request activo
         self.current_request_id = request_id
@@ -325,36 +318,32 @@ class Joiner(Worker):
         """
         logging.info(f"Processing Q4 join... (request_id={request_id})")
 
-        # Use the temp_dir for THIS specific request_id
-        temp_dir = self._temp_dir_per_request.get(request_id, self.temp_dir)
-        logging.info(f"[Q4] Using temp_dir={temp_dir} for request_id={request_id}")
-
         stores_lookup, users_lookup = {}, {}
 
         # Stores
-        stores_file = os.path.join(temp_dir, 'stores_cleaned_q4.csv')
+        stores_file = os.path.join(self.temp_dir, 'stores_cleaned_q4.csv')
         if os.path.exists(stores_file):
             with open(stores_file, 'r', encoding='utf-8') as f:
                 reader = csv.reader(f); next(reader, None)
                 for row in reader:
                     if len(row) >= 2:
                         stores_lookup[row[0]] = row[1]
-        logging.debug(f"Loaded {len(stores_lookup)} store mappings from {stores_file}")
+        logging.debug(f"Loaded {len(stores_lookup)} store mappings")
 
         # Users
-        users_file = os.path.join(temp_dir, 'users_cleaned.csv')
+        users_file = os.path.join(self.temp_dir, 'users_cleaned.csv')
         if os.path.exists(users_file):
             with open(users_file, 'r', encoding='utf-8') as f:
                 reader = csv.reader(f); next(reader, None)
                 for row in reader:
                     if len(row) >= 2:
                         users_lookup[row[0]] = row[1]
-        logging.debug(f"Loaded {len(users_lookup)} user mappings from {users_file}")
+        logging.debug(f"Loaded {len(users_lookup)} user mappings")
 
         # Main
-        main_file = os.path.join(temp_dir, 'resultados_groupby_q4.csv')
+        main_file = os.path.join(self.temp_dir, 'resultados_groupby_q4.csv')
         if not os.path.exists(main_file):
-            logging.warning(f"[Q4] Main file for Q4 not found at {main_file} for request_id={request_id}")
+            logging.warning("Main file for Q4 not found")
             return
 
         processed_rows = []
@@ -374,7 +363,7 @@ class Joiner(Worker):
             self._write_rows_to_csv_all(processed_rows, request_id)
 
         self._send_sort_request()
-        logging.info(f"[Q4] Q4 join complete for request_id={request_id}. {len(processed_rows)} rows written across {len(self.outputs)} output(s).")
+        logging.info(f"Q4 join complete. {len(processed_rows)} rows written across {len(self.outputs)} output(s).")
 
     def _process_q2(self, request_id):
         """
@@ -387,26 +376,22 @@ class Joiner(Worker):
         """
         logging.info(f"Processing Q2 join... (request_id={request_id})")
 
-        # Use the temp_dir for THIS specific request_id
-        temp_dir = self._temp_dir_per_request.get(request_id, self.temp_dir)
-        logging.info(f"[Q2] Using temp_dir={temp_dir} for request_id={request_id}")
-
         items_lookup = {}
 
         # Menu Items
-        menu_file = os.path.join(temp_dir, 'menu_items_cleaned.csv')
+        menu_file = os.path.join(self.temp_dir, 'menu_items_cleaned.csv')
         if os.path.exists(menu_file):
             with open(menu_file, 'r', encoding='utf-8') as f:
                 reader = csv.reader(f); next(reader, None)
                 for row in reader:
                     if len(row) >= 2:
                         items_lookup[row[0]] = row[1]
-        logging.debug(f"[Q2] Loaded {len(items_lookup)} item mappings from {menu_file}")
+        print(f"Loaded {len(items_lookup)} item mappings")
 
         # Main
-        main_file = os.path.join(temp_dir, 'resultados_groupby_q2.csv')
+        main_file = os.path.join(self.temp_dir, 'resultados_groupby_q2.csv')
         if not os.path.exists(main_file):
-            logging.warning(f"[Q2] Main file for Q2 not found at {main_file} for request_id={request_id}")
+            print("Main file for Q2 not found")
             return
 
         rows_quantity = []
@@ -463,26 +448,22 @@ class Joiner(Worker):
         """
         logging.info(f"Processing Q3 join... (request_id={request_id})")
 
-        # Use the temp_dir for THIS specific request_id
-        temp_dir = self._temp_dir_per_request.get(request_id, self.temp_dir)
-        logging.info(f"[Q3] Using temp_dir={temp_dir} for request_id={request_id}")
-
         stores_lookup = {}
 
         # Stores
-        stores_file = os.path.join(temp_dir, 'stores_cleaned_q3.csv')
+        stores_file = os.path.join(self.temp_dir, 'stores_cleaned_q3.csv')
         if os.path.exists(stores_file):
             with open(stores_file, 'r', encoding='utf-8') as f:
                 reader = csv.reader(f); next(reader, None)
                 for row in reader:
                     if len(row) >= 2:
                         stores_lookup[row[0]] = row[1]  # store_id -> store_name
-        logging.debug(f"[Q3] Loaded {len(stores_lookup)} store mappings from {stores_file}")
+        print(f"Loaded {len(stores_lookup)} store mappings")
 
         # Main
-        main_file = os.path.join(temp_dir, 'resultados_groupby_q3.csv')
+        main_file = os.path.join(self.temp_dir, 'resultados_groupby_q3.csv')
         if not os.path.exists(main_file):
-            logging.warning(f"[Q3] Main file for Q3 not found at {main_file} for request_id={request_id}")
+            print("Main file for Q3 not found")
             return
 
         processed_rows = []
@@ -500,7 +481,7 @@ class Joiner(Worker):
             self._write_rows_to_csv_all(processed_rows, request_id)
 
         self._send_sort_request()
-        logging.info(f"[Q3] Q3 join complete for request_id={request_id}. {len(processed_rows)} rows written across {len(self.outputs)} output(s).")
+        print(f"Q3 join complete. {len(processed_rows)} rows written across {len(self.outputs)} output(s).")
 
     # =====================
     # Principal Loop 
