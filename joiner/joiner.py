@@ -65,6 +65,10 @@ class Joiner(Worker):
 
         self.end_received_by_request = {}
         self._processed_requests = set()  # Track completed requests to prevent reprocessing
+        self._rows_received_per_request = {}  # Track rows read from queue per request_id
+        # Per-request CSV state tracking - FIX for concurrent requests
+        self._csv_initialized_per_request = {}  # {request_id: {file_path: bool}}
+        self._rows_written_per_request = {}     # {request_id: {file_path: count}}
 
 
     def _initialize_request_paths(self, request_id):
@@ -88,9 +92,10 @@ class Joiner(Worker):
 
         self.outputs = list(zip(self.out_queues, updated_output_files))
 
-        # reiniciar estado de escritura para estos nuevos archivos
-        self._csv_initialized = {f: False for _, f in self.outputs}
-        self._rows_written = {f: 0 for _, f in self.outputs}
+        # Initialize per-request CSV state if not already done
+        if request_id not in self._csv_initialized_per_request:
+            self._csv_initialized_per_request[request_id] = {f: False for _, f in self.outputs}
+            self._rows_written_per_request[request_id] = {f: 0 for _, f in self.outputs}
 
         # temp por request (queda en .../<request_id>/temp)
         base_for_temp = os.path.dirname(updated_output_files[0]) if updated_output_files else os.getcwd()
@@ -113,8 +118,8 @@ class Joiner(Worker):
         if len(self.multiple_input_queues) == 1:
             for i in range(len(self.outputs)):
                 file_path = self.outputs[i][1]
-                if not self._csv_initialized.get(file_path, False):
-                    self._initialize_csv_idx(i)
+                if not self._csv_initialized_per_request[request_id].get(file_path, False):
+                    self._initialize_csv_idx(i, request_id)
         
         try:
             payload_str = payload.decode('utf-8')
@@ -131,6 +136,11 @@ class Joiner(Worker):
                     processed_rows.append(items)
 
         if processed_rows:
+            # Track rows received for this request_id
+            if request_id not in self._rows_received_per_request:
+                self._rows_received_per_request[request_id] = 0
+            self._rows_received_per_request[request_id] += len(processed_rows)
+            
             with self._lock:
                 if len(self.multiple_input_queues) > 1:
                     # modo "join later": guardamos crudo por cola
@@ -143,7 +153,7 @@ class Joiner(Worker):
                         # como no sabemos a cuál salida corresponde,
                         # en single-queue replicamos el dataset a TODAS
                         for i in range(len(self.outputs)):
-                            self._write_rows_to_csv_idx(i, final_rows)
+                            self._write_rows_to_csv_idx(i, final_rows, request_id)
     
     def _handle_end_signal(self, message, msg_type, data_type, request_id, queue_name=None):
         """
@@ -168,7 +178,8 @@ class Joiner(Worker):
             # 4️⃣ Procesar el END recibido
             if not end_state.get(queue_name, False):
                 end_state[queue_name] = True
-                logging.info(f"[Joiner:{self.query_type}] END recibido de {queue_name} (request_id={request_id})")
+                rows_received = self._rows_received_per_request.get(request_id, 0)
+                logging.info(f"[Joiner:{self.query_type}] END recibido de {queue_name} (request_id={request_id}) - TOTAL ROWS FROM QUEUE: {rows_received}")
 
                 # 5️⃣ Si todas las colas de este request completaron, procesar join
                 if all(end_state.values()):
@@ -176,15 +187,18 @@ class Joiner(Worker):
 
                     self.current_request_id = request_id
                     if len(self.multiple_input_queues) > 1:
-                        self._process_joined_data()
+                        self._process_joined_data(request_id)
                     else:
                         self._send_sort_request()
-                        total_rows = sum(self._rows_written.values())
-                        logging.info(f"[Joiner:{self.query_type}] CSV collection complete ({total_rows} filas). Sort request sent.")
+                        total_rows_written = sum(self._rows_written_per_request[request_id].values())
+                        rows_received = self._rows_received_per_request.get(request_id, 0)
+                        logging.info(f"[Joiner:{self.query_type}] FINAL REQUEST_ID={request_id}: Received {rows_received} rows from queue → Wrote {total_rows_written} rows to CSV. Sort request sent.")
 
                     # Mark request as fully processed and clean up state
                     self._processed_requests.add(request_id)
                     del self.end_received_by_request[request_id]
+                    if request_id in self._rows_received_per_request:
+                        del self._rows_received_per_request[request_id]
 
             else:
                 logging.warning(f"[Joiner:{self.query_type}] END duplicado ignorado de {queue_name} (request_id={request_id})")
@@ -193,7 +207,7 @@ class Joiner(Worker):
     # Utils de CSV por salida
     # =====================
 
-    def _initialize_csv_idx(self, out_idx: int, custom_headers=None):
+    def _initialize_csv_idx(self, out_idx: int, request_id, custom_headers=None):
         """Inicializa un archivo CSV (por índice de salida) con headers si aún no se hizo."""
         file_path = self.outputs[out_idx][1]
         try:
@@ -201,30 +215,30 @@ class Joiner(Worker):
                 writer = csv.writer(csvfile)
                 headers = custom_headers if custom_headers else self.columns_want
                 writer.writerow(headers)
-            self._csv_initialized[file_path] = True
-            logging.debug(f"Initialized CSV file {file_path} with headers: {headers}")
+            self._csv_initialized_per_request[request_id][file_path] = True
+            logging.info(f"[Joiner:{self.query_type}] Initialized CSV file {file_path} (request_id={request_id}) with headers: {headers}")
         except Exception as e:
             logging.error(f"Error initializing CSV file {file_path}: {e}")
 
-    def _write_rows_to_csv_idx(self, out_idx: int, rows_data, custom_headers=None):
+    def _write_rows_to_csv_idx(self, out_idx: int, rows_data, request_id, custom_headers=None):
         """Escribe rows SOLO en el archivo del índice dado (inicializa si hace falta)."""
         file_path = self.outputs[out_idx][1]
 
         try:
-            if not self._csv_initialized[file_path]:
-                self._initialize_csv_idx(out_idx, custom_headers)
+            if not self._csv_initialized_per_request[request_id].get(file_path, False):
+                self._initialize_csv_idx(out_idx, request_id, custom_headers)
             with open(file_path, 'a', newline='', encoding='utf-8') as csvfile:
                 writer = csv.writer(csvfile)
                 writer.writerows(rows_data)
-            self._rows_written[file_path] += len(rows_data)
-            logging.debug(f"Wrote {len(rows_data)} rows to {file_path}. Total rows: {self._rows_written[file_path]}")
+            self._rows_written_per_request[request_id][file_path] += len(rows_data)
+            logging.info(f"[Joiner:{self.query_type}] Appended {len(rows_data)} rows to {file_path} (request_id={request_id}). Total: {self._rows_written_per_request[request_id][file_path]}")
         except Exception as e:
             logging.error(f"Error writing rows to CSV file {file_path}: {e}")
 
-    def _write_rows_to_csv_all(self, rows_data):
+    def _write_rows_to_csv_all(self, rows_data, request_id):
         """Escribe rows en TODOS los archivos de salida."""
         for i in range(len(self.outputs)):
-            self._write_rows_to_csv_idx(i, rows_data)
+            self._write_rows_to_csv_idx(i, rows_data, request_id)
 
     def _save_to_temp_file(self, queue_name, rows_data):
         """Guarda rows crudas por cola en CSV temporales para joins posteriores."""
@@ -280,29 +294,29 @@ class Joiner(Worker):
     # Dispatcher
     # =====================
 
-    def _process_joined_data(self):
+    def _process_joined_data(self, request_id):
         if self.query_type not in self.strategies:
             raise ValueError(f"Unsupported query_type: {self.query_type}")
-        self.strategies[self.query_type]()  # Ejecuta la estrategia correspondiente
+        self.strategies[self.query_type](request_id)  # Ejecuta la estrategia correspondiente
 
     # =====================
     # Strategies
     # =====================
 
-    def _process_q1(self):
+    def _process_q1(self, request_id):
         """
         Q1: transaction_id y final_amount de una sola cola.
         """
-        logging.info("Processing Q1 join...")
+        logging.info(f"Processing Q1 join... (request_id={request_id})")
         self._send_sort_request()
 
-    def _process_q4(self):
+    def _process_q4(self, request_id):
         """
         Q4: join entre resultados_groupby_q4, stores_cleaned_q4 y users_cleaned
         Salida esperada: [store_name, birthdate]
         Escribimos el MISMO dataset en todas las salidas (si hay más de una).
         """
-        logging.info("Processing Q4 join...")
+        logging.info(f"Processing Q4 join... (request_id={request_id})")
 
         stores_lookup, users_lookup = {}, {}
 
@@ -346,12 +360,12 @@ class Joiner(Worker):
 
         if processed_rows:
             # mismo dataset a todas las salidas
-            self._write_rows_to_csv_all(processed_rows)
+            self._write_rows_to_csv_all(processed_rows, request_id)
 
         self._send_sort_request()
         logging.info(f"Q4 join complete. {len(processed_rows)} rows written across {len(self.outputs)} output(s).")
 
-    def _process_q2(self):
+    def _process_q2(self, request_id):
         """
         Q2: join con menú e items agrupados.
         Espera 'menu_items_cleaned.csv' y 'resultados_groupby_q2.csv' en temp/.
@@ -360,7 +374,7 @@ class Joiner(Worker):
           - si hay 1 output: todo va al mismo
           - si hay >2: quantity→0, subtotal→1 y el resto reciben el dataset completo (fallback)
         """
-        logging.info("Processing Q2 join...")
+        logging.info(f"Processing Q2 join... (request_id={request_id})")
 
         items_lookup = {}
 
@@ -404,21 +418,21 @@ class Joiner(Worker):
         elif out_count == 1:
             # todo junto al único output
             if rows_all:
-                self._write_rows_to_csv_idx(0, rows_all)
+                self._write_rows_to_csv_idx(0, rows_all, request_id)
         else:
             # out_count >= 2: mapeo explícito
             # Q2_a (quantity) goes to first output with specific headers
             if rows_quantity:
                 q2a_headers = ['year_month_created_at', 'item_name', 'sellings_qty']
-                self._write_rows_to_csv_idx(0, rows_quantity, q2a_headers)
+                self._write_rows_to_csv_idx(0, rows_quantity, request_id, q2a_headers)
             # Q2_b (subtotal) goes to second output with specific headers
             if rows_subtotal and out_count >= 2:
                 q2b_headers = ['year_month_created_at', 'item_name', 'profit_sum']
-                self._write_rows_to_csv_idx(1, rows_subtotal, q2b_headers)
+                self._write_rows_to_csv_idx(1, rows_subtotal, request_id, q2b_headers)
             # si hay más de 2 salidas, opcionalmente replicamos todo en las restantes
             if out_count > 2 and rows_all:
                 for i in range(2, out_count):
-                    self._write_rows_to_csv_idx(i, rows_all)
+                    self._write_rows_to_csv_idx(i, rows_all, request_id)
 
         self._send_sort_request()
         print(f"Q2 join complete. "
@@ -426,13 +440,13 @@ class Joiner(Worker):
               f"{f', Q2_b (subtotal) rows: {len(rows_subtotal)} written to {self.outputs[1][1]}' if out_count >= 2 else ''} "
               f"across {len(self.outputs)} output(s).")
 
-    def _process_q3(self):
+    def _process_q3(self, request_id):
         """
         Q3: join con stores para obtener store names de los resultados agrupados.
         Espera 'stores_cleaned_q3.csv' y 'resultados_groupby_q3.csv' en temp/.
         Salida esperada: [year_half_created_at, store_name, tpv]
         """
-        logging.info("Processing Q3 join...")
+        logging.info(f"Processing Q3 join... (request_id={request_id})")
 
         stores_lookup = {}
 
@@ -464,7 +478,7 @@ class Joiner(Worker):
 
         if processed_rows:
             # escribir a todas las salidas (normalmente solo una para Q3)
-            self._write_rows_to_csv_all(processed_rows)
+            self._write_rows_to_csv_all(processed_rows, request_id)
 
         self._send_sort_request()
         print(f"Q3 join complete. {len(processed_rows)} rows written across {len(self.outputs)} output(s).")
