@@ -2,6 +2,7 @@ middleware/__pycache__/
 tests/__pycache__/
 data/
 data_full/
-results/
+client/results/
 temp/
 output/
+output_wsm/

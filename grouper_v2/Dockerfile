@@ -4,5 +4,6 @@ COPY grouper_v2/grouper_v2.py .
 COPY grouper_v2/config.ini .
 COPY middleware/ /app/middleware/
 COPY shared/ /app/shared/
+COPY WSM/ /app/WSM/
 RUN pip install pika
 CMD ["python", "grouper_v2.py"]

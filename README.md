@@ -1,5 +1,10 @@
 # distribuidos-coffee-shop-analysis
 
+## Como correr el test de WSM
+
+ docker compose -f docker-compose.test.yml up --build --scale cleaner_transactions=5
+
+
 ## Como levantar el sistema? 
 
 ```bash

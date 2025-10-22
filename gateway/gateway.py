@@ -313,31 +313,13 @@ class Server:
                         logging.warning(f"Unknown data type: {data_type}")
                 elif msg_type == protocol.MSG_TYPE_END:
                     if data_type == protocol.DATA_END:
-                        # Special handling for DATA_END - send to all data queues and exchanges
-                        logging.info("Received DATA_END from client, broadcasting to all queues and exchanges")
+                        logging.info("Received DATA_END from client, broadcasting to all queues")
                         for queue_name in queue_names.values():
                             queues[queue_name].send(message)
                             logging.debug(f"Sent DATA_END to {queue_name} with request_id={current_request_id}")
-                        # Also broadcast DATA_END to exchanges for cleaners
-                        transactions_end_exchange.send(message)
-                        transaction_items_end_exchange.send(message)
-                        logging.debug("Sent DATA_END to cleaner exchanges")
-                        # Mark all data_types as ended for this batch
-                        data_end_received.update(queue_names.keys())
                     elif data_type in queue_names:
                         queues[queue_names[data_type]].send(message)
                         logging.debug(f"Sent END message for {data_type_names.get(data_type, data_type)} to queue with request_id={current_request_id}")
-
-                        # Additionally send END messages to exchanges for transactions and transaction_items
-                        if data_type == protocol.DATA_TRANSACTIONS:
-                            transactions_end_exchange.send(message)
-                            logging.debug(f"Sent END message for transactions to exchange")
-                        elif data_type == protocol.DATA_TRANSACTION_ITEMS:
-                            transaction_items_end_exchange.send(message)
-                            logging.debug(f"Sent END message for transaction_items to exchange")
-
-                        # Mark this data_type as ended for this batch
-                        data_end_received.add(data_type)
                     else:
                         logging.warning(f"Unknown data type in END message: {data_type}")
                 else:

@@ -54,9 +54,6 @@ class Worker(ABC):
         # Handle multiple output queues
         self.out_queues = self._initialize_output_queues(queue_out)
         
-        # END message deduplication tracker: (request_id, data_type) -> bool
-        self._processed_end_messages = set()
-        
         # Store kwargs for subclass-specific initialization
         self.worker_kwargs = kwargs
     
@@ -136,14 +133,6 @@ class Worker(ABC):
     
     def _handle_end_signal(self, message, msg_type, data_type, request_id, queue_name=None):
         """Handle end-of-data signals. Default implementation forwards to all output queues with deduplication."""
-        # Check if we've already processed this END message
-        end_key = (request_id, data_type)
-        if end_key in self._processed_end_messages:
-            logging.info(f'Duplicate END signal ignored: request_id={request_id}, data_type={data_type}, queue={queue_name or self.queue_in}')
-            return
-        
-        # Mark this END message as processed
-        self._processed_end_messages.add(end_key)
         
         # Forward to all output queues
         for q in self.out_queues:
@@ -151,7 +140,6 @@ class Worker(ABC):
         
         if data_type == protocol.DATA_END:
             logging.info(f'End-of-data signal received from queue: {queue_name or self.queue_in}')
-            # Don't stop automatically - let subclasses decide
         else:
             queue_names = [q.queue_name for q in self.out_queues]
             logging.debug(f"Forwarded end signal (type:{msg_type}) to {queue_names}")

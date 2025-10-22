@@ -1,0 +1,182 @@
+[
+  {
+    "msg_type": 1,
+    "data_type": 1,
+    "request_id": 1,
+    "payload": "ac6f851c-649f-42fb-a606-72be0fdcf8d2|63.5|2024-01-01 10:06:50|5|"
+  },
+  {
+    "msg_type": 1,
+    "data_type": 1,
+    "request_id": 1,
+    "payload": "d7856e66-c613-45c4-b9ca-7a3cec6c6db3|30.5|2024-01-01 10:06:52|8|"
+  },
+  {
+    "msg_type": 1,
+    "data_type": 1,
+    "request_id": 1,
+    "payload": "78015742-1f8b-4f9c-bde2-0e68b822890c|54.0|2024-01-01 10:06:53|5|"
+  },
+  {
+    "msg_type": 1,
+    "data_type": 1,
+    "request_id": 1,
+    "payload": "da1b334f-a51b-421d-88ce-ca547bc1cdbe|48.0|2024-01-01 10:06:54|1|"
+  },
+  {
+    "msg_type": 1,
+    "data_type": 1,
+    "request_id": 1,
+    "payload": "6dc3bc21-e102-4ab4-b93f-10a702ed671f|29.0|2024-01-01 10:06:56|5|"
+  },
+  {
+    "msg_type": 1,
+    "data_type": 1,
+    "request_id": 1,
+    "payload": "d615a21a-b4ac-45d4-aa8b-bd64083b9782|9.0|2024-01-01 10:06:57|3|"
+  },
+  {
+    "msg_type": 1,
+    "data_type": 1,
+    "request_id": 1,
+    "payload": "fb3e56ca-c783-4128-a77f-a14d6e550f20|9.0|2024-01-01 10:06:58|6|"
+  },
+  {
+    "msg_type": 1,
+    "data_type": 1,
+    "request_id": 1,
+    "payload": "fbb475bf-f696-40d3-bd41-eb03b5471e32|6.0|2024-01-01 10:06:59|6|"
+  },
+  {
+    "msg_type": 1,
+    "data_type": 1,
+    "request_id": 1,
+    "payload": "cce13efa-b169-4512-b81e-24730283359a|59.0|2024-01-01 10:07:02|4|"
+  },
+  {
+    "msg_type": 1,
+    "data_type": 1,
+    "request_id": 1,
+    "payload": "55e8edff-0812-4588-9392-45a0d3a8cf60|12.0|2024-01-01 10:07:03|5|"
+  },
+  {
+    "msg_type": 1,
+    "data_type": 1,
+    "request_id": 1,
+    "payload": "dee00800-62a8-47d3-be77-b8cca7a42665|45.5|2024-01-01 10:07:04|5|17272"
+  },
+  {
+    "msg_type": 1,
+    "data_type": 1,
+    "request_id": 1,
+    "payload": "a94e4252-4aff-476e-a809-19df610768ee|14.0|2024-01-01 10:07:05|2|"
+  },
+  {
+    "msg_type": 1,
+    "data_type": 1,
+    "request_id": 1,
+    "payload": "d57f241e-2182-46c6-a5f4-78dcdcc7741d|63.0|2024-01-01 10:07:06|7|"
+  },
+  {
+    "msg_type": 1,
+    "data_type": 1,
+    "request_id": 1,
+    "payload": "2400a3c8-21fc-46a6-b194-d00da0e873d4|21.0|2024-01-01 10:07:09|1|"
+  },
+  {
+    "msg_type": 1,
+    "data_type": 1,
+    "request_id": 2,
+    "payload": "d64509aa-7308-4145-ae52-056d3e0488de|46.0|2024-01-01 10:07:13|6|"
+  },
+  {
+    "msg_type": 2,
+    "data_type": 1,
+    "request_id": 1,
+    "payload": "END"
+  },
+  {
+    "msg_type": 1,
+    "data_type": 1,
+    "request_id": 2,
+    "payload": "f490970d-3037-4ff6-84b8-86eff83faac3|22.0|2024-01-01 10:07:14|5|"
+  },
+  {
+    "msg_type": 1,
+    "data_type": 1,
+    "request_id": 2,
+    "payload": "86652dc6-f350-4aeb-8e41-ce3a94d27825|9.5|2025-01-01 12:52:56|10|13060"
+  },
+  {
+    "msg_type": 1,
+    "data_type": 1,
+    "request_id": 2,
+    "payload": "7ce4bf6d-ac0d-4884-a7dc-99ffcdab4362|64.0|2025-01-01 07:00:03|7|203872"
+  },
+  {
+    "msg_type": 1,
+    "data_type": 1,
+    "request_id": 2,
+    "payload": "04d07ed4-7b7a-421d-a932-2bf749038bc4|63.0|2025-01-01 07:00:04|1|137339"
+  },
+  {
+    "msg_type": 1,
+    "data_type": 1,
+    "request_id": 2,
+    "payload": "bf9589d4-bc46-4c2f-b6a5-fdb337bb5ba3|27.0|2025-01-01 07:00:05|4|215915"
+  },
+  {
+    "msg_type": 1,
+    "data_type": 1,
+    "request_id": 2,
+    "payload": "bd61057c-cbfb-42d7-a45e-b205d3c9bda9|38.0|2025-01-01 07:00:11|8|63253"
+  },
+  {
+    "msg_type": 1,
+    "data_type": 1,
+    "request_id": 2,
+    "payload": "e1239b67-8841-4522-aa52-6f152cc1369d|43.0|2025-01-01 07:00:21|6|975811"
+  },
+  {
+    "msg_type": 1,
+    "data_type": 1,
+    "request_id": 2,
+    "payload": "9bfdb0eb-4001-4071-a3aa-0dbc6d873bfb|44.5|2025-01-01 07:00:36|8|1006607"
+  },
+  {
+    "msg_type": 1,
+    "data_type": 1,
+    "request_id": 2,
+    "payload": "d0715b60-f9bc-4630-836c-079a876658d7|14.0|2025-01-01 07:00:38|1|1038745"
+  },
+  {
+    "msg_type": 1,
+    "data_type": 1,
+    "request_id": 2,
+    "payload": "eb8d5958-029d-45d0-bb52-26529ff064b3|46.0|2025-01-01 07:00:54|2|3296"
+  },
+  {
+    "msg_type": 1,
+    "data_type": 1,
+    "request_id": 2,
+    "payload": "9de81fd2-89c1-4f62-ba70-1f992b084943|48.0|2025-01-01 07:00:56|2|1127828"
+  },
+  {
+    "msg_type": 1,
+    "data_type": 1,
+    "request_id": 2,
+    "payload": "0d81ea81-4417-4976-a5d4-21a265ccff50|65.0|2025-01-01 07:00:59|8|1019870"
+  },
+  {
+    "msg_type": 1,
+    "data_type": 1,
+    "request_id": 2,
+    "payload": "82e005cd-945d-4d95-a60a-6b565fe5f1a0|9.0|2025-01-01 07:01:00|1|846704"
+  },
+  {
+    "msg_type": 2,
+    "data_type": 1,
+    "request_id": 2,
+    "payload": "END"
+  }
+]
