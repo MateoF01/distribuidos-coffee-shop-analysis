@@ -425,11 +425,53 @@ services:
     networks:
       - coffee-net
   
-  joiner_q1:
+  splitter_q1:
     build:
       context: .
-      dockerfile: joiner/Dockerfile
-    container_name: joiner_q1
+      dockerfile: splitter/Dockerfile
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      gateway:
+        condition: service_started
+      wsm_splitter_q1:
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      QUEUE_IN: transactions_filtered_q1_b
+      COMPLETION_QUEUE: sorter_q1_v2_signal
+      WSM_HOST: wsm_splitter_q1
+      WSM_PORT: 9100
+      CHUNK_SIZE: 5000
+      BASE_TEMP_DIR: /app/temp/splitter_q1
+    volumes:
+      - ./splitter/temp:/app/temp
+    networks:
+      - coffee-net
+
+  wsm_splitter_q1:
+    build:
+      context: .
+      dockerfile: WSM/Dockerfile
+    container_name: wsm_splitter_q1
+    environment:
+      PYTHONUNBUFFERED: 1
+      STATE_FILE_PATH: /app/output/worker_states_splitter_q1.json
+      HOST: 0.0.0.0
+      PORT: 9100
+    volumes:
+      - ./output_wsm:/app/output
+    networks:
+      - coffee-net
+
+
+  sorter_q1_v2:
+    build:
+      context: .
+      dockerfile: sorter_v2/Dockerfile
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -438,40 +480,15 @@ services:
     environment:
       PYTHONUNBUFFERED: 1
       RABBITMQ_HOST: rabbitmq
-      RABBITMQ_USER: admin
-      RABBITMQ_PASS: secretpassword
-      QUEUE_IN: transactions_filtered_Q1_b
-      QUEUE_OUT: sort_q1_request
-      OUTPUT_FILE: /app/output/q1_unsorted.csv
-      QUERY_TYPE: q1
+      QUEUE_IN: sorter_q1_v2_signal          # recibe del splitter_q1
+      COMPLETION_QUEUE: q1_sender_signal     # notifica al sender Q1
+      BASE_TEMP_DIR: /app/temp
+      SORT_COLUMNS: "0"                      # columnas por las que ordenar
     volumes:
-    - ./output:/app/output
-    networks:
-    - coffee-net
-  sorter_q1:
-    build:
-      context: .
-      dockerfile: sort/Dockerfile
-    container_name: sorter_q1
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-      joiner_q1:
-        condition: service_started
-    environment:
-      PYTHONUNBUFFERED: 1
-      RABBITMQ_HOST: rabbitmq
-      RABBITMQ_USER: admin
-      RABBITMQ_PASS: secretpassword
-      QUEUE_IN: sort_q1_request
-      INPUT_FILE: /app/output/q1_unsorted.csv
-      OUTPUT_FILE: /app/output/q1.csv
-      DATA_TYPE: q1
-      COMPLETION_QUEUE: sender_q1_signal
-    volumes:
-    - ./output:/app/output
+      - ./sorter_v2/temp:/app/temp
     networks:
       - coffee-net
+
   
   grouper_q2_v2:
     build:
