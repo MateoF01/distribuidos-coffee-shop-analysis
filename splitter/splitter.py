@@ -61,7 +61,7 @@ class SplitterQ1(StreamProcessingWorker):
         if buf["dir"]:
             return buf["dir"]
 
-        req_dir = os.path.join(self.base_temp_root, "splitter_q1", str(request_id), self.replica_id)
+        req_dir = os.path.join(self.base_temp_root, str(request_id), self.replica_id)
         os.makedirs(req_dir, exist_ok=True)
         buf["dir"] = req_dir
         logging.info(f"[SplitterQ1:{self.replica_id}] dir ready for request {request_id}: {req_dir}")
@@ -115,12 +115,7 @@ class SplitterQ1(StreamProcessingWorker):
     # Ciclo de mensajes
     # ------------------------------------------------------------
     def _process_message(self, message, msg_type, data_type, request_id, timestamp, payload, queue_name=None):
-        """
-        Invocado por StreamProcessingWorker:
-        - Marcamos estado en WSM cuando empezamos a procesar.
-        - Pasamos control a la superclase, que llamará a _process_rows o _handle_end_signal.
-        - Al salir, marcamos WAITING.
-        """
+
         # inicializo dir al primer mensaje del request
         self._ensure_request_dir(request_id)
 
@@ -138,26 +133,18 @@ class SplitterQ1(StreamProcessingWorker):
     # ------------------------------------------------------------
     def _process_rows(self, rows, queue_name=None):
         """
-        rows: lista de STR (cada str es una fila "tal cual" del stream).
-        Cada fila se agrega al buffer del request corresp. (lo resuelve la superclase).
+        Recibe filas decodificadas (texto), las agrupa en chunks y las escribe a disco.
         """
-        # NOTA: StreamProcessingWorker ya agrupa por request_id al momento de llamar
-        # a _process_rows, pero por seguridad inferimos el request id con el parse.
-        for raw in rows:
-            try:
-                # Sacamos metadata del mensaje para saber el request_id de esta row
-                # (si rows ya viniera "puras", podemos confiar en self._current_request_id,
-                # pero preferimos parsear por robustez).
-                m_type, d_type, req_id, _, payload = protocol.parse_message(raw)
-                if m_type != protocol.MSG_TYPE_DATA:
-                    continue
 
-                # `payload` es bytes -> lo pasamos a texto. Mantenemos la línea tal cual.
-                line = payload.decode("utf-8").rstrip("\n")
-                self._append_row(req_id, line)
+        request_id = self.current_request_id  # viene desde la superclase
+        self._ensure_request_dir(request_id)
 
-            except Exception as e:
-                logging.error(f"[SplitterQ1:{self.replica_id}] error parsing row: {e}")
+        for row in rows:
+            row = row.strip()
+            if not row:
+                continue
+            self._append_row(request_id, row)
+
 
     # ------------------------------------------------------------
     # END + sincronización con WSM
@@ -202,30 +189,11 @@ class SplitterQ1(StreamProcessingWorker):
 # ====================
 if __name__ == '__main__':
     def create_splitter():
-        # config opcional (por si querés levantar chunk_size por INI)
-        config_path = os.path.join(os.path.dirname(__file__), 'config.ini')
-        config = configparser.ConfigParser()
-        config.read(config_path)
-
         rabbitmq_host = os.environ.get('RABBITMQ_HOST', 'rabbitmq')
-        queue_in = os.environ.get('QUEUE_IN')  # ej: transactions_filtered_q1_b
-        queue_out = os.environ.get('COMPLETION_QUEUE')  # ej: sorter_q1_v2_signal
+        queue_in = os.environ.get('QUEUE_IN')
+        queue_out = os.environ.get('COMPLETION_QUEUE')
         replica_id = socket.gethostname()
-
-        # chunk_size desde ENV o desde INI ([splitter] chunk_size)
-        chunk_size_env = os.environ.get('CHUNK_SIZE')
-        if chunk_size_env:
-            chunk_size = int(chunk_size_env)
-        else:
-            chunk_size = int(config.get('splitter', 'chunk_size', fallback='10000'))
-
-        if not queue_in:
-            raise ValueError("QUEUE_IN no está seteada")
-        if not queue_out:
-            raise ValueError("COMPLETION_QUEUE no está seteada")
-
+        chunk_size = int(os.environ.get('CHUNK_SIZE', 10000))
         return SplitterQ1(queue_in, queue_out, rabbitmq_host, chunk_size, replica_id)
 
-    # punto de entrada común del framework de workers
-    config_path = os.path.join(os.path.dirname(__file__), 'config.ini')
-    SplitterQ1.run_worker_main(create_splitter, config_path)
+    SplitterQ1.run_worker_main(create_splitter)

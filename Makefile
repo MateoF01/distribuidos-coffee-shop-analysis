@@ -2,20 +2,22 @@ SHELL := /bin/bash
 PWD := $(shell pwd)
 
 # 🧩 Replica configuration (default values)
-CLEANER_TRANSACTIONS_REPLICAS ?= 10
-CLEANER_TRANSACTION_ITEMS_REPLICAS ?= 20
+CLEANER_TRANSACTIONS_REPLICAS ?= 2
+CLEANER_TRANSACTION_ITEMS_REPLICAS ?= 2
 CLEANER_USERS_REPLICAS ?= 1
 CLEANER_STORES_REPLICAS ?= 1
 CLEANER_MENU_ITEMS_REPLICAS ?= 1
-CLEANER_TRANSACTIONS_REPLICAS_Q4 ?= 10
+CLEANER_TRANSACTIONS_REPLICAS_Q4 ?= 2
 
-GROUPER_Q2_V2_REPLICAS ?= 10
-GROUPER_Q3_V2_REPLICAS ?= 10
-GROUPER_Q4_V2_REPLICAS ?= 10
+GROUPER_Q2_V2_REPLICAS ?= 2
+GROUPER_Q3_V2_REPLICAS ?= 2
+GROUPER_Q4_V2_REPLICAS ?= 2
 
-TEMPORAL_FILTER_TRANSACTIONS_REPLICAS ?= 10
-TEMPORAL_FILTER_TRANSACTION_ITEMS_REPLICAS ?= 20
-AMOUNT_FILTER_TRANSACTIONS_REPLICAS ?= 10
+TEMPORAL_FILTER_TRANSACTIONS_REPLICAS ?= 2
+TEMPORAL_FILTER_TRANSACTION_ITEMS_REPLICAS ?= 2
+AMOUNT_FILTER_TRANSACTIONS_REPLICAS ?= 2
+
+SPLITTER_Q1_REPLICAS ?= 2
 
 default: help
 
@@ -42,6 +44,7 @@ help:
 	@echo "  temporal_filter_transactions: $(TEMPORAL_FILTER_TRANSACTIONS_REPLICAS)"
 	@echo "  temporal_filter_transaction_items: $(TEMPORAL_FILTER_TRANSACTION_ITEMS_REPLICAS)"
 	@echo "  amount_filter_transactions: $(AMOUNT_FILTER_TRANSACTIONS)"
+	@echo "  splitter_q1: $(SPLITTER_Q1_REPLICAS)"
 	@echo ""
 	@echo "Examples:"
 	@echo "  make up  # Start with defaults"
@@ -71,7 +74,8 @@ up: build
 	  --scale grouper_q4_v2=$(GROUPER_Q4_V2_REPLICAS) \
 	  --scale temporal_filter_transactions=$(TEMPORAL_FILTER_TRANSACTIONS_REPLICAS) \
 	  --scale temporal_filter_transaction_items=$(TEMPORAL_FILTER_TRANSACTION_ITEMS_REPLICAS) \
-      --scale amount_filter_transactions=$(AMOUNT_FILTER_TRANSACTIONS_REPLICAS) 
+      --scale amount_filter_transactions=$(AMOUNT_FILTER_TRANSACTIONS_REPLICAS) \
+	  --scale splitter_q1=$(SPLITTER_Q1_REPLICAS) 
 
 
 
@@ -80,13 +84,14 @@ up: build
 down:
 	docker compose stop -t 5
 	docker compose down
-	@echo "🧹 Cleaning up output, temp, WSM, and client results..."
+	@echo "🧹 Cleaning up output, temp, WSM, splitter, and client results..."
 	@docker run --rm \
 		-v $(PWD)/output:/tmp/output \
 		-v $(PWD)/output_wsm:/tmp/output_wsm \
 		-v $(PWD)/grouper_v2/temp/q2:/tmp/grouper_q2 \
 		-v $(PWD)/grouper_v2/temp/q3:/tmp/grouper_q3 \
 		-v $(PWD)/grouper_v2/temp/q4:/tmp/grouper_q4 \
+		-v $(PWD)/splitter/temp:/tmp/splitter_temp \
 		-v $(PWD)/reducer/temp:/tmp/reducer_temp \
 		-v $(PWD)/topper/temp:/tmp/topper_temp \
 		-v $(PWD)/client/results:/tmp/client_results \
@@ -96,6 +101,7 @@ down:
 			/tmp/grouper_q2/* \
 			/tmp/grouper_q3/* \
 			/tmp/grouper_q4/* \
+			/tmp/splitter_temp/* \
 			/tmp/reducer_temp/* \
 			/tmp/topper_temp/* \
 			/tmp/client_results/* 2>/dev/null || true"
@@ -115,13 +121,14 @@ logs:
 # 🧽 Clean output/temp files
 .PHONY: clean
 clean:
-	@echo "🧹 Cleaning up output, temp, WSM, and client result directories..."
+	@echo "🧹 Cleaning up output, temp, WSM, splitter, and client result directories..."
 	@docker run --rm \
 		-v $(PWD)/output:/tmp/output \
 		-v $(PWD)/output_wsm:/tmp/output_wsm \
 		-v $(PWD)/grouper_v2/temp/q2:/tmp/grouper_q2 \
 		-v $(PWD)/grouper_v2/temp/q3:/tmp/grouper_q3 \
 		-v $(PWD)/grouper_v2/temp/q4:/tmp/grouper_q4 \
+		-v $(PWD)/splitter/temp:/tmp/splitter_temp \
 		-v $(PWD)/reducer/temp:/tmp/reducer_temp \
 		-v $(PWD)/topper/temp:/tmp/topper_temp \
 		-v $(PWD)/client/results:/tmp/client_results \
@@ -131,11 +138,12 @@ clean:
 			/tmp/grouper_q2/* \
 			/tmp/grouper_q3/* \
 			/tmp/grouper_q4/* \
+			/tmp/splitter_temp/* \
 			/tmp/reducer_temp/* \
 			/tmp/topper_temp/* \
 			/tmp/client_results/* 2>/dev/null || true"
 	@echo "✅ Cleanup complete!"
-
+	
 # 📊 Status
 .PHONY: status
 status:

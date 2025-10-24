@@ -4,47 +4,35 @@ import heapq
 import logging
 from glob import glob
 from shared import protocol
-from shared.worker import StreamProcessingWorker
+from shared.worker import SignalProcessingWorker
 
 
-class SorterV2(StreamProcessingWorker):
+class SorterV2(SignalProcessingWorker):
     """
     Sorter V2:
     - Espera una señal split_done (desde splitter_q1).
-    - Fusiona y ordena todos los chunks.
+    - Fusiona y ordena todos los chunks de todas las réplicas.
     - Genera un único archivo final q1_sorted.csv.
-    - Notifica al siguiente componente (q1_sender).
+    - Envía una notificación sort_done al siguiente componente (q1_sender).
     """
 
-    def __init__(self, queue_in, queue_out, rabbitmq_host, base_temp_root, sort_columns):
+    def __init__(self, queue_in, queue_out, rabbitmq_host, base_temp_root, sort_columns="0"):
         super().__init__(queue_in, queue_out, rabbitmq_host)
         self.base_temp_root = base_temp_root
         self.sort_columns = [int(x) for x in sort_columns.split(",")]
-        logging.info(f"[SorterV2] Inicializado - in={queue_in}, out={queue_out}")
+        os.makedirs(self.base_temp_root, exist_ok=True)
+        logging.info(f"[SorterV2] Inicializado - in={queue_in}, out={queue_out}, sort_columns={self.sort_columns}")
 
-    # ------------------------------------------------------------
-    # 🔔 Recepción de mensajes
-    # ------------------------------------------------------------
-    def _process_message(self, message, msg_type, data_type,
-                         request_id, timestamp, payload, queue_name=None):
-        if msg_type != protocol.MSG_TYPE_NOTIFICATION:
-            logging.warning(f"[SorterV2] Mensaje inesperado tipo {msg_type}")
-            return
-
-        logging.info(f"[SorterV2] Señal recibida split_done para request {request_id}")
-        self._process_sort(request_id)
-        self._send_completion_signal(request_id)
-
-    # ------------------------------------------------------------
-    # 🧠 Ordenamiento y merge de chunks
-    # ------------------------------------------------------------
-    def _process_sort(self, request_id):
+    # ======================================================
+    # CORE: Ejecutado al recibir señal NOTI (split_done)
+    # ======================================================
+    def _process_signal(self, request_id):
         splitter_root = os.path.join(self.base_temp_root, "splitter_q1", str(request_id))
         pattern = os.path.join(splitter_root, "*", "chunk_*.csv")
         chunk_files = sorted(glob(pattern))
 
         if not chunk_files:
-            logging.error(f"[SorterV2] ❌ No hay chunks para request {request_id}")
+            logging.error(f"[SorterV2] ❌ No hay chunks para request {request_id} en {splitter_root}")
             return
 
         output_dir = os.path.join(self.base_temp_root, "q1_sorted", str(request_id))
@@ -56,19 +44,20 @@ class SorterV2(StreamProcessingWorker):
         heap = []
         file_handles = []
 
-        # abrir todos los chunks y cargar la primera línea de cada uno al heap
+        # Abrir todos los chunks y cargar la primera línea de cada uno al heap
         for i, path in enumerate(chunk_files):
-            f = open(path, "r", encoding="utf-8")
-            reader = csv.reader(f)
-            file_handles.append(f)
             try:
-                row = next(reader)
-                key = tuple(row[c] for c in self.sort_columns)
-                heapq.heappush(heap, (key, i, row, reader))
-            except StopIteration:
-                f.close()
+                f = open(path, "r", encoding="utf-8")
+                reader = csv.reader(f)
+                file_handles.append(f)
+                row = next(reader, None)
+                if row:
+                    key = tuple(row[c] for c in self.sort_columns)
+                    heapq.heappush(heap, (key, i, row, reader))
+            except Exception as e:
+                logging.error(f"[SorterV2] Error abriendo {path}: {e}")
 
-        # merge sort
+        # Merge sort
         with open(output_path, "w", newline="", encoding="utf-8") as out:
             writer = csv.writer(out)
             while heap:
@@ -80,32 +69,24 @@ class SorterV2(StreamProcessingWorker):
                     heapq.heappush(heap, (nxt_key, idx, nxt, reader))
                 except StopIteration:
                     file_handles[idx].close()
+                except Exception as e:
+                    logging.error(f"[SorterV2] Error leyendo {chunk_files[idx]}: {e}")
 
-        logging.info(f"[SorterV2] ✅ Orden completado para request {request_id}")
-
-        # cerrar todos los archivos
         for f in file_handles:
             if not f.closed:
                 f.close()
 
-    # ------------------------------------------------------------
-    # 📤 Notificación final
-    # ------------------------------------------------------------
-    def _send_completion_signal(self, request_id):
-        if self.out_queues:
-            payload = f"sort_done;request={request_id}".encode("utf-8")
-            msg = protocol.create_notification_message(
-                protocol.MSG_TYPE_NOTIFICATION, payload, request_id
-            )
-            for q in self.out_queues:
-                q.send(msg)
-            logging.info(f"[SorterV2] sort_done enviado para request {request_id}")
-        else:
-            logging.warning("[SorterV2] Sin cola de salida configurada.")
+        logging.info(f"[SorterV2] ✅ Orden completado para request {request_id}")
+        self._notify_completion(protocol.DATA_TRANSACTIONS, request_id)
+
+    # ======================================================
+    # 🧾 Notificación de finalización (ya la trae SignalProcessingWorker)
+    # ======================================================
+    # Usa self._notify_completion(data_type, request_id)
 
 
 # ==============================================================
-# 🏁 Main
+# 🏁 MAIN
 # ==============================================================
 if __name__ == "__main__":
     def create_sorter_v2():
@@ -118,7 +99,6 @@ if __name__ == "__main__":
         if not queue_in or not queue_out:
             raise ValueError("QUEUE_IN y COMPLETION_QUEUE son requeridos")
 
-        return SorterV2(queue_in, queue_out, rabbitmq_host,
-                        base_temp_root, sort_columns)
+        return SorterV2(queue_in, queue_out, rabbitmq_host, base_temp_root, sort_columns)
 
     SorterV2.run_worker_main(create_sorter_v2)

@@ -441,10 +441,10 @@ services:
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_USER: admin
       RABBITMQ_PASS: secretpassword
-      QUEUE_IN: transactions_filtered_q1_b
+      QUEUE_IN: transactions_filtered_Q1_b
       COMPLETION_QUEUE: sorter_q1_v2_signal
       WSM_HOST: wsm_splitter_q1
-      WSM_PORT: 9100
+      WSM_PORT: 9020
       CHUNK_SIZE: 5000
       BASE_TEMP_DIR: /app/temp/splitter_q1
     volumes:
@@ -461,7 +461,7 @@ services:
       PYTHONUNBUFFERED: 1
       STATE_FILE_PATH: /app/output/worker_states_splitter_q1.json
       HOST: 0.0.0.0
-      PORT: 9100
+      PORT: 9020
     volumes:
       - ./output_wsm:/app/output
     networks:
@@ -485,11 +485,12 @@ services:
       BASE_TEMP_DIR: /app/temp
       SORT_COLUMNS: "0"                      # columnas por las que ordenar
     volumes:
+      - ./splitter/temp:/app/temp
       - ./sorter_v2/temp:/app/temp
     networks:
       - coffee-net
 
-  
+
   grouper_q2_v2:
     build:
       context: .
@@ -996,7 +997,7 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
-      sorter_q1:
+      sorter_q1_v2:
         condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
