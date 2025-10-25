@@ -3,7 +3,7 @@ PWD := $(shell pwd)
 
 # 🧩 Replica configuration (default values)
 CLEANER_TRANSACTIONS_REPLICAS ?= 10
-CLEANER_TRANSACTION_ITEMS_REPLICAS ?= 20
+CLEANER_TRANSACTION_ITEMS_REPLICAS ?= 15
 CLEANER_USERS_REPLICAS ?= 1
 CLEANER_STORES_REPLICAS ?= 1
 CLEANER_MENU_ITEMS_REPLICAS ?= 1
@@ -16,6 +16,10 @@ GROUPER_Q4_V2_REPLICAS ?= 10
 TEMPORAL_FILTER_TRANSACTIONS_REPLICAS ?= 10
 TEMPORAL_FILTER_TRANSACTION_ITEMS_REPLICAS ?= 20
 AMOUNT_FILTER_TRANSACTIONS_REPLICAS ?= 10
+
+JOINER_V2_Q2_REPLICAS ?= 2
+JOINER_V2_Q3_REPLICAS ?= 2
+JOINER_V2_Q4_REPLICAS ?= 2
 
 default: help
 
@@ -71,7 +75,10 @@ up: build
 	  --scale grouper_q4_v2=$(GROUPER_Q4_V2_REPLICAS) \
 	  --scale temporal_filter_transactions=$(TEMPORAL_FILTER_TRANSACTIONS_REPLICAS) \
 	  --scale temporal_filter_transaction_items=$(TEMPORAL_FILTER_TRANSACTION_ITEMS_REPLICAS) \
-      --scale amount_filter_transactions=$(AMOUNT_FILTER_TRANSACTIONS_REPLICAS) 
+		--scale amount_filter_transactions=$(AMOUNT_FILTER_TRANSACTIONS_REPLICAS) \
+		--scale joiner_v2_q2=$(JOINER_V2_Q2_REPLICAS) \
+		--scale joiner_v2_q3=$(JOINER_V2_Q3_REPLICAS) \
+		--scale joiner_v2_q4=$(JOINER_V2_Q4_REPLICAS) \
 
 
 
@@ -84,6 +91,7 @@ down:
 	@docker run --rm \
 		-v $(PWD)/output:/tmp/output \
 		-v $(PWD)/output_wsm:/tmp/output_wsm \
+		-v $(PWD)/output_shm:/tmp/output_shm \
 		-v $(PWD)/grouper_v2/temp/q2:/tmp/grouper_q2 \
 		-v $(PWD)/grouper_v2/temp/q3:/tmp/grouper_q3 \
 		-v $(PWD)/grouper_v2/temp/q4:/tmp/grouper_q4 \
@@ -93,6 +101,7 @@ down:
 		alpine:latest sh -c "rm -rf \
 			/tmp/output/* \
 			/tmp/output_wsm/* \
+			/tmp/output_shm/* \
 			/tmp/grouper_q2/* \
 			/tmp/grouper_q3/* \
 			/tmp/grouper_q4/* \
@@ -119,6 +128,7 @@ clean:
 	@docker run --rm \
 		-v $(PWD)/output:/tmp/output \
 		-v $(PWD)/output_wsm:/tmp/output_wsm \
+		-v $(PWD)/output_shm:/tmp/output_shm \
 		-v $(PWD)/grouper_v2/temp/q2:/tmp/grouper_q2 \
 		-v $(PWD)/grouper_v2/temp/q3:/tmp/grouper_q3 \
 		-v $(PWD)/grouper_v2/temp/q4:/tmp/grouper_q4 \
@@ -128,6 +138,7 @@ clean:
 		alpine:latest sh -c "rm -rf \
 			/tmp/output/* \
 			/tmp/output_wsm/* \
+			/tmp/output_shm/* \
 			/tmp/grouper_q2/* \
 			/tmp/grouper_q3/* \
 			/tmp/grouper_q4/* \

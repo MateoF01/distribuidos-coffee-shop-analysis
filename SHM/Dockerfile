@@ -30,4 +30,4 @@ ENV PYTHONPATH=/app
 # 🚀 Start the server
 # -------------------------------
 EXPOSE 9100
-CMD ["python", "hashmap_server.py"]
+CMD ["python", "-u", "SHM/hashmap_server.py"]
