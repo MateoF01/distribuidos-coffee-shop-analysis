@@ -41,7 +41,7 @@ services:
       GATEWAY_PORT: 5000
       QUEUE_IN: results
       REQUESTS_PER_CLIENT: 1
-      GATEWAY_MAX_PROCESSES: 5
+      GATEWAY_MAX_PROCESSES: 3
     networks:
     - coffee-net
   client1:
@@ -127,66 +127,6 @@ services:
       DATA_DIR: /app/.data
       SERVER_ADDRESS: gateway:5000
       CLIENT_ID: client3
-      BATCH_MAX_AMOUNT: 5000
-      REQUESTS_PER_CLIENT: 1
-    volumes:
-    - ./data:/app/.data
-    - ./client/results:/app/client/results
-    networks:
-    - coffee-net
-  client4:
-    build:
-      context: .
-      dockerfile: client/Dockerfile
-    container_name: client4
-    depends_on:
-      gateway:
-        condition: service_started
-      sender_q1:
-        condition: service_started
-      sender_q2_a:
-        condition: service_started
-      sender_q2_b:
-        condition: service_started
-      sender_q3:
-        condition: service_started
-      sender_q4:
-        condition: service_started
-    environment:
-      PYTHONUNBUFFERED: 1
-      DATA_DIR: /app/.data
-      SERVER_ADDRESS: gateway:5000
-      CLIENT_ID: client4
-      BATCH_MAX_AMOUNT: 5000
-      REQUESTS_PER_CLIENT: 1
-    volumes:
-    - ./data:/app/.data
-    - ./client/results:/app/client/results
-    networks:
-    - coffee-net
-  client5:
-    build:
-      context: .
-      dockerfile: client/Dockerfile
-    container_name: client5
-    depends_on:
-      gateway:
-        condition: service_started
-      sender_q1:
-        condition: service_started
-      sender_q2_a:
-        condition: service_started
-      sender_q2_b:
-        condition: service_started
-      sender_q3:
-        condition: service_started
-      sender_q4:
-        condition: service_started
-    environment:
-      PYTHONUNBUFFERED: 1
-      DATA_DIR: /app/.data
-      SERVER_ADDRESS: gateway:5000
-      CLIENT_ID: client5
       BATCH_MAX_AMOUNT: 5000
       REQUESTS_PER_CLIENT: 1
     volumes:
@@ -531,11 +471,50 @@ services:
     - ./output_wsm:/app/output
     networks:
     - coffee-net
-  joiner_q1:
+  splitter_q1:
     build:
       context: .
-      dockerfile: joiner/Dockerfile
-    container_name: joiner_q1
+      dockerfile: splitter/Dockerfile
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      gateway:
+        condition: service_started
+      wsm_splitter_q1:
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      QUEUE_IN: transactions_filtered_Q1_b
+      COMPLETION_QUEUE: sorter_q1_v2_signal
+      WSM_HOST: wsm_splitter_q1
+      WSM_PORT: 9020
+      CHUNK_SIZE: 1000
+      BASE_TEMP_DIR: /app/temp/splitter_q1
+    volumes:
+    - ./splitter/temp:/app/temp
+    networks:
+    - coffee-net
+  wsm_splitter_q1:
+    build:
+      context: .
+      dockerfile: WSM/Dockerfile
+    container_name: wsm_splitter_q1
+    environment:
+      PYTHONUNBUFFERED: 1
+      STATE_FILE_PATH: /app/output/worker_states_splitter_q1.json
+      HOST: 0.0.0.0
+      PORT: 9020
+    volumes:
+    - ./output_wsm:/app/output
+    networks:
+    - coffee-net
+  sorter_q1_v2:
+    build:
+      context: .
+      dockerfile: sorter_v2/Dockerfile
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -544,37 +523,13 @@ services:
     environment:
       PYTHONUNBUFFERED: 1
       RABBITMQ_HOST: rabbitmq
-      RABBITMQ_USER: admin
-      RABBITMQ_PASS: secretpassword
-      QUEUE_IN: transactions_filtered_Q1_b
-      QUEUE_OUT: sort_q1_request
-      OUTPUT_FILE: /app/output/q1_unsorted.csv
-      QUERY_TYPE: q1
-    volumes:
-    - ./output:/app/output
-    networks:
-    - coffee-net
-  sorter_q1:
-    build:
-      context: .
-      dockerfile: sort/Dockerfile
-    container_name: sorter_q1
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-      joiner_q1:
-        condition: service_started
-    environment:
-      PYTHONUNBUFFERED: 1
-      RABBITMQ_HOST: rabbitmq
-      RABBITMQ_USER: admin
-      RABBITMQ_PASS: secretpassword
-      QUEUE_IN: sort_q1_request
-      INPUT_FILE: /app/output/q1_unsorted.csv
-      OUTPUT_FILE: /app/output/q1.csv
-      DATA_TYPE: q1
+      QUEUE_IN: sorter_q1_v2_signal
       COMPLETION_QUEUE: sender_q1_signal
+      BASE_TEMP_DIR: /app/temp
+      SORT_COLUMNS: '0'
     volumes:
+    - ./splitter/temp:/app/temp
+    - ./sorter_v2/temp:/app/temp
     - ./output:/app/output
     networks:
     - coffee-net
@@ -1073,7 +1028,7 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
-      sorter_q1:
+      sorter_q1_v2:
         condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
