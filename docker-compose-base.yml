@@ -445,7 +445,7 @@ services:
       COMPLETION_QUEUE: sorter_q1_v2_signal
       WSM_HOST: wsm_splitter_q1
       WSM_PORT: 9020
-      CHUNK_SIZE: 5000
+      CHUNK_SIZE: 1000
       BASE_TEMP_DIR: /app/temp/splitter_q1
     volumes:
       - ./splitter/temp:/app/temp

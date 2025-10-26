@@ -70,60 +70,90 @@ class SplitterQ1(StreamProcessingWorker):
     # ------------------------------------------------------------
     # Escritura de chunks
     # ------------------------------------------------------------
-    def _write_chunk(self, request_id):
+    def _write_chunk(self, request_id, new_rows=None):
         """
-        Escribe el buffer actual a disco como chunk_<idx>.csv, ordenado por guid (primera columna).
+        Carga el último chunk existente (si hay),
+        le agrega las filas nuevas, las ordena y lo reescribe.
+        Si el tamaño supera chunk_size, crea un nuevo chunk.
         """
         buf = self.buffers[request_id]
-        if buf["count"] == 0:
-            return  # nada que escribir
-
         req_dir = self._ensure_request_dir(request_id)
-        filename = f"chunk_{buf['chunk_idx']}.csv"
+
+        # determinar último chunk existente
+        chunk_idx = buf["chunk_idx"]
+        filename = f"chunk_{chunk_idx}.csv"
         path = os.path.join(req_dir, filename)
 
-        # 🔸 ordenar el buffer por la primera columna (guid)
-        buf["rows"].sort(key=lambda line: line.split(",")[0])
+        # leer filas previas si el archivo ya existe
+        existing_rows = []
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                existing_rows = [ln.strip() for ln in f if ln.strip()]
 
-        with open(path, "w", newline="", encoding="utf-8") as f:
-            for line in buf["rows"]:
-                f.write(line.rstrip("\n") + "\n")
+        # agregar las nuevas
+        if new_rows:
+            existing_rows.extend(new_rows)
 
-        logging.info(f"[SplitterQ1:{self.replica_id}] wrote {filename} ({buf['count']} rows) for request {request_id}")
+        # si supera el tamaño, guardar chunk actual y abrir nuevo
+        if len(existing_rows) > self.chunk_size:
+            # cortar las primeras chunk_size filas y mantener resto para el próximo chunk
+            to_write = existing_rows[:self.chunk_size]
+            remaining = existing_rows[self.chunk_size:]
 
-        # reset estado
-        buf["rows"].clear()
-        buf["count"] = 0
-        buf["chunk_idx"] += 1
+            # ordenar y escribir chunk actual
+            to_write.sort(key=lambda ln: ln.split(",")[0])
+            with open(path, "w", encoding="utf-8", newline="") as f:
+                for ln in to_write:
+                    f.write(ln + "\n")
+
+            # preparar nuevo archivo
+            buf["chunk_idx"] += 1
+            new_filename = f"chunk_{buf['chunk_idx']}.csv"
+            new_path = os.path.join(req_dir, new_filename)
+
+            # escribir el resto (ordenado también)
+            remaining.sort(key=lambda ln: ln.split(",")[0])
+            with open(new_path, "w", encoding="utf-8", newline="") as f:
+                for ln in remaining:
+                    f.write(ln + "\n")
+
+        else:
+            # ordenar y reescribir el mismo archivo
+            existing_rows.sort(key=lambda ln: ln.split(",")[0])
+            with open(path, "w", encoding="utf-8", newline="") as f:
+                for ln in existing_rows:
+                    f.write(ln + "\n")
 
 
     def _append_row(self, request_id, row_text):
         """
-        Agrega una fila al buffer; si llega al chunk_size, rota y escribe chunk.
+        Cada mensaje se escribe directo al último chunk (reordenando).
         """
-        buf = self.buffers[request_id]
-        buf["rows"].append(row_text)
-        buf["count"] += 1
+        self._write_chunk(request_id, [row_text])
 
-        if buf["count"] >= self.chunk_size:
-            self._write_chunk(request_id)
 
     # ------------------------------------------------------------
     # Ciclo de mensajes
     # ------------------------------------------------------------
     def _process_message(self, message, msg_type, data_type, request_id, timestamp, payload, queue_name=None):
 
+        print("MESSAGE: ", message)
+
         # inicializo dir al primer mensaje del request
         self._ensure_request_dir(request_id)
 
         # estado WSM
         self.wsm_client.update_state("PROCESSING", request_id)
+        print(f"[{self.replica_id}] PROCESSING")
+        
 
         # proceso (esto invocará _process_rows / _handle_end_signal)
         super()._process_message(message, msg_type, data_type, request_id, timestamp, payload, queue_name)
 
         # listo por ahora
+
         self.wsm_client.update_state("WAITING")
+        print(f"[{self.replica_id}] WAITING")
 
     # ------------------------------------------------------------
     # Filas de datos
@@ -168,20 +198,16 @@ class SplitterQ1(StreamProcessingWorker):
         - Envía notificación al sorter_v2 (COMPLETION_QUEUE).
         """
 
-        if(data_type == 6): #si es el mensaje de final de data lo salteo
+        if(data_type == 6): #si es el mensaje de final de data lo salteo para que no se repitan dos ends de la misma request
             return
-        print("END SIGNAL")
-        print("MESSAGE: ", message)
-        print("MSG TYPE: ", msg_type)
-        print("DATA TYPE: ", data_type)
-        print("REQUEST ID: ", request_id)
-
 
         # flush final de lo pendiente
         self._write_chunk(request_id)
 
         # marcamos END local
         self.wsm_client.update_state("END", request_id)
+        print(f"[{self.replica_id}] END")
+
         logging.info(f"[SplitterQ1:{self.replica_id}] END recibido para request {request_id}. Esperando permiso WSM...")
 
         # esperar permiso global del WSM (todas las réplicas listas)

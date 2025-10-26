@@ -143,7 +143,7 @@ clean:
 			/tmp/topper_temp/* \
 			/tmp/client_results/* 2>/dev/null || true"
 	@echo "✅ Cleanup complete!"
-	
+
 # 📊 Status
 .PHONY: status
 status:
