@@ -164,11 +164,12 @@ class Joiner_v2(Worker):
                     return
                 logging.info(f"[Joiner:{self.query_type}] Waiting for lock on {file_path}...")
                 time.sleep(1)
-
+            logging.info(f"[Joiner:{self.query_type}] Acquired lock on {file_path}")
             self._save_to_temp_file(queue_name, processed_rows, file_path)
 
             if self.shm_client.unlock(file_path) != "OK":
                 logging.error(f"[Joiner:{self.query_type}] Error unlocking {file_path}")
+            logging.info(f"[Joiner:{self.query_type}] Released lock on {file_path}")
             if self.shm_client.change_state(file_path, "WAITING") == "ERROR":
                 logging.error(f"[Joiner:{self.query_type}] ERROR cambiando estado de {file_path} en SHM.")
     
@@ -187,10 +188,15 @@ class Joiner_v2(Worker):
         temp_dir = self._temp_dir_by_request[request_id]
         file_path = os.path.join(temp_dir, f"{queue_name}.csv")
         files_paths = list(map(lambda q: os.path.join(temp_dir, f"{q}.csv"), self.multiple_input_queues))
-
-        if self.shm_client.register(file_path) == "ERROR":
+        
+        response = self.shm_client.register(file_path, "END")
+        if response == "ERROR":
             logging.error(f"[Joiner:{self.query_type}] ERROR registrando {file_path} en SHM.")
             return
+        elif response == "ALREADY_REGISTERED":
+            if self.shm_client.change_state(file_path, "END") == "ERROR":
+                logging.error(f"[Joiner:{self.query_type}] ERROR cambiando estado de {file_path} en SHM.")
+                return
 
         # 4️⃣ Procesar el END recibido
         all_ready = self.shm_client.last_map_is_not_ready(file_path,files_paths)

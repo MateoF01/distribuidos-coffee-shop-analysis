@@ -151,10 +151,12 @@ class SharedHashmapManager:
       return "OK"
   
   def get_ready(self, name):
-    return self.hashmaps.get(name, {}).get("ready", False)
+    with self.lock:
+      return self.hashmaps.get(name, {}).get("ready", False)
 
   def get_version(self, name):
-    return self.hashmaps.get(name, {}).get("version", 0)
+    with self.lock:
+      return self.hashmaps.get(name, {}).get("version", 0)
 
 
 # -------------------------------

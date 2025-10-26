@@ -66,6 +66,10 @@ class GrouperV2(StreamProcessingWorker):
     # 🧩 Manejo del END sincronizado
     # ------------------------------------------------------------
     def _handle_end_signal(self, message, msg_type, data_type, request_id, queue_name=None):
+        if data_type == protocol.DATA_END:
+            logging.info(f"[GrouperV2:{self.grouper_mode}] Recibido DATA_END para request {request_id} en cola {queue_name}.")
+            return
+        
         self.wsm_client.update_state("END", request_id)
         logging.info(f"[GrouperV2:{self.grouper_mode}] Recibido END para request {request_id}. Esperando permiso del WSM...")
 
