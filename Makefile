@@ -3,7 +3,7 @@ PWD := $(shell pwd)
 
 # 🧩 Replica configuration (default values)
 CLEANER_TRANSACTIONS_REPLICAS ?= 2
-CLEANER_TRANSACTION_ITEMS_REPLICAS ?= 2
+CLEANER_TRANSACTION_ITEMS_REPLICAS ?= 4
 CLEANER_USERS_REPLICAS ?= 1
 CLEANER_STORES_REPLICAS ?= 1
 CLEANER_MENU_ITEMS_REPLICAS ?= 1
@@ -13,11 +13,16 @@ GROUPER_Q2_V2_REPLICAS ?= 2
 GROUPER_Q3_V2_REPLICAS ?= 2
 GROUPER_Q4_V2_REPLICAS ?= 2
 
+REDUCER_Q2_REPLICAS ?= 2
+REDUCER_Q3_REPLICAS ?= 2
+REDUCER_Q4_REPLICAS ?= 2
+
 TEMPORAL_FILTER_TRANSACTIONS_REPLICAS ?= 2
-TEMPORAL_FILTER_TRANSACTION_ITEMS_REPLICAS ?= 2
+TEMPORAL_FILTER_TRANSACTION_ITEMS_REPLICAS ?= 3
 AMOUNT_FILTER_TRANSACTIONS_REPLICAS ?= 2
 
-SPLITTER_Q1_REPLICAS ?= 2
+SPLITTER_Q1_REPLICAS ?= 3
+SORTER_Q1_V2_REPLICAS ?= 2
 
 default: help
 
@@ -41,10 +46,14 @@ help:
 	@echo "  grouper_q2_v2: $(GROUPER_Q2_V2_REPLICAS)"
 	@echo "  grouper_q3_v2: $(GROUPER_Q3_V2_REPLICAS)"
 	@echo "  grouper_q4_v2: $(GROUPER_Q4_V2_REPLICAS)"
+	@echo "  reducer_q2: $(REDUCER_Q2_REPLICAS)"
+	@echo "  reducer_q3: $(REDUCER_Q3_REPLICAS)"
+	@echo "  reducer_q4: $(REDUCER_Q4_REPLICAS)"
 	@echo "  temporal_filter_transactions: $(TEMPORAL_FILTER_TRANSACTIONS_REPLICAS)"
 	@echo "  temporal_filter_transaction_items: $(TEMPORAL_FILTER_TRANSACTION_ITEMS_REPLICAS)"
 	@echo "  amount_filter_transactions: $(AMOUNT_FILTER_TRANSACTIONS)"
 	@echo "  splitter_q1: $(SPLITTER_Q1_REPLICAS)"
+	@echo "  sorter_q1_v2: $(SORTER_Q1_V2_REPLICAS)"
 	@echo ""
 	@echo "Examples:"
 	@echo "  make up  # Start with defaults"
@@ -72,10 +81,15 @@ up: build
 	  --scale grouper_q2_v2=$(GROUPER_Q2_V2_REPLICAS) \
 	  --scale grouper_q3_v2=$(GROUPER_Q3_V2_REPLICAS) \
 	  --scale grouper_q4_v2=$(GROUPER_Q4_V2_REPLICAS) \
+	  --scale reducer_q2=$(REDUCER_Q2_REPLICAS) \
+	  --scale reducer_q3=$(REDUCER_Q3_REPLICAS) \
+	  --scale reducer_q4=$(REDUCER_Q4_REPLICAS) \
 	  --scale temporal_filter_transactions=$(TEMPORAL_FILTER_TRANSACTIONS_REPLICAS) \
 	  --scale temporal_filter_transaction_items=$(TEMPORAL_FILTER_TRANSACTION_ITEMS_REPLICAS) \
       --scale amount_filter_transactions=$(AMOUNT_FILTER_TRANSACTIONS_REPLICAS) \
-	  --scale splitter_q1=$(SPLITTER_Q1_REPLICAS) 
+	  --scale splitter_q1=$(SPLITTER_Q1_REPLICAS) \
+	  --scale sorter_q1_v2=$(SORTER_Q1_V2_REPLICAS) 
+
 
 
 
