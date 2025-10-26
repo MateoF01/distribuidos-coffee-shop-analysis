@@ -480,13 +480,14 @@ services:
     environment:
       PYTHONUNBUFFERED: 1
       RABBITMQ_HOST: rabbitmq
-      QUEUE_IN: sorter_q1_v2_signal          # recibe del splitter_q1
-      COMPLETION_QUEUE: q1_sender_signal     # notifica al sender Q1
+      QUEUE_IN: sorter_q1_v2_signal         
+      COMPLETION_QUEUE: sender_q1_signal     
       BASE_TEMP_DIR: /app/temp
-      SORT_COLUMNS: "0"                      # columnas por las que ordenar
+      SORT_COLUMNS: "0"                    
     volumes:
       - ./splitter/temp:/app/temp
       - ./sorter_v2/temp:/app/temp
+      - ./output:/app/output
     networks:
       - coffee-net
 
@@ -965,6 +966,7 @@ services:
     - ./topper/temp:/app/topper_temp
     networks:
     - coffee-net
+
   sender_grouper_q3:
     build:
       context: .
@@ -989,6 +991,7 @@ services:
     - ./topper/temp:/app/topper_temp
     networks:
     - coffee-net
+
   sender_q1:
     build:
       context: .
@@ -1013,6 +1016,7 @@ services:
     - ./output:/app/output
     networks:
     - coffee-net
+
   joiner_q3:
     build:
       context: .

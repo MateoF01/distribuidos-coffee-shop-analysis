@@ -72,7 +72,7 @@ class SplitterQ1(StreamProcessingWorker):
     # ------------------------------------------------------------
     def _write_chunk(self, request_id):
         """
-        Escribe el buffer actual a disco como chunk_<idx>.csv
+        Escribe el buffer actual a disco como chunk_<idx>.csv, ordenado por guid (primera columna).
         """
         buf = self.buffers[request_id]
         if buf["count"] == 0:
@@ -82,16 +82,12 @@ class SplitterQ1(StreamProcessingWorker):
         filename = f"chunk_{buf['chunk_idx']}.csv"
         path = os.path.join(req_dir, filename)
 
-        # guardamos las filas tal cual llegan (una por línea)
-        # la línea viene del protocolo como texto (por ej '|' separado). El sorter_v2
-        # luego leerá estas filas para ordenar.
+        # 🔸 ordenar el buffer por la primera columna (guid)
+        buf["rows"].sort(key=lambda line: line.split(",")[0])
+
         with open(path, "w", newline="", encoding="utf-8") as f:
             for line in buf["rows"]:
-                # aseguramos newline por cada fila
-                if line.endswith("\n"):
-                    f.write(line)
-                else:
-                    f.write(line + "\n")
+                f.write(line.rstrip("\n") + "\n")
 
         logging.info(f"[SplitterQ1:{self.replica_id}] wrote {filename} ({buf['count']} rows) for request {request_id}")
 
@@ -99,6 +95,7 @@ class SplitterQ1(StreamProcessingWorker):
         buf["rows"].clear()
         buf["count"] = 0
         buf["chunk_idx"] += 1
+
 
     def _append_row(self, request_id, row_text):
         """
@@ -133,9 +130,9 @@ class SplitterQ1(StreamProcessingWorker):
     # ------------------------------------------------------------
     def _process_rows(self, rows, queue_name=None):
         """
-        Recibe filas decodificadas (texto), las agrupa en chunks y las escribe a disco.
+        Recibe filas decodificadas (texto), extrae solo los primeros dos campos (guid, amount)
+        y los guarda separados por coma en los chunks.
         """
-
         request_id = self.current_request_id  # viene desde la superclase
         self._ensure_request_dir(request_id)
 
@@ -143,7 +140,21 @@ class SplitterQ1(StreamProcessingWorker):
             row = row.strip()
             if not row:
                 continue
-            self._append_row(request_id, row)
+
+            # dividir por '|'
+            parts = row.split('|')
+
+            if len(parts) < 2:
+                continue  # si no tiene al menos dos campos, lo ignoramos
+
+            guid = parts[0].strip()
+            amount = parts[1].strip()
+
+            # construir línea CSV con coma
+            formatted = f"{guid},{amount}"
+
+            self._append_row(request_id, formatted)
+
 
 
     # ------------------------------------------------------------
@@ -156,6 +167,16 @@ class SplitterQ1(StreamProcessingWorker):
         - Espera hasta que WSM diga que se puede enviar END downstream.
         - Envía notificación al sorter_v2 (COMPLETION_QUEUE).
         """
+
+        if(data_type == 6): #si es el mensaje de final de data lo salteo
+            return
+        print("END SIGNAL")
+        print("MESSAGE: ", message)
+        print("MSG TYPE: ", msg_type)
+        print("DATA TYPE: ", data_type)
+        print("REQUEST ID: ", request_id)
+
+
         # flush final de lo pendiente
         self._write_chunk(request_id)
 

@@ -35,9 +35,9 @@ class SorterV2(SignalProcessingWorker):
             logging.error(f"[SorterV2] ❌ No hay chunks para request {request_id} en {splitter_root}")
             return
 
-        output_dir = os.path.join(self.base_temp_root, "q1_sorted", str(request_id))
+        output_dir = os.path.join("/app/output", str(request_id))
         os.makedirs(output_dir, exist_ok=True)
-        output_path = os.path.join(output_dir, "q1_sorted.csv")
+        output_path = os.path.join(output_dir, "q1.csv")
 
         logging.info(f"[SorterV2] 🔄 Ordenando {len(chunk_files)} chunks -> {output_path}")
 

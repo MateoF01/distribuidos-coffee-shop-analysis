@@ -464,12 +464,13 @@ services:
       PYTHONUNBUFFERED: 1
       RABBITMQ_HOST: rabbitmq
       QUEUE_IN: sorter_q1_v2_signal
-      COMPLETION_QUEUE: q1_sender_signal
+      COMPLETION_QUEUE: sender_q1_signal
       BASE_TEMP_DIR: /app/temp
       SORT_COLUMNS: '0'
     volumes:
     - ./splitter/temp:/app/temp
     - ./sorter_v2/temp:/app/temp
+    - ./output:/app/output
     networks:
     - coffee-net
   grouper_q2_v2:
