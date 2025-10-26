@@ -161,10 +161,24 @@ class GrouperV2(StreamProcessingWorker):
             old = 0.0
             if os.path.exists(path):
                 with open(path, 'r') as f:
-                    try: old = float(f.read().strip())
-                    except: pass
+                    try:
+                        old = float(f.read().strip())
+                    except:
+                        pass
+
+            total = old + val
+
+            # Detectar si tiene más de 2 decimales y redondear en ese caso
+            s = f"{total:.10f}".rstrip('0').rstrip('.')
+            if '.' in s and len(s.split('.')[1]) > 2:
+                print("REDONDEO! PRE :", total)
+                total = int(total * 100 + 0.5) / 100.0
+                print("REDONDEO! POST :", total)
+
+
+            # Escribir el resultado final
             with open(path, 'w') as f:
-                f.write(f"{old + val}\n")
+                f.write(f"{total}\n")
 
     # === Q4 ===
     def _q4_agg(self, rows, temp_dir):
