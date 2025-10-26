@@ -124,13 +124,14 @@ class Joiner_v2(Worker):
 
         file_path = os.path.join(temp_dir, f"{queue_name}.csv")
 
-        if self.shm_client.register(file_path) == "ERROR":
+        response = self.shm_client.register(file_path, "PROCESSING")
+        if response == "ERROR":
             logging.error(f"[Joiner:{self.query_type}] ERROR registrando {file_path} en SHM.")
             return
-
-        if self.shm_client.change_state(file_path, "PROCESSING") == "ERROR":
-            logging.error(f"[Joiner:{self.query_type}] ERROR cambiando estado de {file_path} en SHM.")
-            return
+        elif response == "ALREADY_REGISTERED":
+            if self.shm_client.change_state(file_path, "PROCESSING") == "ERROR":
+                logging.error(f"[Joiner:{self.query_type}] ERROR cambiando estado de {file_path} en SHM.")
+                return
 
         try:
             payload_str = payload.decode('utf-8')
@@ -358,7 +359,7 @@ class Joiner_v2(Worker):
         # Main
         main_file = os.path.join(temp_dir, 'resultados_groupby_q4.csv')
         if not os.path.exists(main_file):
-            logging.warning("Main file for Q4 not found")
+            logging.error(f"Main file for Q4 not found: {main_file}")
             return
 
         processed_rows = []
@@ -401,12 +402,12 @@ class Joiner_v2(Worker):
                 for row in reader:
                     if len(row) >= 2:
                         items_lookup[row[0]] = row[1]
-        print(f"Loaded {len(items_lookup)} item mappings")
+        logging.info(f"Loaded {len(items_lookup)} item mappings")
 
         # Main
         main_file = os.path.join(temp_dir, 'resultados_groupby_q2.csv')
         if not os.path.exists(main_file):
-            print("Main file for Q2 not found")
+            logging.error(f"Main file for Q2 not found: {main_file}")
             return
 
         rows_quantity = []

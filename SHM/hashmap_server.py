@@ -74,15 +74,16 @@ class SharedHashmapManager:
   # 🧱 Operaciones básicas
   # -------------------------------
 
-  def register_replica(self, name, replica_id):
+  def register_replica(self, name, replica_id, state="WAITING"):
     """Ensure the replica_id is present in the hashmap's replicas dictionary."""
     with self.lock:
       self._ensure_entry(name)
       replicas = self.hashmaps[name]["replicas"]
+      logging.info(f"[SHM] Registro de réplica {replica_id} en '{name}': {replicas}")
       if replica_id not in replicas:
-        replicas[replica_id] = {"state": "WAITING"}
+        replicas[replica_id] = {"state": state}
         self._save_state()
-        logging.info(f"[SHM] Registrada réplica {replica_id} en '{name}' como WAITING")
+        logging.info(f"[SHM] Registrada réplica {replica_id} en '{name}' como {state}")
       return "OK"
 
   def change_state(self, name, replica_id, state):
@@ -194,7 +195,7 @@ class HashmapServer:
     replica_id = msg.get("replica_id")
 
     if action == "register":
-      return self.manager.register_replica(name, replica_id)
+      return self.manager.register_replica(name, replica_id, msg["state"])
     elif action == "lock_hashmap":
       return self.manager.lock_hashmap(name, replica_id)
     elif action == "unlock_hashmap":

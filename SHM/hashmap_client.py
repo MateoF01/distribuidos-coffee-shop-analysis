@@ -27,7 +27,7 @@ class SharedHashmapClient:
         time.sleep(self.retry_interval)
     return "ERROR"
 
-  def register(self, map_name):
+  def register(self, map_name, state="WAITING"):
     """
     Registers this replica_id under the given hashmap on the SHM server.
     Only sends once per map unless forced.
@@ -38,7 +38,8 @@ class SharedHashmapClient:
     msg = {
       "action": "register",
       "map_name": map_name,
-      "replica_id": self.replica_id
+      "replica_id": self.replica_id,
+      "state": state
     }
     resp = self._send(msg)
     if resp == "OK":
