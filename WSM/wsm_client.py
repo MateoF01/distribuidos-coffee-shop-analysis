@@ -64,3 +64,11 @@ class WSMClient:
             "request_id": request_id
         }
         return self._send_message(msg) == "OK"
+
+    def can_send_last_end(self, request_id):
+        msg = {
+            "action": "can_send_last_end",
+            "worker_type": self.worker_type,
+            "request_id": request_id
+        }
+        return self._send_message(msg) == "OK"

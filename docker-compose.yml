@@ -40,7 +40,7 @@ services:
       GATEWAY_HOST: 0.0.0.0
       GATEWAY_PORT: 5000
       QUEUE_IN: results
-      REQUESTS_PER_CLIENT: 2
+      REQUESTS_PER_CLIENT: 1
       GATEWAY_MAX_PROCESSES: 1
     networks:
     - coffee-net
@@ -68,7 +68,7 @@ services:
       SERVER_ADDRESS: gateway:5000
       CLIENT_ID: client1
       BATCH_MAX_AMOUNT: 5000
-      REQUESTS_PER_CLIENT: 2
+      REQUESTS_PER_CLIENT: 1
     volumes:
     - ./data:/app/.data
     - ./client/results:/app/client/results
@@ -832,7 +832,7 @@ services:
         condition: service_started
       sender_grouper_q2:
         condition: service_started
-      shm_q2:
+      wsm_q2:
         condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
@@ -843,24 +843,25 @@ services:
       QUEUE_OUT: sender_q2_a_signal, sender_q2_b_signal
       OUTPUT_FILE: /app/output/q2_a.csv, /app/output/q2_b.csv
       QUERY_TYPE: q2
-      SHM_HOST: shm_q2
-      SHM_PORT: 9100
+      WSM_HOST: wsm_q2
+      WSM_PORT: 9100
     volumes:
     - ./output:/app/output
     networks:
     - coffee-net
-  shm_q2:
+  wsm_q2:
     build:
       context: .
-      dockerfile: SHM/Dockerfile
-    container_name: shm_q2
+      dockerfile: WSM/Dockerfile
+    container_name: wsm_q2
     environment:
       PYTHONUNBUFFERED: 1
-      HM_STATE_PATH: /app/output/joiner_shared_hashmaps_q2.json
-      HM_HOST: 0.0.0.0
-      HM_PORT: 9100
+      STATE_FILE_PATH: /app/output/joiner_states_q2.json
+      HOST: 0.0.0.0
+      PORT: 9100
+      USING_END_SYNC: 1
     volumes:
-    - ./output_shm:/app/output
+    - ./output_wsm:/app/output
     networks:
     - coffee-net
   sender_q2_a:
@@ -924,7 +925,7 @@ services:
         condition: service_started
       sender_grouper_q4:
         condition: service_started
-      shm_q4:
+      wsm_q4:
         condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
@@ -935,24 +936,25 @@ services:
       QUEUE_OUT: sort_q4_request
       OUTPUT_FILE: /app/output/q4_unsorted.csv
       QUERY_TYPE: q4
-      SHM_HOST: shm_q4
-      SHM_PORT: 9101
+      WSM_HOST: wsm_q4
+      WSM_PORT: 9101
     volumes:
     - ./output:/app/output
     networks:
     - coffee-net
-  shm_q4:
+  wsm_q4:
     build:
       context: .
-      dockerfile: SHM/Dockerfile
-    container_name: shm_q4
+      dockerfile: WSM/Dockerfile
+    container_name: wsm_q4
     environment:
       PYTHONUNBUFFERED: 1
-      HM_STATE_PATH: /app/output/joiner_shared_hashmaps_q4.json
-      HM_HOST: 0.0.0.0
-      HM_PORT: 9101
+      STATE_FILE_PATH: /app/output/joiner_states_q4.json
+      HOST: 0.0.0.0
+      PORT: 9101
+      USING_END_SYNC: 1
     volumes:
-    - ./output_shm:/app/output
+    - ./output_wsm:/app/output
     networks:
     - coffee-net
   sorter_q4:
@@ -1014,7 +1016,7 @@ services:
         condition: service_started
       sender_grouper_q3:
         condition: service_started
-      shm_q3:
+      wsm_q3:
         condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
@@ -1025,24 +1027,25 @@ services:
       QUEUE_OUT: sort_q3_request
       OUTPUT_FILE: /app/output/q3_unsorted.csv
       QUERY_TYPE: q3
-      SHM_HOST: shm_q3
-      SHM_PORT: 9102
+      HOST: wsm_q3
+      PORT: 9102
     volumes:
     - ./output:/app/output
     networks:
     - coffee-net
-  shm_q3:
+  wsm_q3:
     build:
       context: .
-      dockerfile: SHM/Dockerfile
-    container_name: shm_q3
+      dockerfile: WSM/Dockerfile
+    container_name: wsm_q3
     environment:
       PYTHONUNBUFFERED: 1
-      HM_STATE_PATH: /app/output/joiner_shared_hashmaps_q3.json
-      HM_HOST: 0.0.0.0
-      HM_PORT: 9102
+      STATE_FILE_PATH: /app/output/joiner_states_q3.json
+      HOST: 0.0.0.0
+      PORT: 9102
+      USING_END_SYNC: 1
     volumes:
-    - ./output_shm:/app/output
+    - ./output_wsm:/app/output
     networks:
     - coffee-net
   sorter_q3:

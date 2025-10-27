@@ -7,11 +7,12 @@ import logging
 from shared.worker import Worker
 from shared import protocol
 from WSM.wsm_client import WSMClient
-from SHM.hashmap_client import SharedHashmapClient
+from pathlib import Path
+# from SHM.hashmap_client import SharedHashmapClient
 
 
 class Joiner_v2(Worker):
-    def __init__(self, queue_out, output_file, columns_want, rabbitmq_host, query_type, shm_host, shm_port, multiple_queues=None):
+    def __init__(self, queue_out, output_file, columns_want, rabbitmq_host, query_type, wsm_host, wsm_port, multiple_queues=None):
         # Use multiple_input_queues parameter for the Worker superclass
 
         super().__init__(None, queue_out, rabbitmq_host, multiple_input_queues=multiple_queues)
@@ -19,13 +20,23 @@ class Joiner_v2(Worker):
         self.query_type = query_type
         self.columns_want = columns_want
 
-        replica_id = socket.gethostname()
-        # 🔗 Conexión con el Worker State Manager
-        self.shm_client = SharedHashmapClient(
-            replica_id=replica_id,
-            host=shm_host,
-            port=shm_port
-        )
+        self.replica_id = socket.gethostname()
+
+        self.dict_wsm_clients = {}
+        for q in self.multiple_input_queues:
+            self.dict_wsm_clients[q] = WSMClient(
+                worker_type=q,
+                replica_id=self.replica_id,
+                host=wsm_host,
+                port=wsm_port
+            )
+
+        # # 🔗 Conexión con el Worker State Manager
+        # self.shm_client = SharedHashmapClient(
+        #     replica_id=self.replica_id,
+        #     host=shm_host,
+        #     port=shm_port
+        # )
 
         # --- OUTPUT FILES: múltiples archivos separados por coma ---
         if isinstance(output_file, str):
@@ -110,6 +121,11 @@ class Joiner_v2(Worker):
             os.makedirs(temp_dir, exist_ok=True)
             self._temp_dir_by_request[request_id] = temp_dir
 
+            # input queues in temp
+            for in_q in self.multiple_input_queues:
+                in_temp_dir = os.path.join(temp_dir, in_q)
+                os.makedirs(in_temp_dir, exist_ok=True)
+
             logging.info(f"[Joiner] Initialized request_id={request_id} → outputs={ [f for _, f in self._outputs_by_request[request_id]] } temp_dir={temp_dir}")
 
     
@@ -122,23 +138,26 @@ class Joiner_v2(Worker):
         outputs = self._outputs_by_request[request_id]
         temp_dir = self._temp_dir_by_request[request_id]
 
-        file_path = os.path.join(temp_dir, f"{queue_name}.csv")
+        wsm_client = self.dict_wsm_clients[queue_name]
+        wsm_client.update_state("PROCESSING", request_id)
 
-        response = self.shm_client.register(file_path, "PROCESSING")
-        if response == "ERROR":
-            logging.error(f"[Joiner:{self.query_type}] ERROR registrando {file_path} en SHM.")
-            return
-        elif response == "ALREADY_REGISTERED":
-            if self.shm_client.change_state(file_path, "PROCESSING") == "ERROR":
-                logging.error(f"[Joiner:{self.query_type}] ERROR cambiando estado de {file_path} en SHM.")
-                return
+        file_path = os.path.join(temp_dir, f"{queue_name}/" ,f"{self.replica_id}.csv")
+
+        # response = self.shm_client.register(file_path, "PROCESSING")
+        # if response == "ERROR":
+        #     logging.error(f"[Joiner:{self.query_type}] ERROR registrando {file_path} en SHM.")
+        #     return
+        # elif response == "ALREADY_REGISTERED":
+        #     if self.shm_client.change_state(file_path, "PROCESSING") == "ERROR":
+        #         logging.error(f"[Joiner:{self.query_type}] ERROR cambiando estado de {file_path} en SHM.")
+        #         return
 
         try:
             payload_str = payload.decode('utf-8')
         except Exception as e:
             logging.error(f"Decode error: {e}")
-            if self.shm_client.change_state(file_path, "WAITING") == "ERROR":
-                logging.error(f"[Joiner:{self.query_type}] ERROR cambiando estado de {file_path} en SHM.")
+            # if self.shm_client.change_state(file_path, "WAITING") == "ERROR":
+            #     logging.error(f"[Joiner:{self.query_type}] ERROR cambiando estado de {file_path} en SHM.")
             return
 
         rows = payload_str.split('\n')
@@ -156,22 +175,24 @@ class Joiner_v2(Worker):
                     self._rows_received_per_request[request_id] = 0
                 self._rows_received_per_request[request_id] += len(processed_rows)
 
-            while (response := self.shm_client.lock(file_path)) != "OK":
-                if response == "ERROR":
-                    logging.error(f"[Joiner:{self.query_type}] Error locking {file_path}")
-                    if self.shm_client.change_state(file_path, "WAITING") == "ERROR":
-                        logging.error(f"[Joiner:{self.query_type}] ERROR cambiando estado de {file_path} en SHM.")
-                    return
-                logging.info(f"[Joiner:{self.query_type}] Waiting for lock on {file_path}...")
-                time.sleep(1)
-            logging.info(f"[Joiner:{self.query_type}] Acquired lock on {file_path}")
+            # while (response := self.shm_client.lock(file_path)) != "OK":
+            #     if response == "ERROR":
+            #         logging.error(f"[Joiner:{self.query_type}] Error locking {file_path}")
+            #         if self.shm_client.change_state(file_path, "WAITING") == "ERROR":
+            #             logging.error(f"[Joiner:{self.query_type}] ERROR cambiando estado de {file_path} en SHM.")
+            #         return
+            #     logging.info(f"[Joiner:{self.query_type}] Waiting for lock on {file_path}...")
+            #     time.sleep(1)
+            # logging.info(f"[Joiner:{self.query_type}] Acquired lock on {file_path}")
             self._save_to_temp_file(queue_name, processed_rows, file_path)
 
-            if self.shm_client.unlock(file_path) != "OK":
-                logging.error(f"[Joiner:{self.query_type}] Error unlocking {file_path}")
-            logging.info(f"[Joiner:{self.query_type}] Released lock on {file_path}")
-            if self.shm_client.change_state(file_path, "WAITING") == "ERROR":
-                logging.error(f"[Joiner:{self.query_type}] ERROR cambiando estado de {file_path} en SHM.")
+            wsm_client.update_state("WAITING")
+            logging.info(f"[Joiner:{self.query_type}] Processed {len(processed_rows)} rows from {queue_name} (request_id={request_id}). Total rows received for this request: {self._rows_received_per_request[request_id]}")
+            # if self.shm_client.unlock(file_path) != "OK":
+            #     logging.error(f"[Joiner:{self.query_type}] Error unlocking {file_path}")
+            # logging.info(f"[Joiner:{self.query_type}] Released lock on {file_path}")
+            # if self.shm_client.change_state(file_path, "WAITING") == "ERROR":
+            #     logging.error(f"[Joiner:{self.query_type}] ERROR cambiando estado de {file_path} en SHM.")
     
     def _handle_end_signal(self, message, msg_type, data_type, request_id, queue_name=None):
         """
@@ -186,42 +207,54 @@ class Joiner_v2(Worker):
         self._initialize_request_paths(request_id)
         outputs = self._outputs_by_request[request_id]
         temp_dir = self._temp_dir_by_request[request_id]
-        file_path = os.path.join(temp_dir, f"{queue_name}.csv")
-        files_paths = list(map(lambda q: os.path.join(temp_dir, f"{q}.csv"), self.multiple_input_queues))
+
+        wsm_client = self.dict_wsm_clients[queue_name]
+
+        while not wsm_client.can_send_end(request_id):
+            logging.info(f"[Joiner:{self.query_type}] Esperando permiso para verificacion de enviar END de {request_id} desde {queue_name}...")
+            time.sleep(1)
+
+        enviar_last_end = wsm_client.can_send_last_end(request_id)
+        if not enviar_last_end:
+            logging.info(f"[Joiner:{self.query_type}] ✅ Permiso otorgado para enviar END de {request_id} desde {queue_name}")
+        else:
+            logging.info(f"[Joiner:{self.query_type}] ✅ Permiso otorgado para enviar ÚLTIMO END de {request_id} desde {queue_name}")
+        # file_path = os.path.join(temp_dir, f"{queue_name}.csv")
+        # files_paths = list(map(lambda q: os.path.join(temp_dir, f"{q}.csv"), self.multiple_input_queues))
         
-        response = self.shm_client.register(file_path, "END")
-        if response == "ERROR":
-            logging.error(f"[Joiner:{self.query_type}] ERROR registrando {file_path} en SHM.")
-            return
-        elif response == "ALREADY_REGISTERED":
-            if self.shm_client.change_state(file_path, "END") == "ERROR":
-                logging.error(f"[Joiner:{self.query_type}] ERROR cambiando estado de {file_path} en SHM.")
-                return
+        # response = self.shm_client.register(file_path, "END")
+        # if response == "ERROR":
+        #     logging.error(f"[Joiner:{self.query_type}] ERROR registrando {file_path} en SHM.")
+        #     return
+        # elif response == "ALREADY_REGISTERED":
+        #     if self.shm_client.change_state(file_path, "END") == "ERROR":
+        #         logging.error(f"[Joiner:{self.query_type}] ERROR cambiando estado de {file_path} en SHM.")
+        #         return
 
         # 4️⃣ Procesar el END recibido
-        all_ready = self.shm_client.last_map_is_not_ready(file_path,files_paths)
-        if all_ready == "ALREADY_READY":
-            logging.error(f"[Joiner:{self.query_type}] ERROR: Archivo {file_path} ya estaba marcado como listo en SHM.")
-        elif all_ready == "MAPS_NOT_READY":
-            while (response := self.shm_client.put_ready(file_path)) != "OK":
-                if response == "ERROR":
-                    logging.error(f"[Joiner:{self.query_type}] ERROR marcando {file_path} como listo en SHM.")
-                    break
-                logging.info(f"[Joiner:{self.query_type}] Marcando {file_path} como listo en SHM...")
-                time.sleep(1)
-            logging.info(f"[Joiner:{self.query_type}] Archivo {file_path} marcado como listo en SHM.")
-        elif all_ready == "LAST_MAP_NOT_READY":
-            while (response := self.shm_client.put_ready(file_path)) != "OK":
-                if response == "ERROR":
-                    logging.error(f"[Joiner:{self.query_type}] ERROR marcando {file_path} como listo en SHM.")
-                    break
-                logging.info(f"[Joiner:{self.query_type}] Marcando {file_path} como listo en SHM...")
-                time.sleep(1)
-            logging.info(f"[Joiner:{self.query_type}] Ultimo archivo {file_path} marcado como listo en SHM.")
-            with self._lock:
-                rows_received = self._rows_received_per_request.get(request_id, 0)
-                logging.info(f"[Joiner:{self.query_type}] END recibido de {queue_name} (request_id={request_id}) - TOTAL ROWS FROM QUEUE: {rows_received}")
-            logging.info(f"[Joiner:{self.query_type}] Todas las colas completaron (request_id={request_id}). Procesando join...")
+        # all_ready = self.shm_client.last_map_is_not_ready(file_path,files_paths)
+        # if all_ready == "ALREADY_READY":
+        #     logging.error(f"[Joiner:{self.query_type}] ERROR: Archivo {file_path} ya estaba marcado como listo en SHM.")
+        # elif all_ready == "MAPS_NOT_READY":
+        #     while (response := self.shm_client.put_ready(file_path)) != "OK":
+        #         if response == "ERROR":
+        #             logging.error(f"[Joiner:{self.query_type}] ERROR marcando {file_path} como listo en SHM.")
+        #             break
+        #         logging.info(f"[Joiner:{self.query_type}] Marcando {file_path} como listo en SHM...")
+        #         time.sleep(1)
+        #     logging.info(f"[Joiner:{self.query_type}] Archivo {file_path} marcado como listo en SHM.")
+        # elif all_ready == "LAST_MAP_NOT_READY":
+        #     while (response := self.shm_client.put_ready(file_path)) != "OK":
+        #         if response == "ERROR":
+        #             logging.error(f"[Joiner:{self.query_type}] ERROR marcando {file_path} como listo en SHM.")
+        #             break
+        #         logging.info(f"[Joiner:{self.query_type}] Marcando {file_path} como listo en SHM...")
+        #         time.sleep(1)
+        #     logging.info(f"[Joiner:{self.query_type}] Ultimo archivo {file_path} marcado como listo en SHM.")
+        #     with self._lock:
+        #         rows_received = self._rows_received_per_request.get(request_id, 0)
+        #         logging.info(f"[Joiner:{self.query_type}] END recibido de {queue_name} (request_id={request_id}) - TOTAL ROWS FROM QUEUE: {rows_received}")
+        #     logging.info(f"[Joiner:{self.query_type}] Todas las colas completaron (request_id={request_id}). Procesando join...")
 
             self._process_joined_data(request_id, temp_dir, outputs)
 
@@ -343,42 +376,50 @@ class Joiner_v2(Worker):
         stores_lookup, users_lookup = {}, {}
 
         # Stores
-        stores_file = os.path.join(temp_dir, 'stores_cleaned_q4.csv')
-        if os.path.exists(stores_file):
-            with open(stores_file, 'r', encoding='utf-8') as f:
-                reader = csv.reader(f); next(reader, None)
-                for row in reader:
-                    if len(row) >= 2:
-                        stores_lookup[row[0]] = row[1]
+        stores_path = os.path.join(temp_dir, 'stores_cleaned_q4/')
+        for file in (Path(stores_path).rglob("*.csv")):
+            if os.path.exists(file):
+                with open(file, 'r', encoding='utf-8') as f:
+                    reader = csv.reader(f); next(reader, None)
+                    for row in reader:
+                        if len(row) >= 2:
+                            stores_lookup[row[0]] = row[1]
         logging.debug(f"Loaded {len(stores_lookup)} store mappings")
 
         # Users
-        users_file = os.path.join(temp_dir, 'users_cleaned.csv')
-        if os.path.exists(users_file):
-            with open(users_file, 'r', encoding='utf-8') as f:
-                reader = csv.reader(f); next(reader, None)
-                for row in reader:
-                    if len(row) >= 2:
-                        users_lookup[row[0]] = row[1]
+        users_path = os.path.join(temp_dir, 'users_cleaned/')
+        for file in (Path(users_path).rglob("*.csv")):
+            if os.path.exists(file):
+                with open(file, 'r', encoding='utf-8') as f:
+                    reader = csv.reader(f); next(reader, None)
+                    for row in reader:
+                        if len(row) >= 2:
+                            users_lookup[row[0]] = row[1]
         logging.debug(f"Loaded {len(users_lookup)} user mappings")
 
+        # # Users
+        # users_file = os.path.join(temp_dir, 'users_cleaned.csv')
+        # if os.path.exists(users_file):
+        #     with open(users_file, 'r', encoding='utf-8') as f:
+        #         reader = csv.reader(f); next(reader, None)
+        #         for row in reader:
+        #             if len(row) >= 2:
+        #                 users_lookup[row[0]] = row[1]
+        # logging.debug(f"Loaded {len(users_lookup)} user mappings")
+
         # Main
-        main_file = os.path.join(temp_dir, 'resultados_groupby_q4.csv')
-        if not os.path.exists(main_file):
-            logging.error(f"Main file for Q4 not found: {main_file}")
-            return
-
         processed_rows = []
-
-        with open(main_file, 'r', encoding='utf-8') as f:
-            reader = csv.reader(f); next(reader, None)
-            for row in reader:
-                if len(row) >= 3:
-                    store_id, user_id, _purchase_qty = row[0], row[1], row[2]
-
-                    store_name = stores_lookup.get(store_id, store_id)
-                    birthdate = users_lookup.get(user_id, user_id)
-                    processed_rows.append([store_name, birthdate])
+        main_path = os.path.join(temp_dir, 'resultados_groupby_q4/')
+        for file in (Path(main_path).rglob("*.csv")):
+            if os.path.exists(file):
+                with open(file, 'r', encoding='utf-8') as f:
+                    reader = csv.reader(f); next(reader, None)
+                    for row in reader:
+                        if len(row) >= 3:
+                            store_id, user_id, _purchase_qty = row[0], row[1], row[2]
+                            store_name = stores_lookup.get(store_id, store_id)
+                            birthdate = users_lookup.get(user_id, user_id)
+                            processed_rows.append([store_name, birthdate])
 
         if processed_rows:
             # mismo dataset a todas las salidas
@@ -401,38 +442,66 @@ class Joiner_v2(Worker):
         items_lookup = {}
 
         # Menu Items
-        menu_file = os.path.join(temp_dir, 'menu_items_cleaned.csv')
-        if os.path.exists(menu_file):
-            with open(menu_file, 'r', encoding='utf-8') as f:
-                reader = csv.reader(f); next(reader, None)
-                for row in reader:
-                    if len(row) >= 2:
-                        items_lookup[row[0]] = row[1]
+        menu_path = os.path.join(temp_dir, 'menu_items_cleaned/')
+        for file in (Path(menu_path).rglob("*.csv")):
+            if os.path.exists(file):
+                with open(file, 'r', encoding='utf-8') as f:
+                    reader = csv.reader(f); next(reader, None)
+                    for row in reader:
+                        if len(row) >= 2:
+                            items_lookup[row[0]] = row[1]
         logging.info(f"Loaded {len(items_lookup)} item mappings")
 
-        # Main
-        main_file = os.path.join(temp_dir, 'resultados_groupby_q2.csv')
-        if not os.path.exists(main_file):
-            logging.error(f"Main file for Q2 not found: {main_file}")
-            return
+        # menu_file = os.path.join(temp_dir, 'menu_items_cleaned.csv')
+        # if os.path.exists(menu_file):
+        #     with open(menu_file, 'r', encoding='utf-8') as f:
+        #         reader = csv.reader(f); next(reader, None)
+        #         for row in reader:
+        #             if len(row) >= 2:
+        #                 items_lookup[row[0]] = row[1]
+        # logging.info(f"Loaded {len(items_lookup)} item mappings")
 
+        # Main
         rows_quantity = []
         rows_subtotal = []
         rows_all = []  # por si hay 1 output o fallback
 
-        with open(main_file, 'r', encoding='utf-8') as f:
-            reader = csv.reader(f); next(reader, None)
-            for row in reader:
-                # Esperado: month_year, quantity_or_subtotal('quantity'|'subtotal'), item_id, quantity, subtotal
-                if len(row) >= 5:
-                    month_year, quantity_or_subtotal, item_id, quantity, subtotal = row[0], row[1], row[2], row[3], row[4]
-                    item_name = items_lookup.get(item_id, item_id)
-                    if quantity_or_subtotal == 'quantity':
-                        rows_quantity.append([month_year, item_name, quantity])
-                        rows_all.append([month_year, item_name, quantity])
-                    elif quantity_or_subtotal == 'subtotal':
-                        rows_subtotal.append([month_year, item_name, subtotal])
-                        rows_all.append([month_year, item_name, subtotal])
+        main_path = os.path.join(temp_dir, 'resultados_groupby_q2/')
+        for file in (Path(main_path).rglob("*.csv")):
+            if os.path.exists(file):
+                with open(file, 'r', encoding='utf-8') as f:
+                    reader = csv.reader(f); next(reader, None)
+                    for row in reader:
+                        # Esperado: month_year, quantity_or_subtotal('quantity'|'subtotal'), item_id, quantity, subtotal
+                        if len(row) >= 5:
+                            month_year, quantity_or_subtotal, item_id, quantity, subtotal = row[0], row[1], row[2], row[3], row[4]
+                            item_name = items_lookup.get(item_id, item_id)
+                            if quantity_or_subtotal == 'quantity':
+                                rows_quantity.append([month_year, item_name, quantity])
+                                rows_all.append([month_year, item_name, quantity])
+                            elif quantity_or_subtotal == 'subtotal':
+                                rows_subtotal.append([month_year, item_name, subtotal])
+                                rows_all.append([month_year, item_name, subtotal])
+
+        # main_file = os.path.join(temp_dir, 'resultados_groupby_q2.csv')
+        # if not os.path.exists(main_file):
+        #     logging.error(f"Main file for Q2 not found: {main_file}")
+        #     return
+
+
+        # with open(main_file, 'r', encoding='utf-8') as f:
+        #     reader = csv.reader(f); next(reader, None)
+        #     for row in reader:
+        #         # Esperado: month_year, quantity_or_subtotal('quantity'|'subtotal'), item_id, quantity, subtotal
+        #         if len(row) >= 5:
+        #             month_year, quantity_or_subtotal, item_id, quantity, subtotal = row[0], row[1], row[2], row[3], row[4]
+        #             item_name = items_lookup.get(item_id, item_id)
+        #             if quantity_or_subtotal == 'quantity':
+        #                 rows_quantity.append([month_year, item_name, quantity])
+        #                 rows_all.append([month_year, item_name, quantity])
+        #             elif quantity_or_subtotal == 'subtotal':
+        #                 rows_subtotal.append([month_year, item_name, subtotal])
+        #                 rows_all.append([month_year, item_name, subtotal])
 
         out_count = len(outputs)
         if out_count == 0:
@@ -473,30 +542,53 @@ class Joiner_v2(Worker):
         stores_lookup = {}
 
         # Stores
-        stores_file = os.path.join(temp_dir, 'stores_cleaned_q3.csv')
-        if os.path.exists(stores_file):
-            with open(stores_file, 'r', encoding='utf-8') as f:
-                reader = csv.reader(f); next(reader, None)
-                for row in reader:
-                    if len(row) >= 2:
-                        stores_lookup[row[0]] = row[1]  # store_id -> store_name
+        stores_path = os.path.join(temp_dir, 'stores_cleaned_q3/')
+        for file in (Path(stores_path).rglob("*.csv")):
+            if os.path.exists(file):
+                with open(file, 'r', encoding='utf-8') as f:
+                    reader = csv.reader(f); next(reader, None)
+                    for row in reader:
+                        if len(row) >= 2:
+                            stores_lookup[row[0]] = row[1]  # store_id -> store_name
         logging.info(f"Loaded {len(stores_lookup)} store mappings")
 
-        # Main
-        main_file = os.path.join(temp_dir, 'resultados_groupby_q3.csv')
-        if not os.path.exists(main_file):
-            logging.error(f"Main file for Q3 not found: {main_file}")
-            return
+        # stores_file = os.path.join(temp_dir, 'stores_cleaned_q3.csv')
+        # if os.path.exists(stores_file):
+        #     with open(stores_file, 'r', encoding='utf-8') as f:
+        #         reader = csv.reader(f); next(reader, None)
+        #         for row in reader:
+        #             if len(row) >= 2:
+        #                 stores_lookup[row[0]] = row[1]  # store_id -> store_name
+        # logging.info(f"Loaded {len(stores_lookup)} store mappings")
 
+        # Main
         processed_rows = []
-        with open(main_file, 'r', encoding='utf-8') as f:
-            reader = csv.reader(f); next(reader, None)
-            for row in reader:
-                # Esperado: year_half_created_at, store_id, tpv
-                if len(row) >= 3:
-                    year_half, store_id, tpv = row[0], row[1], row[2]
-                    store_name = stores_lookup.get(store_id, store_id)
-                    processed_rows.append([year_half, store_name, tpv])
+
+        main_path = os.path.join(temp_dir, 'resultados_groupby_q3/')
+        for file in (Path(main_path).rglob("*.csv")):
+            if os.path.exists(file):
+                with open(file, 'r', encoding='utf-8') as f:
+                    reader = csv.reader(f); next(reader, None)
+                    for row in reader:
+                        # Esperado: year_half_created_at, store_id, tpv
+                        if len(row) >= 3:
+                            year_half, store_id, tpv = row[0], row[1], row[2]
+                            store_name = stores_lookup.get(store_id, store_id)
+                            processed_rows.append([year_half, store_name, tpv])
+
+        # main_file = os.path.join(temp_dir, 'resultados_groupby_q3.csv')
+        # if not os.path.exists(main_file):
+        #     logging.error(f"Main file for Q3 not found: {main_file}")
+        #     return
+
+        # with open(main_file, 'r', encoding='utf-8') as f:
+        #     reader = csv.reader(f); next(reader, None)
+        #     for row in reader:
+        #         # Esperado: year_half_created_at, store_id, tpv
+        #         if len(row) >= 3:
+        #             year_half, store_id, tpv = row[0], row[1], row[2]
+        #             store_name = stores_lookup.get(store_id, store_id)
+        #             processed_rows.append([year_half, store_name, tpv])
 
         if processed_rows:
             # escribir a todas las salidas (normalmente solo una para Q3)
@@ -523,8 +615,8 @@ if __name__ == '__main__':
         query_type = os.environ.get('QUERY_TYPE')
         rabbitmq_host = os.environ.get('RABBITMQ_HOST', 'rabbitmq')
 
-        shm_host = os.environ.get("SHM_HOST", "shm")
-        shm_port = int(os.environ.get("SHM_PORT", "9100"))
+        shm_host = os.environ.get("WSM_HOST", "wsm")
+        shm_port = int(os.environ.get("WSM_PORT", "9100"))
 
         # múltiples input queues (para join)
         multiple_queues_str = os.environ.get('MULTIPLE_QUEUES')
@@ -545,8 +637,8 @@ if __name__ == '__main__':
             columns_want=columns_want,
             rabbitmq_host=rabbitmq_host,
             query_type=query_type,
-            shm_host=shm_host,
-            shm_port=shm_port,
+            wsm_host=shm_host,
+            wsm_port=shm_port,
             multiple_queues=multiple_queues
         )
     
