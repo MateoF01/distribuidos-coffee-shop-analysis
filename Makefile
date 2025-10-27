@@ -92,7 +92,7 @@ up: build
 	  --scale temporal_filter_transaction_items=$(TEMPORAL_FILTER_TRANSACTION_ITEMS_REPLICAS) \
     --scale amount_filter_transactions=$(AMOUNT_FILTER_TRANSACTIONS_REPLICAS) \
 	  --scale splitter_q1=$(SPLITTER_Q1_REPLICAS) \
-	  --scale sorter_q1_v2=$(SORTER_Q1_V2_REPLICAS) 
+	  --scale sorter_q1_v2=$(SORTER_Q1_V2_REPLICAS) \
 		--scale joiner_v2_q2=$(JOINER_V2_Q2_REPLICAS) \
 		--scale joiner_v2_q3=$(JOINER_V2_Q3_REPLICAS) \
 		--scale joiner_v2_q4=$(JOINER_V2_Q4_REPLICAS) \
