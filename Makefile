@@ -24,6 +24,10 @@ AMOUNT_FILTER_TRANSACTIONS_REPLICAS ?= 2
 SPLITTER_Q1_REPLICAS ?= 3
 SORTER_Q1_V2_REPLICAS ?= 2
 
+JOINER_V2_Q2_REPLICAS ?= 2
+JOINER_V2_Q3_REPLICAS ?= 2
+JOINER_V2_Q4_REPLICAS ?= 2
+
 default: help
 
 .PHONY: help
@@ -86,10 +90,12 @@ up: build
 	  --scale reducer_q4=$(REDUCER_Q4_REPLICAS) \
 	  --scale temporal_filter_transactions=$(TEMPORAL_FILTER_TRANSACTIONS_REPLICAS) \
 	  --scale temporal_filter_transaction_items=$(TEMPORAL_FILTER_TRANSACTION_ITEMS_REPLICAS) \
-      --scale amount_filter_transactions=$(AMOUNT_FILTER_TRANSACTIONS_REPLICAS) \
+    --scale amount_filter_transactions=$(AMOUNT_FILTER_TRANSACTIONS_REPLICAS) \
 	  --scale splitter_q1=$(SPLITTER_Q1_REPLICAS) \
 	  --scale sorter_q1_v2=$(SORTER_Q1_V2_REPLICAS) 
-
+		--scale joiner_v2_q2=$(JOINER_V2_Q2_REPLICAS) \
+		--scale joiner_v2_q3=$(JOINER_V2_Q3_REPLICAS) \
+		--scale joiner_v2_q4=$(JOINER_V2_Q4_REPLICAS) \
 
 
 
@@ -102,6 +108,7 @@ down:
 	@docker run --rm \
 		-v $(PWD)/output:/tmp/output \
 		-v $(PWD)/output_wsm:/tmp/output_wsm \
+		-v $(PWD)/output_shm:/tmp/output_shm \
 		-v $(PWD)/grouper_v2/temp/q2:/tmp/grouper_q2 \
 		-v $(PWD)/grouper_v2/temp/q3:/tmp/grouper_q3 \
 		-v $(PWD)/grouper_v2/temp/q4:/tmp/grouper_q4 \
@@ -112,6 +119,7 @@ down:
 		alpine:latest sh -c "rm -rf \
 			/tmp/output/* \
 			/tmp/output_wsm/* \
+			/tmp/output_shm/* \
 			/tmp/grouper_q2/* \
 			/tmp/grouper_q3/* \
 			/tmp/grouper_q4/* \
@@ -139,6 +147,7 @@ clean:
 	@docker run --rm \
 		-v $(PWD)/output:/tmp/output \
 		-v $(PWD)/output_wsm:/tmp/output_wsm \
+		-v $(PWD)/output_shm:/tmp/output_shm \
 		-v $(PWD)/grouper_v2/temp/q2:/tmp/grouper_q2 \
 		-v $(PWD)/grouper_v2/temp/q3:/tmp/grouper_q3 \
 		-v $(PWD)/grouper_v2/temp/q4:/tmp/grouper_q4 \
@@ -149,6 +158,7 @@ clean:
 		alpine:latest sh -c "rm -rf \
 			/tmp/output/* \
 			/tmp/output_wsm/* \
+			/tmp/output_shm/* \
 			/tmp/grouper_q2/* \
 			/tmp/grouper_q3/* \
 			/tmp/grouper_q4/* \

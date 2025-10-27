@@ -327,7 +327,6 @@ services:
       WSM_PORT: 9009
     networks:
     - coffee-net
-
   wsm_temporal_filter_transactions:
     build:
       context: .
@@ -367,7 +366,6 @@ services:
       WSM_PORT: 9010
     networks:
     - coffee-net
-
   wsm_temporal_filter_transaction_items:
     build:
       context: .
@@ -382,7 +380,6 @@ services:
       - ./output_wsm:/app/output
     networks:
       - coffee-net
-
 
   amount_filter_transactions:
     build:
@@ -409,7 +406,6 @@ services:
       WSM_PORT: 9011
     networks:
     - coffee-net
-  
   wsm_amount_filter_transactions:
     build:
       context: .
@@ -517,7 +513,6 @@ services:
       - ./grouper_v2/temp/q2:/app/temp/grouper_v2_q2
     networks:
       - coffee-net
-
   wsm_grouper_q2:
     build:
       context: .
@@ -532,7 +527,6 @@ services:
       - ./output_wsm:/app/output
     networks:
       - coffee-net
-
   reducer_q2:
     build:
       context: .
@@ -583,6 +577,30 @@ services:
       - ./topper/temp:/app/topper_temp
     networks:
       - coffee-net
+  sender_grouper_q2:
+    build:
+      context: .
+      dockerfile: sender/Dockerfile
+    container_name: sender_grouper_q2
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      topper_q2:
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      QUEUE_IN: sender_grouper_q2_signal
+      QUEUE_OUT: resultados_groupby_q2
+      INPUT_FILE: /app/topper_temp/topper_q2_signal/q2_top.csv
+      BATCH_SIZE: 5000
+      QUERY_TYPE: q2
+    volumes:
+    - ./topper/temp:/app/topper_temp
+    networks:
+    - coffee-net
 
   grouper_q3_v2:
     build:
@@ -609,7 +627,6 @@ services:
       - ./grouper_v2/temp/q3:/app/temp/grouper_v2_q3
     networks:
       - coffee-net
-
   wsm_grouper_q3:
     build:
       context: .
@@ -624,7 +641,6 @@ services:
       - ./output_wsm:/app/output
     networks:
       - coffee-net
-
   reducer_q3:
     build:
       context: .
@@ -649,7 +665,6 @@ services:
       - ./reducer/temp:/app/reducer_temp/q3    
     networks:
       - coffee-net
-
   topper_q3:
     build:
       context: .
@@ -676,7 +691,30 @@ services:
       - ./topper/temp:/app/topper_temp
     networks:
       - coffee-net
-
+  sender_grouper_q3:
+    build:
+      context: .
+      dockerfile: sender/Dockerfile
+    container_name: sender_grouper_q3
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      topper_q3:
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      QUEUE_IN: sender_grouper_q3_signal
+      QUEUE_OUT: resultados_groupby_q3
+      INPUT_FILE: /app/topper_temp/topper_q3_signal/q3_top.csv
+      BATCH_SIZE: 5000
+      QUERY_TYPE: q3
+    volumes:
+    - ./topper/temp:/app/topper_temp
+    networks:
+    - coffee-net
 
   grouper_q4_v2:
     build:
@@ -703,7 +741,6 @@ services:
       - ./grouper_v2/temp/q4:/app/temp/grouper_v2_q4
     networks:
       - coffee-net
-
   wsm_grouper_q4:
     build:
       context: .
@@ -718,7 +755,6 @@ services:
       - ./output_wsm:/app/output
     networks:
       - coffee-net
-
   reducer_q4:
     build:
       context: .
@@ -743,7 +779,6 @@ services:
       - ./reducer/temp:/app/reducer_temp/q4    
     networks:
       - coffee-net
-
   topper_q4:
     build:
       context: .
@@ -794,44 +829,91 @@ services:
     - ./topper/temp:/app/topper_temp
     networks:
     - coffee-net
-  joiner_q4:
+
+  joiner_q1:
     build:
       context: .
       dockerfile: joiner/Dockerfile
-    container_name: joiner_q4
+    container_name: joiner_q1
     depends_on:
       rabbitmq:
         condition: service_healthy
-      cleaner_stores:
-        condition: service_started
-      cleaner_users:
-        condition: service_started
-      sender_grouper_q4:
+      gateway:
         condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_USER: admin
       RABBITMQ_PASS: secretpassword
-      MULTIPLE_QUEUES: stores_cleaned_q4,resultados_groupby_q4,users_cleaned
-      QUEUE_OUT: sort_q4_request
-      OUTPUT_FILE: /app/output/q4_unsorted.csv
-      QUERY_TYPE: q4
+      QUEUE_IN: transactions_filtered_Q1_b
+      QUEUE_OUT: sort_q1_request
+      OUTPUT_FILE: /app/output/q1_unsorted.csv
+      QUERY_TYPE: q1
     volumes:
     - ./output:/app/output
     networks:
     - coffee-net
-  joiner_q2:
+  sorter_q1:
     build:
       context: .
-      dockerfile: joiner/Dockerfile
-    container_name: joiner_q2
+      dockerfile: sort/Dockerfile
+    container_name: sorter_q1
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      joiner_q1:
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      QUEUE_IN: sort_q1_request
+      INPUT_FILE: /app/output/q1_unsorted.csv
+      OUTPUT_FILE: /app/output/q1.csv
+      DATA_TYPE: q1
+      COMPLETION_QUEUE: sender_q1_signal
+    volumes:
+    - ./output:/app/output
+    networks:
+      - coffee-net
+  sender_q1:
+    build:
+      context: .
+      dockerfile: sender/Dockerfile
+    container_name: sender_q1
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      sorter_q1:
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      QUEUE_IN: sender_q1_signal
+      QUEUE_OUT: results
+      INPUT_FILE: /app/output/q1.csv
+      QUERY_TYPE: q1
+      INCLUDE_HEADERS: true
+    volumes:
+    - ./output:/app/output
+    networks:
+    - coffee-net
+
+  joiner_v2_q2:
+    build:
+      context: .
+      dockerfile: joiner_v2/Dockerfile
     depends_on:
       rabbitmq:
         condition: service_healthy
       cleaner_menu_items:
         condition: service_started
       sender_grouper_q2:
+        condition: service_started
+      wsm_q2:
         condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
@@ -842,10 +924,121 @@ services:
       QUEUE_OUT: sender_q2_a_signal, sender_q2_b_signal
       OUTPUT_FILE: /app/output/q2_a.csv, /app/output/q2_b.csv
       QUERY_TYPE: q2
+      WSM_HOST: wsm_q2
+      WSM_PORT: 9100
     volumes:
     - ./output:/app/output
     networks:
     - coffee-net
+  wsm_q2:
+    build:
+      context: .
+      dockerfile: WSM/Dockerfile
+    container_name: wsm_q2
+    environment:
+      PYTHONUNBUFFERED: 1
+      STATE_FILE_PATH: /app/output/joiner_states_q2.json
+      HOST: 0.0.0.0
+      PORT: 9100
+      USING_END_SYNC: 1
+    volumes:
+      - ./output_wsm:/app/output
+    networks:
+      - coffee-net
+  sender_q2_a:
+    build:
+      context: .
+      dockerfile: sender/Dockerfile
+    container_name: sender_q2_a
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      joiner_v2_q2:
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      QUEUE_IN: sender_q2_a_signal
+      QUEUE_OUT: results
+      INPUT_FILE: /app/output/q2_a.csv
+      QUERY_TYPE: q2_a
+      INCLUDE_HEADERS: true
+    volumes:
+    - ./output:/app/output
+    networks:
+    - coffee-net
+  sender_q2_b:
+    build:
+      context: .
+      dockerfile: sender/Dockerfile
+    container_name: sender_q2_b
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      joiner_v2_q2:
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      QUEUE_IN: sender_q2_b_signal
+      QUEUE_OUT: results
+      INPUT_FILE: /app/output/q2_b.csv
+      QUERY_TYPE: q2_b
+      INCLUDE_HEADERS: true
+    volumes:
+    - ./output:/app/output
+    networks:
+    - coffee-net
+
+  joiner_v2_q4:
+    build:
+      context: .
+      dockerfile: joiner_v2/Dockerfile
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      cleaner_stores:
+        condition: service_started
+      cleaner_users:
+        condition: service_started
+      sender_grouper_q4:
+        condition: service_started
+      wsm_q4:
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      MULTIPLE_QUEUES: stores_cleaned_q4,resultados_groupby_q4,users_cleaned
+      QUEUE_OUT: sort_q4_request
+      OUTPUT_FILE: /app/output/q4_unsorted.csv
+      QUERY_TYPE: q4
+      WSM_HOST: wsm_q4
+      WSM_PORT: 9101
+    volumes:
+    - ./output:/app/output
+    networks:
+    - coffee-net
+  wsm_q4:
+    build:
+      context: .
+      dockerfile: WSM/Dockerfile
+    container_name: wsm_q4
+    environment:
+      PYTHONUNBUFFERED: 1
+      STATE_FILE_PATH: /app/output/joiner_states_q4.json
+      HOST: 0.0.0.0
+      PORT: 9101
+      USING_END_SYNC: 1
+    volumes:
+      - ./output_wsm:/app/output
+    networks:
+      - coffee-net
   sorter_q4:
     build:
       context: .
@@ -854,7 +1047,7 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
-      joiner_q4:
+      joiner_v2_q4:
         condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
@@ -894,140 +1087,19 @@ services:
     - ./output:/app/output
     networks:
     - coffee-net
-  sender_q2_a:
-    build:
-      context: .
-      dockerfile: sender/Dockerfile
-    container_name: sender_q2_a
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-      joiner_q2:
-        condition: service_started
-    environment:
-      PYTHONUNBUFFERED: 1
-      RABBITMQ_HOST: rabbitmq
-      RABBITMQ_USER: admin
-      RABBITMQ_PASS: secretpassword
-      QUEUE_IN: sender_q2_a_signal
-      QUEUE_OUT: results
-      INPUT_FILE: /app/output/q2_a.csv
-      QUERY_TYPE: q2_a
-      INCLUDE_HEADERS: true
-    volumes:
-    - ./output:/app/output
-    networks:
-    - coffee-net
-  sender_q2_b:
-    build:
-      context: .
-      dockerfile: sender/Dockerfile
-    container_name: sender_q2_b
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-      joiner_q2:
-        condition: service_started
-    environment:
-      PYTHONUNBUFFERED: 1
-      RABBITMQ_HOST: rabbitmq
-      RABBITMQ_USER: admin
-      RABBITMQ_PASS: secretpassword
-      QUEUE_IN: sender_q2_b_signal
-      QUEUE_OUT: results
-      INPUT_FILE: /app/output/q2_b.csv
-      QUERY_TYPE: q2_b
-      INCLUDE_HEADERS: true
-    volumes:
-    - ./output:/app/output
-    networks:
-    - coffee-net
-  sender_grouper_q2:
-    build:
-      context: .
-      dockerfile: sender/Dockerfile
-    container_name: sender_grouper_q2
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-      topper_q2:
-        condition: service_started
-    environment:
-      PYTHONUNBUFFERED: 1
-      RABBITMQ_HOST: rabbitmq
-      RABBITMQ_USER: admin
-      RABBITMQ_PASS: secretpassword
-      QUEUE_IN: sender_grouper_q2_signal
-      QUEUE_OUT: resultados_groupby_q2
-      INPUT_FILE: /app/topper_temp/topper_q2_signal/q2_top.csv
-      BATCH_SIZE: 5000
-      QUERY_TYPE: q2
-    volumes:
-    - ./topper/temp:/app/topper_temp
-    networks:
-    - coffee-net
 
-  sender_grouper_q3:
+  joiner_v2_q3:
     build:
       context: .
-      dockerfile: sender/Dockerfile
-    container_name: sender_grouper_q3
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-      topper_q3:
-        condition: service_started
-    environment:
-      PYTHONUNBUFFERED: 1
-      RABBITMQ_HOST: rabbitmq
-      RABBITMQ_USER: admin
-      RABBITMQ_PASS: secretpassword
-      QUEUE_IN: sender_grouper_q3_signal
-      QUEUE_OUT: resultados_groupby_q3
-      INPUT_FILE: /app/topper_temp/topper_q3_signal/q3_top.csv
-      BATCH_SIZE: 5000
-      QUERY_TYPE: q3
-    volumes:
-    - ./topper/temp:/app/topper_temp
-    networks:
-    - coffee-net
-
-  sender_q1:
-    build:
-      context: .
-      dockerfile: sender/Dockerfile
-    container_name: sender_q1
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-      sorter_q1_v2:
-        condition: service_started
-    environment:
-      PYTHONUNBUFFERED: 1
-      RABBITMQ_HOST: rabbitmq
-      RABBITMQ_USER: admin
-      RABBITMQ_PASS: secretpassword
-      QUEUE_IN: sender_q1_signal
-      QUEUE_OUT: results
-      INPUT_FILE: /app/output/q1.csv
-      QUERY_TYPE: q1
-      INCLUDE_HEADERS: true
-    volumes:
-    - ./output:/app/output
-    networks:
-    - coffee-net
-
-  joiner_q3:
-    build:
-      context: .
-      dockerfile: joiner/Dockerfile
-    container_name: joiner_q3
+      dockerfile: joiner_v2/Dockerfile
     depends_on:
       rabbitmq:
         condition: service_healthy
       cleaner_stores:
         condition: service_started
       sender_grouper_q3:
+        condition: service_started
+      wsm_q3:
         condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
@@ -1038,10 +1110,27 @@ services:
       QUEUE_OUT: sort_q3_request
       OUTPUT_FILE: /app/output/q3_unsorted.csv
       QUERY_TYPE: q3
+      WSM_HOST: wsm_q3
+      WSM_PORT: 9102
     volumes:
     - ./output:/app/output
     networks:
     - coffee-net
+  wsm_q3:
+    build:
+      context: .
+      dockerfile: WSM/Dockerfile
+    container_name: wsm_q3
+    environment:
+      PYTHONUNBUFFERED: 1
+      STATE_FILE_PATH: /app/output/joiner_states_q3.json
+      HOST: 0.0.0.0
+      PORT: 9102
+      USING_END_SYNC: 1
+    volumes:
+      - ./output_wsm:/app/output
+    networks:
+      - coffee-net
   sorter_q3:
     build:
       context: .
@@ -1050,7 +1139,7 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
-      joiner_q3:
+      joiner_v2_q3:
         condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
@@ -1090,6 +1179,7 @@ services:
     - ./output:/app/output
     networks:
     - coffee-net
+
 networks:
   coffee-net:
     driver: bridge

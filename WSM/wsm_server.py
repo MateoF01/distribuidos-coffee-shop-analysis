@@ -10,6 +10,7 @@ import logging
 HOST = os.environ.get("HOST", "0.0.0.0")
 PORT = int(os.environ.get("PORT", "9000"))
 STATE_FILE = os.environ.get("STATE_FILE_PATH", "/app/output/worker_states.json")
+USING_END_SYNC = os.environ.get("USING_END_SYNC", "1") == "1"
 
 os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
 
@@ -17,28 +18,59 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 
 
 class WorkerStateManager:
-    def __init__(self, state_file=STATE_FILE):
+    def __init__(self, state_file=STATE_FILE, using_end_sync=USING_END_SYNC):
         self.state_file = state_file
+        self.using_end_sync = using_end_sync
+        # these three dictionaries are persisted to disk together
+        self.workers_being_used = {}
+        self.ends_by_requests = {}
         self.lock = threading.Lock()
-        self.worker_states = self._load_state()
+        # _load_state will populate self.worker_states, self.workers_being_used and
+        # self.ends_by_requests if a saved file exists. If not, defaults above remain.
+        self._load_state()
         logging.info(f"[WSM] Archivo de estado: {self.state_file}")
 
     # -------------------------------
     # 🔄 Persistencia
     # -------------------------------
     def _load_state(self):
+        """
+        Load persisted state file (if present) and populate the three in-memory
+        dictionaries: worker_states, workers_being_used and ends_by_requests.
+        If any key is missing or the file is invalid, fall back to defaults while
+        logging an error.
+        """
+        # initialize defaults in case file is absent or invalid
+        self.worker_states = self.worker_states if hasattr(self, "worker_states") else {}
+        self.workers_being_used = self.workers_being_used if hasattr(self, "workers_being_used") else {}
+        self.ends_by_requests = self.ends_by_requests if hasattr(self, "ends_by_requests") else {}
+
         if os.path.exists(self.state_file):
             try:
                 with open(self.state_file, "r", encoding="utf-8") as f:
-                    return json.load(f)
+                    data = json.load(f)
+
+                if isinstance(data, dict):
+                    self.worker_states = data.get("worker_states", {}) or {}
+                    self.workers_being_used = data.get("workers_being_used", {}) or {}
+                    self.ends_by_requests = data.get("ends_by_requests", {}) or {}
+                    logging.info(f"[WSM] Estado cargado desde {self.state_file}")
+                else:
+                    logging.error(f"[WSM] Formato de estado inválido en {self.state_file}")
             except Exception as e:
                 logging.error(f"[WSM] Error cargando estado: {e}")
-        return {}
+
+        return self.worker_states
 
     def _save_state(self):
+        payload = {
+            "worker_states": self.worker_states,
+            "workers_being_used": self.workers_being_used,
+            "ends_by_requests": self.ends_by_requests,
+        }
         try:
             with open(self.state_file, "w", encoding="utf-8") as f:
-                json.dump(self.worker_states, f, indent=2, ensure_ascii=False)
+                json.dump(payload, f, indent=2, ensure_ascii=False)
         except Exception as e:
             logging.error(f"[WSM] Error guardando archivo de estado: {e}")
 
@@ -53,6 +85,9 @@ class WorkerStateManager:
             if worker_type not in self.worker_states:
                 self.worker_states[worker_type] = {}
             if replica_id not in self.worker_states[worker_type]:
+                if self.using_end_sync:
+                    if worker_type not in self.workers_being_used:
+                        self.workers_being_used[worker_type] = True
                 self.worker_states[worker_type][replica_id] = {"state": "WAITING", "request_id": None}
                 self._save_state()
                 #logging.info(f"[WSM] {worker_type} → Replica {replica_id} registrada como WAITING")
@@ -64,6 +99,16 @@ class WorkerStateManager:
         with self.lock:
             if worker_type not in self.worker_states:
                 self.worker_states[worker_type] = {}
+            if self.using_end_sync:
+                if worker_type not in self.workers_being_used:
+                    self.workers_being_used[worker_type] = True
+                if request_id not in self.ends_by_requests:
+                    self.ends_by_requests[request_id] = sum(
+                        1 for being_used in self.workers_being_used.values() if being_used
+                    )
+                if state == "END":
+                    self.ends_by_requests[request_id] -= 1
+
             self.worker_states[worker_type][replica_id] = {"state": state, "request_id": request_id}
             self._save_state()
             #logging.info(f"[WSM] {worker_type}:{replica_id} → {state} ({request_id})")
@@ -81,6 +126,30 @@ class WorkerStateManager:
                     return False
             return True
 
+    def can_send_last_end(self, worker_type, replica_id, request_id):
+        """
+        Devuelve True si todas las réplicas de un mismo tipo de worker
+        terminaron de procesar el request dado y están en WAITING.
+        """
+        with self.lock:
+            if self.using_end_sync:
+                if worker_type not in self.worker_states:
+                    self.worker_states[worker_type] = {}
+                if self.using_end_sync:
+                    if worker_type not in self.workers_being_used:
+                        self.workers_being_used[worker_type] = True
+                    if request_id not in self.ends_by_requests:
+                        self.ends_by_requests[request_id] = sum(
+                            1 for being_used in self.workers_being_used.values() if being_used
+                        )
+                    self.ends_by_requests[request_id] -= 1
+                self.worker_states[worker_type][replica_id] = {"state": "END", "request_id": request_id}
+                self._save_state()
+                if self.ends_by_requests.get(request_id, 0) > 0:
+                    logging.debug(f"[WSM] Aún quedan {self.ends_by_requests[request_id]} workers procesando {request_id}")
+                    return False
+                logging.debug(f"[WSM] Todos los workers terminaron de procesar {request_id}")
+            return True
 
 # -------------------------------
 # ⚡ Servidor TCP multicliente
@@ -134,6 +203,9 @@ class WSMServer:
             return "OK"
         elif action == "can_send_end":
             can_send = self.manager.can_send_end(worker_type, msg["request_id"])
+            return "OK" if can_send else "WAIT"
+        elif action == "can_send_last_end":
+            can_send = self.manager.can_send_last_end(worker_type, replica_id, msg["request_id"])
             return "OK" if can_send else "WAIT"
         else:
             return "ERROR: unknown action"
