@@ -1043,8 +1043,8 @@ services:
       QUEUE_OUT: sort_q3_request
       OUTPUT_FILE: /app/output/q3_unsorted.csv
       QUERY_TYPE: q3
-      HOST: wsm_q3
-      PORT: 9102
+      WSM_HOST: wsm_q3
+      WSM_PORT: 9102
     volumes:
     - ./output:/app/output
     networks:

@@ -210,6 +210,7 @@ class Joiner_v2(Worker):
 
         wsm_client = self.dict_wsm_clients[queue_name]
 
+        time.sleep(1)
         while not wsm_client.can_send_end(request_id):
             logging.info(f"[Joiner:{self.query_type}] Esperando permiso para verificacion de enviar END de {request_id} desde {queue_name}...")
             time.sleep(1)
