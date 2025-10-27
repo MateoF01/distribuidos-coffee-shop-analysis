@@ -193,6 +193,7 @@ class SplitterQ1(StreamProcessingWorker):
         """
 
         if(data_type == 6): #si es el mensaje de final de data lo salteo para que no se repitan dos ends de la misma request
+            logging.info(f"[Splitter:{self.replica_id}] Ignorando END END para request {request_id}. ")
             return
 
         # flush final de lo pendiente
