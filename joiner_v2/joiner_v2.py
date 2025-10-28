@@ -187,7 +187,7 @@ class Joiner_v2(Worker):
             self._save_to_temp_file(queue_name, processed_rows, file_path)
 
             wsm_client.update_state("WAITING")
-            logging.info(f"[Joiner:{self.query_type}] Processed {len(processed_rows)} rows from {queue_name} (request_id={request_id}). Total rows received for this request: {self._rows_received_per_request[request_id]}")
+            #logging.info(f"[Joiner:{self.query_type}] Processed {len(processed_rows)} rows from {queue_name} (request_id={request_id}). Total rows received for this request: {self._rows_received_per_request[request_id]}")
             # if self.shm_client.unlock(file_path) != "OK":
             #     logging.error(f"[Joiner:{self.query_type}] Error unlocking {file_path}")
             # logging.info(f"[Joiner:{self.query_type}] Released lock on {file_path}")

@@ -61,7 +61,7 @@ class SorterV2(SignalProcessingWorker):
         with open(output_path, "w", newline="", encoding="utf-8") as out:
             writer = csv.writer(out)
             
-            writer.writerow('transaction_id,final_amount') #headers
+            writer.writerow(['transaction_id', 'final_amount'])
 
             while heap:
                 key, idx, row, reader = heapq.heappop(heap)
