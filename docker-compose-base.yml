@@ -821,7 +821,6 @@ services:
       SORT_COLUMNS: "0"                    
     volumes:
       - ./splitter/temp:/app/temp
-      - ./sorter_v2/temp:/app/temp
       - ./output:/app/output
     networks:
       - coffee-net
