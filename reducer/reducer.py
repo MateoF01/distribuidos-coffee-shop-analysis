@@ -146,6 +146,13 @@ class ReducerV2(SignalProcessingWorker):
             except Exception as e:
                 logging.error(f"[Reducer Q3] Error leyendo {fpath}: {e}")
 
+        logging.info(f"[Reducer Q3] Total combinado: {total}")
+        # Detectar si tiene más de 2 decimales y redondear en ese caso
+        s = f"{total:.10f}".rstrip('0').rstrip('.')
+        if '.' in s and len(s.split('.')[1]) > 2:
+            total = int(total * 100 + 0.5) / 100.0
+        logging.info(f"[Reducer Q3] Total redondeado: {total}")
+
         # Devolvemos directamente el número total como lista de una sola fila
         return [[total]]
 

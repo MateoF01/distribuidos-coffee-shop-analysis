@@ -172,15 +172,6 @@ class GrouperV2(StreamProcessingWorker):
 
             total = old + val
 
-            # Detectar si tiene más de 2 decimales y redondear en ese caso
-            s = f"{total:.10f}".rstrip('0').rstrip('.')
-            if '.' in s and len(s.split('.')[1]) > 2:
-                print("REDONDEO! PRE :", total)
-                total = int(total * 100 + 0.5) / 100.0
-                print("REDONDEO! POST :", total)
-
-
-            # Escribir el resultado final
             with open(path, 'w') as f:
                 f.write(f"{total}\n")
 
