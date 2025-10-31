@@ -10,7 +10,7 @@ import logging
 HOST = os.environ.get("HOST", "0.0.0.0")
 PORT = int(os.environ.get("PORT", "9000"))
 STATE_FILE = os.environ.get("STATE_FILE_PATH", "/app/output/worker_states.json")
-USING_END_SYNC = os.environ.get("USING_END_SYNC", "1") == "1"
+USING_END_SYNC = os.environ.get("USING_END_SYNC", "0") == "1"
 
 os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
 

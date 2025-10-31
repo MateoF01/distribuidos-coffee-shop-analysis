@@ -190,28 +190,28 @@ services:
     - coffee-net
 
   cleaner_transactions_q4:
-      build:
-        context: .
-        dockerfile: cleaner/Dockerfile
-      depends_on:
-        rabbitmq:
-          condition: service_healthy
-        temporal_filter_transactions:
-          condition: service_started
-        wsm_transactions_q4:              
-          condition: service_started
-      environment:
-        PYTHONUNBUFFERED: 1
-        RABBITMQ_HOST: rabbitmq
-        RABBITMQ_USER: admin
-        RABBITMQ_PASS: secretpassword
-        WSM_HOST: wsm_transactions_q4
-        WSM_PORT: 9005
-        QUEUE_IN: transactions_filtered_Q4
-        QUEUE_OUT: transactions_cleaned_Q4
-        DATA_TYPE: transactions_q4
-      networks:
-      - coffee-net
+    build:
+      context: .
+      dockerfile: cleaner/Dockerfile
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      temporal_filter_transactions:
+        condition: service_started
+      wsm_transactions_q4:              
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      WSM_HOST: wsm_transactions_q4
+      WSM_PORT: 9005
+      QUEUE_IN: transactions_filtered_Q4
+      QUEUE_OUT: transactions_cleaned_Q4
+      DATA_TYPE: transactions_q4
+    networks:
+    - coffee-net
 
   wsm_transactions_q4:
     build:
@@ -310,7 +310,7 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
-      gateway:
+      cleaner_transactions:
         condition: service_started
       wsm_temporal_filter_transactions:
         condition: service_started
@@ -349,7 +349,7 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
-      gateway:
+      cleaner_transaction_items:
         condition: service_started
       wsm_temporal_filter_transaction_items:
         condition: service_started
@@ -388,7 +388,7 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
-      gateway:
+      temporal_filter_transactions:
         condition: service_started
       wsm_amount_filter_transactions:
         condition: service_started
@@ -428,7 +428,7 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
-      gateway:
+      temporal_filter_transaction_items:
         condition: service_started
       wsm_grouper_q2:
         condition: service_started
@@ -467,7 +467,7 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
-      gateway:
+      grouper_q2_v2:
         condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
@@ -492,7 +492,7 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
-      grouper_q2_v2:
+      reducer_q2:
         condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
@@ -542,7 +542,7 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
-      gateway:
+      temporal_filter_transactions:
         condition: service_started
       wsm_grouper_q3:
         condition: service_started
@@ -581,7 +581,7 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
-      gateway:
+      grouper_q3_v2:
         condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
@@ -606,7 +606,7 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
-      grouper_q3_v2:
+      reducer_q3:
         condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
@@ -656,7 +656,7 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
-      gateway:
+      temporal_filter_transactions:
         condition: service_started
       wsm_grouper_q4:
         condition: service_started
@@ -695,7 +695,7 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
-      gateway:
+      grouper_q4_v2:
         condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
@@ -720,7 +720,7 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
-      grouper_q4_v2:
+      reducer_q4:
         condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
@@ -811,6 +811,8 @@ services:
       rabbitmq:
         condition: service_healthy
       gateway:
+        condition: service_started
+      splitter_q1:
         condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
