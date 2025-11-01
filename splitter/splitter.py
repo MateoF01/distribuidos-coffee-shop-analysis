@@ -141,13 +141,13 @@ class SplitterQ1(StreamProcessingWorker):
         self._ensure_request_dir(request_id)
 
         # estado WSM
-        self.wsm_client.update_state("PROCESSING", request_id)        
+        self.wsm_client.update_state("PROCESSING", request_id, position)        
 
         # proceso (esto invocará _process_rows / _handle_end_signal)
         super()._process_message(message, msg_type, data_type, request_id, position, payload, queue_name)
 
         # listo por ahora
-        self.wsm_client.update_state("WAITING")
+        self.wsm_client.update_state("WAITING", request_id, position)
 
     # ------------------------------------------------------------
     # Filas de datos
@@ -184,7 +184,7 @@ class SplitterQ1(StreamProcessingWorker):
     # ------------------------------------------------------------
     # END + sincronización con WSM
     # ------------------------------------------------------------
-    def _handle_end_signal(self, message, msg_type, data_type, request_id, queue_name=None):
+    def _handle_end_signal(self, message, msg_type, data_type, request_id, position, queue_name=None):
         """
         - Flushea el último chunk del request.
         - Marca END en WSM.
@@ -200,13 +200,13 @@ class SplitterQ1(StreamProcessingWorker):
         self._write_chunk(request_id)
 
         # marcamos END local
-        self.wsm_client.update_state("END", request_id)
+        self.wsm_client.update_state("END", request_id, position)
         print(f"[{self.replica_id}] END")
 
         logging.info(f"[SplitterQ1:{self.replica_id}] END recibido para request {request_id}. Esperando permiso WSM...")
 
         # esperar permiso global del WSM (todas las réplicas listas)
-        while not self.wsm_client.can_send_end(request_id):
+        while not self.wsm_client.can_send_end(request_id, position):
             time.sleep(1)
 
         logging.info(f"[SplitterQ1:{self.replica_id}] ✅ WSM autorizó END para request {request_id}. Notificando sorter_v2...")
@@ -219,7 +219,7 @@ class SplitterQ1(StreamProcessingWorker):
                 q.send(noti)
 
         # dejamos al worker en WAITING
-        self.wsm_client.update_state("WAITING")
+        self.wsm_client.update_state("WAITING", request_id, position)
 
         # limpiamos buffers del request (opcional, si no se reusa)
         if request_id in self.buffers:

@@ -280,9 +280,9 @@ class Client:
                 # Enviar archivos
                 for data_type, filepaths in files_by_type.items():
                     print(f"[INFO] REQ {request_num+1}/{self.requests_amount}: Processing {len(filepaths)} files for data_type={data_type}")
+                    position_counter = 1
                     for filepath in filepaths:
                         print(f"[INFO] REQ {request_num+1}/{self.requests_amount}: Sending file {filepath} (type={data_type})")
-                        position_counter = 1
                         for batch in csv_loaders.load_csv_batch(filepath, self.batch_max_amount):
                             payload = "\n".join(batch).encode()
                             protocol.send_message(self.conn, protocol.MSG_TYPE_DATA, data_type, payload, position_counter)

@@ -34,7 +34,7 @@ class ReceiverWorker(Worker):
         self.received_data.append(record)
         self._flush_to_disk()
 
-    def _handle_end_signal(self, message, msg_type, data_type, request_id, queue_name=None):
+    def _handle_end_signal(self, message, msg_type, data_type, request_id, position, queue_name=None):
         """Sobrescribe el manejo base del END para loguearlo y guardarlo."""
         logging.info(f"[RECEIVER] END recibido para request_id={request_id}")
 
@@ -49,7 +49,7 @@ class ReceiverWorker(Worker):
 
         # No hay colas downstream, pero igual llamamos al padre
         # (por consistencia, marca el END como procesado)
-        super()._handle_end_signal(message, msg_type, data_type, request_id, queue_name)
+        super()._handle_end_signal(message, msg_type, data_type, request_id, position, queue_name)
 
     def _flush_to_disk(self):
         with open(self.output_path, "w", encoding="utf-8") as f:

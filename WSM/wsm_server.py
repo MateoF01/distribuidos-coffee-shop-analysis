@@ -21,9 +21,11 @@ class WorkerStateManager:
     def __init__(self, state_file=STATE_FILE, using_end_sync=USING_END_SYNC):
         self.state_file = state_file
         self.using_end_sync = using_end_sync
-        # these three dictionaries are persisted to disk together
+        # persisted state structures
+        self.worker_states = {}
         self.workers_being_used = {}
         self.ends_by_requests = {}
+        self.positions_by_requests = {}
         self.lock = threading.Lock()
         # _load_state will populate self.worker_states, self.workers_being_used and
         # self.ends_by_requests if a saved file exists. If not, defaults above remain.
@@ -34,45 +36,57 @@ class WorkerStateManager:
     # 🔄 Persistencia
     # -------------------------------
     def _load_state(self):
-        """
-        Load persisted state file (if present) and populate the three in-memory
-        dictionaries: worker_states, workers_being_used and ends_by_requests.
-        If any key is missing or the file is invalid, fall back to defaults while
-        logging an error.
-        """
-        # initialize defaults in case file is absent or invalid
-        self.worker_states = self.worker_states if hasattr(self, "worker_states") else {}
-        self.workers_being_used = self.workers_being_used if hasattr(self, "workers_being_used") else {}
-        self.ends_by_requests = self.ends_by_requests if hasattr(self, "ends_by_requests") else {}
-
         if os.path.exists(self.state_file):
             try:
                 with open(self.state_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
 
                 if isinstance(data, dict):
-                    self.worker_states = data.get("worker_states", {}) or {}
-                    self.workers_being_used = data.get("workers_being_used", {}) or {}
-                    self.ends_by_requests = data.get("ends_by_requests", {}) or {}
+                    self.worker_states = data.get("worker_states", {})
+                    self.workers_being_used = data.get("workers_being_used", {})
+                    self.ends_by_requests = data.get("ends_by_requests", {})
+                    self.positions_by_requests = {}
+                    for k, v in data.get("positions_by_requests", {}).items():
+                        try:
+                            worker_type, request_id = k.split("|", 1)
+                            self.positions_by_requests[(worker_type, request_id)] = set(v)
+                        except Exception:
+                            logging.warning(f"[WSM] clave de posición inválida en {k}")
                     logging.info(f"[WSM] Estado cargado desde {self.state_file}")
                 else:
                     logging.error(f"[WSM] Formato de estado inválido en {self.state_file}")
             except Exception as e:
                 logging.error(f"[WSM] Error cargando estado: {e}")
 
-        return self.worker_states
-
     def _save_state(self):
-        payload = {
-            "worker_states": self.worker_states,
-            "workers_being_used": self.workers_being_used,
-            "ends_by_requests": self.ends_by_requests,
-        }
         try:
+            serializable_positions = { f"{wt}|{rid}": list(v) for (wt, rid), v in self.positions_by_requests.items() }
+            payload = {
+                "worker_states": self.worker_states,
+                "workers_being_used": self.workers_being_used,
+                "ends_by_requests": self.ends_by_requests,
+                "positions_by_requests": serializable_positions,
+            }
             with open(self.state_file, "w", encoding="utf-8") as f:
                 json.dump(payload, f, indent=2, ensure_ascii=False)
         except Exception as e:
             logging.error(f"[WSM] Error guardando archivo de estado: {e}")
+
+    # -------------------------------
+    # Operaciones de ayuda
+    # -------------------------------
+    def _compute_lowest_contiguous(self, pos_set):
+        """ Returns the highest contiguous position starting from the
+        lowest value. E.g. if positions = {0,1,2,4,5} → returns 2. """
+        if not pos_set:
+            return -1
+        sorted_positions = sorted(pos_set)
+        expected = sorted_positions[0]
+        for p in sorted_positions:
+            if p != expected:
+                break
+            expected += 1
+        return expected - 1
 
     # -------------------------------
     # 🧱 Operaciones básicas
@@ -82,26 +96,23 @@ class WorkerStateManager:
         Registra una réplica de un tipo de worker.
         """
         with self.lock:
-            if worker_type not in self.worker_states:
-                self.worker_states[worker_type] = {}
+            self.worker_states.setdefault(worker_type, {})
             if replica_id not in self.worker_states[worker_type]:
                 if self.using_end_sync:
-                    if worker_type not in self.workers_being_used:
-                        self.workers_being_used[worker_type] = True
+                    self.workers_being_used.setdefault(worker_type, True)
                 self.worker_states[worker_type][replica_id] = {"state": "WAITING", "request_id": None}
                 self._save_state()
                 #logging.info(f"[WSM] {worker_type} → Replica {replica_id} registrada como WAITING")
 
-    def update_state(self, worker_type, replica_id, state, request_id):
+    def update_state(self, worker_type, replica_id, state, request_id, position):
         """
         Actualiza el estado de una réplica específica.
         """
         with self.lock:
-            if worker_type not in self.worker_states:
-                self.worker_states[worker_type] = {}
+            self.worker_states.setdefault(worker_type, {})
+            previous_state = self.worker_states[worker_type].get(replica_id, {}).get("state")
             if self.using_end_sync:
-                if worker_type not in self.workers_being_used:
-                    self.workers_being_used[worker_type] = True
+                self.workers_being_used.setdefault(worker_type, True)
                 if request_id not in self.ends_by_requests:
                     self.ends_by_requests[request_id] = sum(
                         1 for being_used in self.workers_being_used.values() if being_used
@@ -109,11 +120,25 @@ class WorkerStateManager:
                 if state == "END":
                     self.ends_by_requests[request_id] -= 1
 
-            self.worker_states[worker_type][replica_id] = {"state": state, "request_id": request_id}
+            if state == "WAITING":
+                self.worker_states[worker_type][replica_id] = {"state": state, "request_id": None}
+            else:
+                self.worker_states[worker_type][replica_id] = {"state": state, "request_id": request_id}
+
+            if (request_id
+                and position is not None
+                and state == "WAITING"
+                and previous_state == "PROCESSING"
+            ):
+                key = (worker_type, request_id)
+                pos_set = self.positions_by_requests.setdefault(key, set())
+                pos_set.add(position)
+                logging.debug(f"[WSM] {worker_type}:{replica_id} registró posición {position} para {request_id}")
+
             self._save_state()
             #logging.info(f"[WSM] {worker_type}:{replica_id} → {state} ({request_id})")
 
-    def can_send_end(self, worker_type, request_id):
+    def can_send_end(self, worker_type, request_id, position):
         """
         Devuelve True si todas las réplicas de un mismo tipo de worker
         terminaron de procesar el request dado.
@@ -124,7 +149,20 @@ class WorkerStateManager:
                 if info["state"] == "PROCESSING" and info["request_id"] == request_id:
                     logging.debug(f"[WSM] {worker_type}:{rid} todavía procesando {request_id}")
                     return False
-            return True
+
+            key = (worker_type, request_id)
+            pos_set = self.positions_by_requests.get(key, set())
+            lowest = self._compute_lowest_contiguous(pos_set)
+
+            if position is None:
+                logging.warning(f"[WSM] can_send_end() llamado sin posición para {worker_type}:{request_id}")
+                return False
+            if lowest == position - 1:
+                logging.info(f"[WSM] {worker_type}:{request_id} stream completo hasta {lowest}, END válido en {position}")
+                return True
+            else:
+                logging.info(f"[WSM] {worker_type}:{request_id} faltan posiciones (lowest={lowest}, esperado={position-1})")
+                return False
 
     def can_send_last_end(self, worker_type, replica_id, request_id):
         """
@@ -133,16 +171,13 @@ class WorkerStateManager:
         """
         with self.lock:
             if self.using_end_sync:
-                if worker_type not in self.worker_states:
-                    self.worker_states[worker_type] = {}
-                if self.using_end_sync:
-                    if worker_type not in self.workers_being_used:
-                        self.workers_being_used[worker_type] = True
-                    if request_id not in self.ends_by_requests:
-                        self.ends_by_requests[request_id] = sum(
-                            1 for being_used in self.workers_being_used.values() if being_used
-                        )
-                    self.ends_by_requests[request_id] -= 1
+                self.worker_states.setdefault(worker_type, {})
+                self.workers_being_used.setdefault(worker_type, True)
+                if request_id not in self.ends_by_requests:
+                    self.ends_by_requests[request_id] = sum(
+                        1 for being_used in self.workers_being_used.values() if being_used
+                    )
+                self.ends_by_requests[request_id] -= 1
                 self.worker_states[worker_type][replica_id] = {"state": "END", "request_id": request_id}
                 self._save_state()
                 if self.ends_by_requests.get(request_id, 0) > 0:
@@ -199,13 +234,13 @@ class WSMServer:
             self.manager.register_worker(worker_type, replica_id)
             return "OK"
         elif action == "update_state":
-            self.manager.update_state(worker_type, replica_id, msg["state"], msg.get("request_id"))
+            self.manager.update_state(worker_type, replica_id, msg.get("state"), msg.get("request_id"), msg.get("position"))
             return "OK"
         elif action == "can_send_end":
-            can_send = self.manager.can_send_end(worker_type, msg["request_id"])
+            can_send = self.manager.can_send_end(worker_type, msg.get("request_id"), msg.get("position"))
             return "OK" if can_send else "WAIT"
         elif action == "can_send_last_end":
-            can_send = self.manager.can_send_last_end(worker_type, replica_id, msg["request_id"])
+            can_send = self.manager.can_send_last_end(worker_type, replica_id, msg.get("request_id"))
             return "OK" if can_send else "WAIT"
         else:
             return "ERROR: unknown action"

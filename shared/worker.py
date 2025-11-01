@@ -113,7 +113,7 @@ class Worker(ABC):
                 
                 # Handle end-of-data signals
                 if msg_type == protocol.MSG_TYPE_END:
-                    self._handle_end_signal(message, msg_type, data_type, request_id, queue_name)
+                    self._handle_end_signal(message, msg_type, data_type, request_id, position, queue_name)
                     return
                 
                 # Process the message content
@@ -131,7 +131,7 @@ class Worker(ABC):
             return False
         return True
     
-    def _handle_end_signal(self, message, msg_type, data_type, request_id, queue_name=None):
+    def _handle_end_signal(self, message, msg_type, data_type, request_id, position, queue_name=None):
         """Handle end-of-data signals. Default implementation forwards to all output queues with deduplication."""
         
         # Forward to all output queues

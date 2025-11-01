@@ -155,7 +155,7 @@ class Joiner(Worker):
                         for i in range(len(self.outputs)):
                             self._write_rows_to_csv_idx(i, final_rows, request_id)
     
-    def _handle_end_signal(self, message, msg_type, data_type, request_id, queue_name=None):
+    def _handle_end_signal(self, message, msg_type, data_type, request_id, position, queue_name=None):
         """
         Handle END signals per request_id and per input queue.
         Evita mezclar los END de distintos requests.

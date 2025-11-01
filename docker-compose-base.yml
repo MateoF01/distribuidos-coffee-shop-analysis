@@ -366,7 +366,7 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
-      coordinator_temporal_filter_transactions:
+      coordinator_temporal_filter_transactions_q4:
         condition: service_started
       wsm_transactions_q4:              
         condition: service_started
@@ -433,7 +433,7 @@ services:
       RABBITMQ_USER: admin
       RABBITMQ_PASS: secretpassword
       QUEUE_IN: transactions_cleaned
-      QUEUE_OUT: transactions_coord_filtered
+      QUEUE_OUT: transactions_coord_filtered_Q1,transactions_coord_filtered_Q3,transactions_coord_filtered_Q4
       DATA_TYPE: transactions
       FILTER_TYPE: temporal
       WSM_HOST: wsm_temporal_filter_transactions
@@ -454,11 +454,11 @@ services:
       - ./output_wsm:/app/output
     networks:
       - coffee-net
-  coordinator_temporal_filter_transactions:
+  coordinator_temporal_filter_transactions_q1:
     build:
       context: .
       dockerfile: coordinator/Dockerfile
-    container_name: coordinator_temporal_filter_transactions
+    container_name: coordinator_temporal_filter_transactions_q1
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -469,10 +469,48 @@ services:
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_USER: admin
       RABBITMQ_PASS: secretpassword
-      QUEUE_IN: transactions_coord_filtered
-      QUEUE_OUT: transactions_filtered_Q1,transactions_filtered_Q3,transactions_filtered_Q4
+      QUEUE_IN: transactions_coord_filtered_Q1
+      QUEUE_OUT: transactions_filtered_Q1
     networks:
     - coffee-net  
+  coordinator_temporal_filter_transactions_q3:
+    build:
+      context: .
+      dockerfile: coordinator/Dockerfile
+    container_name: coordinator_temporal_filter_transactions_q3
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      temporal_filter_transactions:
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      QUEUE_IN: transactions_coord_filtered_Q3
+      QUEUE_OUT: transactions_filtered_Q3
+    networks:
+    - coffee-net
+  coordinator_temporal_filter_transactions_q4:
+    build:
+      context: .
+      dockerfile: coordinator/Dockerfile
+    container_name: coordinator_temporal_filter_transactions_q4
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      temporal_filter_transactions:
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      QUEUE_IN: transactions_coord_filtered_Q4
+      QUEUE_OUT: transactions_filtered_Q4
+    networks:
+    - coffee-net
 
   temporal_filter_transaction_items:
     build:
@@ -539,7 +577,7 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
-      coordinator_temporal_filter_transactions:
+      coordinator_temporal_filter_transactions_q1:
         condition: service_started
       wsm_amount_filter_transactions:
         condition: service_started
@@ -712,7 +750,7 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
-      coordinator_temporal_filter_transactions:
+      coordinator_temporal_filter_transactions_q3:
         condition: service_started
       wsm_grouper_q3:
         condition: service_started

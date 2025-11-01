@@ -54,27 +54,27 @@ class GrouperV2(StreamProcessingWorker):
         self._initialize_request_paths(request_id)
 
         # 1️⃣ Notificar inicio de procesamiento
-        self.wsm_client.update_state("PROCESSING", request_id)
+        self.wsm_client.update_state("PROCESSING", request_id, position)
 
         # Delegar al procesamiento normal (que invoca a _process_rows)
         super()._process_message(message, msg_type, data_type, request_id, position, payload, queue_name)
 
         # 2️⃣ Marcar espera
-        self.wsm_client.update_state("WAITING")
+        self.wsm_client.update_state("WAITING", request_id, position)
 
     # ------------------------------------------------------------
     # 🧩 Manejo del END sincronizado
     # ------------------------------------------------------------
-    def _handle_end_signal(self, message, msg_type, data_type, request_id, queue_name=None):
+    def _handle_end_signal(self, message, msg_type, data_type, request_id, position, queue_name=None):
         if data_type == protocol.DATA_END:
             logging.info(f"[GrouperV2:{self.grouper_mode}] Recibido DATA_END para request {request_id} en cola {queue_name}.")
             return
         
-        self.wsm_client.update_state("END", request_id)
+        self.wsm_client.update_state("END", request_id, position)
         logging.info(f"[GrouperV2:{self.grouper_mode}] Recibido END para request {request_id}. Esperando permiso del WSM...")
 
         # Esperar permiso del WSM (se puede mejorar para evitar busy loop)
-        while not self.wsm_client.can_send_end(request_id):
+        while not self.wsm_client.can_send_end(request_id, position):
             time.sleep(1)
 
         logging.info(f"[GrouperV2:{self.grouper_mode}] ✅ Permiso otorgado por el WSM para reenviar END de {request_id}")
@@ -85,7 +85,7 @@ class GrouperV2(StreamProcessingWorker):
         for q in self.out_queues:
             q.send(noti_message)
 
-        self.wsm_client.update_state("WAITING")
+        self.wsm_client.update_state("WAITING", request_id, position)
 
     # ------------------------------------------------------------
     # 🧠 Lógica de agrupamiento

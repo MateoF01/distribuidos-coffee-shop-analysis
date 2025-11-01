@@ -138,7 +138,7 @@ restart: down up
 # 🧾 Logs
 .PHONY: logs
 logs:
-	docker compose logs -f
+	docker compose logs -t -f
 
 # 🧽 Clean output/temp files
 .PHONY: clean

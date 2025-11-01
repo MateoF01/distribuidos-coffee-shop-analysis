@@ -41,7 +41,7 @@ services:
       GATEWAY_PORT: 5000
       QUEUE_IN: results
       REQUESTS_PER_CLIENT: 1
-      GATEWAY_MAX_PROCESSES: 2
+      GATEWAY_MAX_PROCESSES: 3
     networks:
     - coffee-net
   client1:
@@ -104,6 +104,36 @@ services:
     - ./client/results:/app/client/results
     networks:
     - coffee-net
+  client3:
+    build:
+      context: .
+      dockerfile: client/Dockerfile
+    container_name: client3
+    depends_on:
+      gateway:
+        condition: service_started
+      sender_q1:
+        condition: service_started
+      sender_q2_a:
+        condition: service_started
+      sender_q2_b:
+        condition: service_started
+      sender_q3:
+        condition: service_started
+      sender_q4:
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: 1
+      DATA_DIR: /app/.data
+      SERVER_ADDRESS: gateway:5000
+      CLIENT_ID: client3
+      BATCH_MAX_AMOUNT: 5000
+      REQUESTS_PER_CLIENT: 1
+    volumes:
+    - ./data:/app/.data
+    - ./client/results:/app/client/results
+    networks:
+    - coffee-net
   cleaner_transactions:
     build:
       context: .
@@ -123,8 +153,41 @@ services:
       WSM_HOST: wsm_transactions
       WSM_PORT: 9000
       QUEUE_IN: transactions_queue
-      QUEUE_OUT: transactions_cleaned
+      QUEUE_OUT: transactions_coord_cleaned
       DATA_TYPE: transactions
+    networks:
+    - coffee-net
+  wsm_transactions:
+    build:
+      context: .
+      dockerfile: WSM/Dockerfile
+    container_name: wsm_transactions
+    environment:
+      PYTHONUNBUFFERED: 1
+      STATE_FILE_PATH: /app/output/worker_states_transactions.json
+      HOST: 0.0.0.0
+      PORT: 9000
+    volumes:
+    - ./output_wsm:/app/output
+    networks:
+    - coffee-net
+  coordinator_cleaner_transactions:
+    build:
+      context: .
+      dockerfile: coordinator/Dockerfile
+    container_name: coordinator_cleaner_transactions
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      cleaner_transactions:
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      QUEUE_IN: transactions_coord_cleaned
+      QUEUE_OUT: transactions_cleaned
     networks:
     - coffee-net
   cleaner_transaction_items:
@@ -146,8 +209,41 @@ services:
       WSM_HOST: wsm_transaction_items
       WSM_PORT: 9001
       QUEUE_IN: transaction_items_queue
-      QUEUE_OUT: transaction_items_cleaned
+      QUEUE_OUT: transaction_items_coord_cleaned
       DATA_TYPE: transaction_items
+    networks:
+    - coffee-net
+  wsm_transaction_items:
+    build:
+      context: .
+      dockerfile: WSM/Dockerfile
+    container_name: wsm_transaction_items
+    environment:
+      PYTHONUNBUFFERED: 1
+      STATE_FILE_PATH: /app/output/worker_states_transaction_items.json
+      HOST: 0.0.0.0
+      PORT: 9001
+    volumes:
+    - ./output_wsm:/app/output
+    networks:
+    - coffee-net
+  coordinator_cleaner_transaction_items:
+    build:
+      context: .
+      dockerfile: coordinator/Dockerfile
+    container_name: coordinator_cleaner_transaction_items
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      cleaner_transaction_items:
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      QUEUE_IN: transaction_items_coord_cleaned
+      QUEUE_OUT: transaction_items_cleaned
     networks:
     - coffee-net
   cleaner_users:
@@ -169,8 +265,41 @@ services:
       WSM_HOST: wsm_users
       WSM_PORT: 9002
       QUEUE_IN: users_queue
-      QUEUE_OUT: users_cleaned
+      QUEUE_OUT: users_coord_cleaned
       DATA_TYPE: users
+    networks:
+    - coffee-net
+  wsm_users:
+    build:
+      context: .
+      dockerfile: WSM/Dockerfile
+    container_name: wsm_users
+    environment:
+      PYTHONUNBUFFERED: 1
+      STATE_FILE_PATH: /app/output/worker_states_users.json
+      HOST: 0.0.0.0
+      PORT: 9002
+    volumes:
+    - ./output_wsm:/app/output
+    networks:
+    - coffee-net
+  coordinator_cleaner_users:
+    build:
+      context: .
+      dockerfile: coordinator/Dockerfile
+    container_name: coordinator_cleaner_users
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      cleaner_users:
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      QUEUE_IN: users_coord_cleaned
+      QUEUE_OUT: users_cleaned
     networks:
     - coffee-net
   cleaner_stores:
@@ -192,8 +321,41 @@ services:
       WSM_HOST: wsm_stores
       WSM_PORT: 9003
       QUEUE_IN: stores_queue
-      QUEUE_OUT: stores_cleaned_q3,stores_cleaned_q4
+      QUEUE_OUT: stores_coord_cleaned
       DATA_TYPE: stores
+    networks:
+    - coffee-net
+  wsm_stores:
+    build:
+      context: .
+      dockerfile: WSM/Dockerfile
+    container_name: wsm_stores
+    environment:
+      PYTHONUNBUFFERED: 1
+      STATE_FILE_PATH: /app/output/worker_states_stores.json
+      HOST: 0.0.0.0
+      PORT: 9003
+    volumes:
+    - ./output_wsm:/app/output
+    networks:
+    - coffee-net
+  coordinator_cleaner_stores:
+    build:
+      context: .
+      dockerfile: coordinator/Dockerfile
+    container_name: coordinator_cleaner_stores
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      cleaner_stores:
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      QUEUE_IN: stores_coord_cleaned
+      QUEUE_OUT: stores_cleaned_q3,stores_cleaned_q4
     networks:
     - coffee-net
   cleaner_menu_items:
@@ -215,8 +377,41 @@ services:
       WSM_HOST: wsm_menu_items
       WSM_PORT: 9004
       QUEUE_IN: menu_items_queue
-      QUEUE_OUT: menu_items_cleaned
+      QUEUE_OUT: menu_items_coord_cleaned
       DATA_TYPE: menu_items
+    networks:
+    - coffee-net
+  wsm_menu_items:
+    build:
+      context: .
+      dockerfile: WSM/Dockerfile
+    container_name: wsm_menu_items
+    environment:
+      PYTHONUNBUFFERED: 1
+      STATE_FILE_PATH: /app/output/worker_states_menu_items.json
+      HOST: 0.0.0.0
+      PORT: 9004
+    volumes:
+    - ./output_wsm:/app/output
+    networks:
+    - coffee-net
+  coordinator_cleaner_menu_items:
+    build:
+      context: .
+      dockerfile: coordinator/Dockerfile
+    container_name: coordinator_cleaner_menu_items
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      cleaner_menu_items:
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      QUEUE_IN: menu_items_coord_cleaned
+      QUEUE_OUT: menu_items_cleaned
     networks:
     - coffee-net
   cleaner_transactions_q4:
@@ -226,7 +421,7 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
-      temporal_filter_transactions:
+      coordinator_temporal_filter_transactions_q4:
         condition: service_started
       wsm_transactions_q4:
         condition: service_started
@@ -238,7 +433,7 @@ services:
       WSM_HOST: wsm_transactions_q4
       WSM_PORT: 9005
       QUEUE_IN: transactions_filtered_Q4
-      QUEUE_OUT: transactions_cleaned_Q4
+      QUEUE_OUT: transactions_coord_cleaned_Q4
       DATA_TYPE: transactions_q4
     networks:
     - coffee-net
@@ -256,74 +451,23 @@ services:
     - ./output_wsm:/app/output
     networks:
     - coffee-net
-  wsm_transactions:
+  coordinator_cleaner_transactions_q4:
     build:
       context: .
-      dockerfile: WSM/Dockerfile
-    container_name: wsm_transactions
+      dockerfile: coordinator/Dockerfile
+    container_name: coordinator_cleaner_transactions_q4
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      cleaner_transactions_q4:
+        condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/worker_states_transactions.json
-      HOST: 0.0.0.0
-      PORT: 9000
-    volumes:
-    - ./output_wsm:/app/output
-    networks:
-    - coffee-net
-  wsm_transaction_items:
-    build:
-      context: .
-      dockerfile: WSM/Dockerfile
-    container_name: wsm_transaction_items
-    environment:
-      PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/worker_states_transaction_items.json
-      HOST: 0.0.0.0
-      PORT: 9001
-    volumes:
-    - ./output_wsm:/app/output
-    networks:
-    - coffee-net
-  wsm_users:
-    build:
-      context: .
-      dockerfile: WSM/Dockerfile
-    container_name: wsm_users
-    environment:
-      PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/worker_states_users.json
-      HOST: 0.0.0.0
-      PORT: 9002
-    volumes:
-    - ./output_wsm:/app/output
-    networks:
-    - coffee-net
-  wsm_stores:
-    build:
-      context: .
-      dockerfile: WSM/Dockerfile
-    container_name: wsm_stores
-    environment:
-      PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/worker_states_stores.json
-      HOST: 0.0.0.0
-      PORT: 9003
-    volumes:
-    - ./output_wsm:/app/output
-    networks:
-    - coffee-net
-  wsm_menu_items:
-    build:
-      context: .
-      dockerfile: WSM/Dockerfile
-    container_name: wsm_menu_items
-    environment:
-      PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/worker_states_menu_items.json
-      HOST: 0.0.0.0
-      PORT: 9004
-    volumes:
-    - ./output_wsm:/app/output
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      QUEUE_IN: transactions_coord_cleaned_Q4
+      QUEUE_OUT: transactions_cleaned_Q4
     networks:
     - coffee-net
   temporal_filter_transactions:
@@ -333,7 +477,7 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
-      cleaner_transactions:
+      coordinator_cleaner_transactions:
         condition: service_started
       wsm_temporal_filter_transactions:
         condition: service_started
@@ -343,7 +487,7 @@ services:
       RABBITMQ_USER: admin
       RABBITMQ_PASS: secretpassword
       QUEUE_IN: transactions_cleaned
-      QUEUE_OUT: transactions_filtered_Q1,transactions_filtered_Q3, transactions_filtered_Q4
+      QUEUE_OUT: transactions_coord_filtered_Q1,transactions_coord_filtered_Q3,transactions_coord_filtered_Q4
       DATA_TYPE: transactions
       FILTER_TYPE: temporal
       WSM_HOST: wsm_temporal_filter_transactions
@@ -364,6 +508,63 @@ services:
     - ./output_wsm:/app/output
     networks:
     - coffee-net
+  coordinator_temporal_filter_transactions_q1:
+    build:
+      context: .
+      dockerfile: coordinator/Dockerfile
+    container_name: coordinator_temporal_filter_transactions_q1
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      temporal_filter_transactions:
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      QUEUE_IN: transactions_coord_filtered_Q1
+      QUEUE_OUT: transactions_filtered_Q1
+    networks:
+    - coffee-net
+  coordinator_temporal_filter_transactions_q3:
+    build:
+      context: .
+      dockerfile: coordinator/Dockerfile
+    container_name: coordinator_temporal_filter_transactions_q3
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      temporal_filter_transactions:
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      QUEUE_IN: transactions_coord_filtered_Q3
+      QUEUE_OUT: transactions_filtered_Q3
+    networks:
+    - coffee-net
+  coordinator_temporal_filter_transactions_q4:
+    build:
+      context: .
+      dockerfile: coordinator/Dockerfile
+    container_name: coordinator_temporal_filter_transactions_q4
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      temporal_filter_transactions:
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      QUEUE_IN: transactions_coord_filtered_Q4
+      QUEUE_OUT: transactions_filtered_Q4
+    networks:
+    - coffee-net
   temporal_filter_transaction_items:
     build:
       context: .
@@ -371,7 +572,7 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
-      cleaner_transaction_items:
+      coordinator_cleaner_transaction_items:
         condition: service_started
       wsm_temporal_filter_transaction_items:
         condition: service_started
@@ -381,7 +582,7 @@ services:
       RABBITMQ_USER: admin
       RABBITMQ_PASS: secretpassword
       QUEUE_IN: transaction_items_cleaned
-      QUEUE_OUT: transaction_items_filtered_Q2
+      QUEUE_OUT: transaction_items_coord_filtered_Q2
       DATA_TYPE: transaction_items
       FILTER_TYPE: temporal
       WSM_HOST: wsm_temporal_filter_transaction_items
@@ -402,6 +603,25 @@ services:
     - ./output_wsm:/app/output
     networks:
     - coffee-net
+  coordinator_temporal_filter_transaction_items:
+    build:
+      context: .
+      dockerfile: coordinator/Dockerfile
+    container_name: coordinator_temporal_filter_transaction_items
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      temporal_filter_transaction_items:
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      QUEUE_IN: transaction_items_coord_filtered_Q2
+      QUEUE_OUT: transaction_items_filtered_Q2
+    networks:
+    - coffee-net
   amount_filter_transactions:
     build:
       context: .
@@ -409,7 +629,7 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
-      temporal_filter_transactions:
+      coordinator_temporal_filter_transactions_q1:
         condition: service_started
       wsm_amount_filter_transactions:
         condition: service_started
@@ -419,7 +639,7 @@ services:
       RABBITMQ_USER: admin
       RABBITMQ_PASS: secretpassword
       QUEUE_IN: transactions_filtered_Q1
-      QUEUE_OUT: transactions_filtered_Q1_b
+      QUEUE_OUT: transactions_coord_filtered_Q1_b
       DATA_TYPE: transactions
       FILTER_TYPE: amount
       MIN_AMOUNT: 75
@@ -441,6 +661,25 @@ services:
     - ./output_wsm:/app/output
     networks:
     - coffee-net
+  coordinator_amount_filter_transactions:
+    build:
+      context: .
+      dockerfile: coordinator/Dockerfile
+    container_name: coordinator_amount_filter_transactions
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      amount_filter_transactions:
+        condition: service_started
+    environment:
+      PYTHONUNBUFFERED: 1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: secretpassword
+      QUEUE_IN: transactions_coord_filtered_Q1_b
+      QUEUE_OUT: transactions_filtered_Q1_b
+    networks:
+    - coffee-net
   grouper_q2_v2:
     build:
       context: .
@@ -448,7 +687,7 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
-      temporal_filter_transaction_items:
+      coordinator_temporal_filter_transaction_items:
         condition: service_started
       wsm_grouper_q2:
         condition: service_started
@@ -561,7 +800,7 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
-      temporal_filter_transactions:
+      coordinator_temporal_filter_transactions_q3:
         condition: service_started
       wsm_grouper_q3:
         condition: service_started
@@ -674,7 +913,7 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
-      temporal_filter_transactions:
+      coordinator_cleaner_transactions_q4:
         condition: service_started
       wsm_grouper_q4:
         condition: service_started
@@ -787,7 +1026,7 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
-      gateway:
+      coordinator_amount_filter_transactions:
         condition: service_started
       wsm_splitter_q1:
         condition: service_started
@@ -874,7 +1113,7 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
-      cleaner_menu_items:
+      coordinator_cleaner_menu_items:
         condition: service_started
       sender_grouper_q2:
         condition: service_started
@@ -965,7 +1204,7 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
-      cleaner_stores:
+      coordinator_cleaner_stores:
         condition: service_started
       sender_grouper_q3:
         condition: service_started
@@ -1056,9 +1295,9 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
-      cleaner_stores:
+      coordinator_cleaner_stores:
         condition: service_started
-      cleaner_users:
+      coordinator_cleaner_users:
         condition: service_started
       sender_grouper_q4:
         condition: service_started

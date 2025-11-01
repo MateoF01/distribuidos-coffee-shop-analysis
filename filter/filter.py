@@ -37,7 +37,7 @@ class Filter(StreamProcessingWorker):
     def _process_message(self, message, msg_type, data_type, request_id, position, payload, queue_name=None):
         """Procesa mensajes de datos (no END)."""
         # 1️⃣ Notificar al WSM que esta réplica está procesando
-        self.wsm_client.update_state("PROCESSING", request_id)
+        self.wsm_client.update_state("PROCESSING", request_id, position)
 
         # Decodificar las filas
         rows = payload.decode("utf-8").split("\n")
@@ -47,28 +47,28 @@ class Filter(StreamProcessingWorker):
         self._send_complex_results(dic_queue_row, msg_type, data_type, request_id, position)
 
         # 2️⃣ Volver a estado de espera
-        self.wsm_client.update_state("WAITING")
+        self.wsm_client.update_state("WAITING", request_id, position)
 
     # ------------------------------------------------------------
     # 🧩 Manejo de END sincronizado
     # ------------------------------------------------------------
-    def _handle_end_signal(self, message, msg_type, data_type, request_id, queue_name=None):
+    def _handle_end_signal(self, message, msg_type, data_type, request_id, position, queue_name=None):
         """Maneja el END: sincroniza con el WSM antes de reenviarlo."""
-        self.wsm_client.update_state("END", request_id)
+        self.wsm_client.update_state("END", request_id, position)
         logging.info(f"[Filter:{self.replica_id}] Recibido END para request {request_id}. Esperando permiso del WSM...")
 
         # Esperar permiso del WSM para reenviar END (busy loop temporal)
-        while not self.wsm_client.can_send_end(request_id):
+        while not self.wsm_client.can_send_end(request_id, position):
             logging.info(f"[Filter:{self.replica_id}] Esperando permiso para reenviar END de {request_id}...")
             time.sleep(1)
 
         logging.info(f"[Filter:{self.replica_id}] ✅ Permiso otorgado por el WSM para reenviar END de {request_id}")
 
         # Reenviar END a las colas de salida (manejo base)
-        super()._handle_end_signal(message, msg_type, data_type, request_id, queue_name)
+        super()._handle_end_signal(message, msg_type, data_type, request_id, position, queue_name)
 
         # Volver a estado de espera
-        self.wsm_client.update_state("WAITING")
+        self.wsm_client.update_state("WAITING", request_id, position)
 
     # ------------------------------------------------------------
     # 🧠 Lógica de filtrado

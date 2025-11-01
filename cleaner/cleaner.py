@@ -35,7 +35,7 @@ class Cleaner(StreamProcessingWorker):
     def _process_message(self, message, msg_type, data_type, request_id, position, payload, queue_name=None):
         """Procesa mensajes de datos (no END)."""
         # 1️⃣ Marcar inicio de procesamiento
-        self.wsm_client.update_state("PROCESSING", request_id)
+        self.wsm_client.update_state("PROCESSING", request_id, position)
 
         rows = payload.decode("utf-8").split("\n")
         cleaned_rows = self._process_rows(rows)
@@ -47,33 +47,33 @@ class Cleaner(StreamProcessingWorker):
                 q.send(new_msg)
 
         # 2️⃣ Marcar fin de procesamiento
-        self.wsm_client.update_state("WAITING")
+        self.wsm_client.update_state("WAITING", request_id, position)
 
     # ------------------------------------------------------------
     # 🧩 Lógica de END sincronizado (sobrescribe el padre)
     # ------------------------------------------------------------
-    def _handle_end_signal(self, message, msg_type, data_type, request_id, queue_name=None):
+    def _handle_end_signal(self, message, msg_type, data_type, request_id, position, queue_name=None):
         """
         Extiende el manejo base del END.
         Primero sincroniza con el WSM, y luego llama a la implementación del padre,
         que reenvía el END automáticamente a las colas de salida.
         """
         # Registrar estado END en el WSM
-        self.wsm_client.update_state("END", request_id)
+        self.wsm_client.update_state("END", request_id, position)
         logging.info(f"[Cleaner] Recibido END para request {request_id}. Consultando WSM...")
 
         # Esperar permiso del WSM para enviar END
-        while not self.wsm_client.can_send_end(request_id): #arreglar buzy loop
+        while not self.wsm_client.can_send_end(request_id, position):
             logging.info(f"[Cleaner] Esperando permiso para reenviar END de {request_id}...")
             time.sleep(1)
 
         logging.info(f"[Cleaner] ✅ Permiso otorgado para enviar END de {request_id}")
 
         # Llamar al manejo normal del END (reenvío a colas de salida)
-        super()._handle_end_signal(message, msg_type, data_type, request_id, queue_name)
+        super()._handle_end_signal(message, msg_type, data_type, request_id, position, queue_name)
 
         # Volver a estado de espera
-        self.wsm_client.update_state("WAITING")
+        self.wsm_client.update_state("WAITING", request_id, position)
 
     # ------------------------------------------------------------
     # 🧽 Limpieza de datos
