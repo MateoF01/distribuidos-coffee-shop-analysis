@@ -108,9 +108,9 @@ class Joiner(Worker):
 
         logging.info(f"[Joiner] request_id={request_id} → outputs={ [f for _, f in self.outputs] } temp_dir={self.temp_dir}")
 
-    
-    def _process_message(self, message, msg_type, data_type, request_id, timestamp, payload, queue_name=None):
-        """Process messages from input queues"""        
+
+    def _process_message(self, message, msg_type, data_type, request_id, position, payload, queue_name=None):
+        """Process messages from input queues"""
         # Initialize request-specific paths if needed
         self._initialize_request_paths(request_id)
         

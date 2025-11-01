@@ -50,14 +50,14 @@ class GrouperV2(StreamProcessingWorker):
     # ------------------------------------------------------------
     # 🔁 Procesamiento de mensajes
     # ------------------------------------------------------------
-    def _process_message(self, message, msg_type, data_type, request_id, timestamp, payload, queue_name=None):
+    def _process_message(self, message, msg_type, data_type, request_id, position, payload, queue_name=None):
         self._initialize_request_paths(request_id)
 
         # 1️⃣ Notificar inicio de procesamiento
         self.wsm_client.update_state("PROCESSING", request_id)
 
         # Delegar al procesamiento normal (que invoca a _process_rows)
-        super()._process_message(message, msg_type, data_type, request_id, timestamp, payload, queue_name)
+        super()._process_message(message, msg_type, data_type, request_id, position, payload, queue_name)
 
         # 2️⃣ Marcar espera
         self.wsm_client.update_state("WAITING")

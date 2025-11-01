@@ -135,7 +135,7 @@ class SplitterQ1(StreamProcessingWorker):
     # ------------------------------------------------------------
     # Ciclo de mensajes
     # ------------------------------------------------------------
-    def _process_message(self, message, msg_type, data_type, request_id, timestamp, payload, queue_name=None):
+    def _process_message(self, message, msg_type, data_type, request_id, position, payload, queue_name=None):
 
         # inicializo dir al primer mensaje del request
         self._ensure_request_dir(request_id)
@@ -144,7 +144,7 @@ class SplitterQ1(StreamProcessingWorker):
         self.wsm_client.update_state("PROCESSING", request_id)        
 
         # proceso (esto invocará _process_rows / _handle_end_signal)
-        super()._process_message(message, msg_type, data_type, request_id, timestamp, payload, queue_name)
+        super()._process_message(message, msg_type, data_type, request_id, position, payload, queue_name)
 
         # listo por ahora
         self.wsm_client.update_state("WAITING")

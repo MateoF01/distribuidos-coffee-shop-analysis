@@ -32,7 +32,7 @@ class Cleaner(StreamProcessingWorker):
     # ------------------------------------------------------------
     # 🔁 Lógica de procesamiento normal (DATA)
     # ------------------------------------------------------------
-    def _process_message(self, message, msg_type, data_type, request_id, timestamp, payload, queue_name=None):
+    def _process_message(self, message, msg_type, data_type, request_id, position, payload, queue_name=None):
         """Procesa mensajes de datos (no END)."""
         # 1️⃣ Marcar inicio de procesamiento
         self.wsm_client.update_state("PROCESSING", request_id)
@@ -42,7 +42,7 @@ class Cleaner(StreamProcessingWorker):
 
         if cleaned_rows:
             new_payload = "\n".join(cleaned_rows).encode("utf-8")
-            new_msg = protocol.pack_message(msg_type, data_type, new_payload, request_id)
+            new_msg = protocol.pack_message(msg_type, data_type, new_payload, request_id, position)
             for q in self.out_queues:
                 q.send(new_msg)
 

@@ -21,7 +21,7 @@ class ReceiverWorker(Worker):
             OUTPUT_DIR, f"receiver_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         )
 
-    def _process_message(self, message, msg_type, data_type, request_id, timestamp, payload, queue_name=None):
+    def _process_message(self, message, msg_type, data_type, request_id, position, payload, queue_name=None):
         payload_str = payload.decode("utf-8", errors="ignore")
         record = {
             "msg_type": msg_type,

@@ -289,7 +289,7 @@ class Sorter(FileProcessingWorker):
         except Exception as e:
             print(f"Error sending completion signal: {e}")
 
-    def _process_message(self, message, msg_type, data_type, request_id, timestamp, payload, queue_name=None):
+    def _process_message(self, message, msg_type, data_type, request_id, position, payload, queue_name=None):
         """Process sort signal messages"""
         if msg_type == self.config.sort_signal_type:
             # Check if this request has already been processed

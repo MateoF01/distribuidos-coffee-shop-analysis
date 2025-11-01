@@ -114,7 +114,7 @@ class Server:
         
         def on_result(message):
             try:
-                msg_type, data_type, request_id, timestamp, payload = protocol.unpack_message(message)
+                msg_type, data_type, request_id, position, payload = protocol.unpack_message(message)
                 
                 # Initialize logging for this request_id
                 if request_id not in message_log:
@@ -142,14 +142,13 @@ class Server:
                     message_log[request_id]['data_messages'][data_type]['rows'] += row_count
                     message_log[request_id]['data_messages'][data_type]['bytes'] += len(payload)
                     message_log[request_id]['total_payload_bytes'] += len(payload)
-                    
-                    logging.info(f"[GATEWAY ROUTER INCOMING] DATA: data_type={data_type}, request_id={request_id}, rows={row_count}, payload_size={len(payload)}, msg_count={message_log[request_id]['data_messages'][data_type]['count']}, total_rows_for_type={message_log[request_id]['data_messages'][data_type]['rows']}")
-                
+
+                    logging.info(f"[GATEWAY ROUTER INCOMING] DATA: data_type={data_type}, request_id={request_id}, position={position}, rows={row_count}, payload_size={len(payload)}, msg_count={message_log[request_id]['data_messages'][data_type]['count']}, total_rows_for_type={message_log[request_id]['data_messages'][data_type]['rows']}")
                 elif msg_type == protocol.MSG_TYPE_END:
                     if data_type not in message_log[request_id]['end_messages']:
                         message_log[request_id]['end_messages'][data_type] = 0
                     message_log[request_id]['end_messages'][data_type] += 1
-                    logging.info(f"[GATEWAY ROUTER INCOMING] END: data_type={data_type}, request_id={request_id}, end_count_for_this_type={message_log[request_id]['end_messages'][data_type]}")
+                    logging.info(f"[GATEWAY ROUTER INCOMING] END: data_type={data_type}, request_id={request_id}, position={position}, end_count_for_this_type={message_log[request_id]['end_messages'][data_type]}")
                 
                 # Skip messages for already-completed requests
                 if request_id in completed_requests:
@@ -189,7 +188,7 @@ class Server:
                     if data_end_counts[request_id] == data_end_expected:
                         # Send final DATA_END to client
                         try:
-                            protocol.send_message(target_conn, protocol.MSG_TYPE_END, protocol.DATA_END, b"", request_id=request_id)
+                            protocol.send_message(target_conn, protocol.MSG_TYPE_END, protocol.DATA_END, b"", 1, request_id=request_id)
                             logging.info(f"[GATEWAY ROUTER] Sent final DATA_END to client for request_id={request_id}")
                         except Exception as e:
                             logging.warning(f"[GATEWAY ROUTER] Failed to send final DATA_END: {e}")
@@ -211,7 +210,7 @@ class Server:
                 else:
                     # Forward all other messages directly to client (no buffering)
                     try:
-                        protocol.send_message(target_conn, msg_type, data_type, payload, request_id=request_id)
+                        protocol.send_message(target_conn, msg_type, data_type, payload, position, request_id=request_id)
                         if msg_type == protocol.MSG_TYPE_END:
                             logging.info(f"[GATEWAY ROUTER] Forwarded END: data_type={data_type}, request_id={request_id}")
                         elif msg_type == protocol.MSG_TYPE_DATA:
@@ -285,7 +284,7 @@ class Server:
             logging.info(f"Client {addr} new request_id: {current_request_id}")
 
             while True:
-                msg_type, data_type, request_id, timestamp, payload = protocol.receive_message(conn)
+                msg_type, data_type, request_id, position, payload = protocol.receive_message(conn)
                 if not msg_type:
                     break
 
@@ -297,13 +296,12 @@ class Server:
                     data_end_received.clear()
                     logging.info(f"Client {addr} new request_id: {current_request_id} (new batch detected)")
 
-                # Use per-hop timestamps: generate new timestamp for this forwarding step
                 if msg_type == protocol.MSG_TYPE_DATA:
-                    message = protocol.create_data_message(data_type, payload, current_request_id)
+                    message = protocol.create_data_message(data_type, payload, current_request_id, position)
                 elif msg_type == protocol.MSG_TYPE_END:
-                    message = protocol.create_end_message(data_type, current_request_id)
+                    message = protocol.create_end_message(data_type, current_request_id, position)
                 else:
-                    message = protocol.create_notification_message(data_type, payload, current_request_id)
+                    message = protocol.create_notification_message(data_type, payload, current_request_id, position)
 
                 if msg_type == protocol.MSG_TYPE_DATA:
                     if data_type in queue_names:

@@ -70,7 +70,7 @@ class Topper(Worker):
         print(f"[Topper]   Output directory: {self.output_dir}")
         print(f"[Topper]   Output file: {self.output_file}")
 
-    def _process_message(self, message, msg_type, data_type, request_id, timestamp, payload, queue_name=None):
+    def _process_message(self, message, msg_type, data_type, request_id, position, payload, queue_name=None):
         """Process completion signals to start CSV processing"""
         self.current_request_id = request_id
 

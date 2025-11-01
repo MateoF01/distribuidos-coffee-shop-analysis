@@ -34,7 +34,7 @@ class Filter(StreamProcessingWorker):
     # ------------------------------------------------------------
     # 🔁 Procesamiento de mensajes de datos
     # ------------------------------------------------------------
-    def _process_message(self, message, msg_type, data_type, request_id, timestamp, payload, queue_name=None):
+    def _process_message(self, message, msg_type, data_type, request_id, position, payload, queue_name=None):
         """Procesa mensajes de datos (no END)."""
         # 1️⃣ Notificar al WSM que esta réplica está procesando
         self.wsm_client.update_state("PROCESSING", request_id)
@@ -44,7 +44,7 @@ class Filter(StreamProcessingWorker):
         dic_queue_row = self._process_rows(rows, queue_name)
 
         # Enviar resultados filtrados a las colas correspondientes
-        self._send_complex_results(dic_queue_row, msg_type, data_type, request_id, timestamp)
+        self._send_complex_results(dic_queue_row, msg_type, data_type, request_id, position)
 
         # 2️⃣ Volver a estado de espera
         self.wsm_client.update_state("WAITING")
@@ -87,13 +87,12 @@ class Filter(StreamProcessingWorker):
 
         return dic_queue_row
 
-    def _send_complex_results(self, dic_queue_row, msg_type, data_type, request_id, timestamp):
+    def _send_complex_results(self, dic_queue_row, msg_type, data_type, request_id, position):
         """Envía los resultados filtrados a las colas correspondientes."""
         for queue_name, filtered_rows in dic_queue_row.items():
             new_payload_str = '\n'.join(filtered_rows)
             new_payload = new_payload_str.encode('utf-8')
-            current_timestamp = time.time()
-            new_message = protocol.create_data_message(data_type, new_payload, request_id, current_timestamp)
+            new_message = protocol.create_data_message(data_type, new_payload, request_id, position)
 
             for q in self.out_queues:
                 if q.queue_name == queue_name:

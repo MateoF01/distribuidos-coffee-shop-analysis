@@ -111,7 +111,7 @@ class Client:
         try:
             while True:
                 try:
-                    msg_type, data_type, request_id, timestamp, payload = protocol.receive_message(self.conn)
+                    msg_type, data_type, request_id, position, payload = protocol.receive_message(self.conn)
                 except ConnectionError as e:
                     # Socket closed - check if we've received all expected DATA_END signals
                     if self.received_data_ends >= self.expected_data_ends:
@@ -282,15 +282,17 @@ class Client:
                     print(f"[INFO] REQ {request_num+1}/{self.requests_amount}: Processing {len(filepaths)} files for data_type={data_type}")
                     for filepath in filepaths:
                         print(f"[INFO] REQ {request_num+1}/{self.requests_amount}: Sending file {filepath} (type={data_type})")
+                        position_counter = 1
                         for batch in csv_loaders.load_csv_batch(filepath, self.batch_max_amount):
                             payload = "\n".join(batch).encode()
-                            protocol.send_message(self.conn, protocol.MSG_TYPE_DATA, data_type, payload)
+                            protocol.send_message(self.conn, protocol.MSG_TYPE_DATA, data_type, payload, position_counter)
+                            position_counter += 1
                             #print(f"[INFO] Sent batch of {len(batch)} rows from {filepath.name}")
-                    protocol.send_message(self.conn, protocol.MSG_TYPE_END, data_type, b"")
+                    protocol.send_message(self.conn, protocol.MSG_TYPE_END, data_type, b"", position_counter)
                     print(f"[INFO] REQ {request_num+1}/{self.requests_amount}: Sent END for data_type={data_type}")
 
             # END final
-            protocol.send_message(self.conn, protocol.MSG_TYPE_END, protocol.DATA_END, b"")
+            protocol.send_message(self.conn, protocol.MSG_TYPE_END, protocol.DATA_END, b"", 1)
             print("[INFO] Sent END FINAL - waiting for query results...")
 
             # Wait for listener thread to complete
