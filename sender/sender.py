@@ -49,7 +49,7 @@ class Sender(FileProcessingWorker):
         print(f"[INFO]   Input file set to: {self.input_file}")
 
 
-    def _process_message(self, message, msg_type, data_type, request_id, timestamp, payload, queue_name=None):
+    def _process_message(self, message, msg_type, data_type, request_id, position, payload, queue_name=None):
         """Process message - handles completion signals and initializes request_id paths."""
         if msg_type == protocol.MSG_TYPE_NOTI:
             # Store request_id from notification for use in outgoing messages
@@ -73,6 +73,7 @@ class Sender(FileProcessingWorker):
         try:
             rows_sent = 0
             batch = []
+            position_counter = 1
             
             print(f"[INFO] Starting to send file {self.input_file}")
             
@@ -101,26 +102,28 @@ class Sender(FileProcessingWorker):
                     # Send batch when it reaches configured size
                     if len(batch) >= self.batch_size:
                         #print(f"[INFO] Sending batch of size: {len(batch)}, batch: {batch}")
-                        self._send_batch(batch)
+                        self._send_batch(batch, position_counter)
                         rows_sent += len(batch)
                         batch = []
+                        position_counter += 1
                         #print(f"[INFO] Sent batch, total rows sent: {rows_sent}")
                 
                 # Send remaining rows in batch
                 if batch:
                     #print(f"[INFO] Sending batch of size: {len(batch)}, batch: {batch}")
-                    self._send_batch(batch)
+                    self._send_batch(batch, position_counter)
+                    position_counter += 1
                     rows_sent += len(batch)
                     print(f"[INFO] Sent final batch, total rows sent: {rows_sent}")
             
             # Send END signal
-            self._send_end_signal()
+            self._send_end_signal(position_counter)
             print(f"[INFO] Sent END signal. Total rows transmitted: {rows_sent}")
             
         except Exception as e:
             print(f"[ERROR] Error sending CSV file: {e}")
 
-    def _send_batch(self, batch):
+    def _send_batch(self, batch, position_counter):
         """Send a batch of rows to output queue"""
         try:
             payload = "\n".join(batch).encode('utf-8')
@@ -133,14 +136,14 @@ class Sender(FileProcessingWorker):
                 'q4': protocol.Q4_RESULT
             }
             data_type = data_type_map.get(self.query_type, protocol.Q1_RESULT)
-            message = protocol.create_data_message(data_type, payload, self.current_request_id)
+            message = protocol.create_data_message(data_type, payload, self.current_request_id, position_counter)
             self.out_queues[0].send(message)
-            print(f"[INFO] Sent batch to results queue: query_type={self.query_type}, request_id={self.current_request_id}, rows={len(batch)}")
+            print(f"[INFO] Sent batch to results queue: query_type={self.query_type}, request_id={self.current_request_id}, rows={len(batch)}, position={position_counter}")
         except Exception as e:
             print(f"[ERROR] Error sending batch: {e}")
             raise
 
-    def _send_end_signal(self):
+    def _send_end_signal(self, position_counter):
         """Send END signals to output queue"""
         try:
             # Send first END signal with query-specific result type
@@ -152,9 +155,9 @@ class Sender(FileProcessingWorker):
                 'q4': protocol.Q4_RESULT
             }
             query_result_type = data_type_map.get(self.query_type, protocol.Q1_RESULT)
-            message1 = protocol.create_end_message(query_result_type, self.current_request_id)
+            message1 = protocol.create_end_message(query_result_type, self.current_request_id, position_counter)
             self.out_queues[0].send(message1)
-            print(f"[INFO] Sent MSG_TYPE_END with {self.query_type.upper()}_RESULT ({query_result_type}) to results queue: request_id={self.current_request_id}")
+            print(f"[INFO] Sent MSG_TYPE_END with {self.query_type.upper()}_RESULT ({query_result_type}) and position {position_counter} to results queue: request_id={self.current_request_id}")
             
             # Send second END signal with DATA_END
             message2 = protocol.create_end_message(protocol.DATA_END, self.current_request_id)

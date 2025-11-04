@@ -60,18 +60,6 @@ class Server:
         for q in queue_names.values():
             self.queues[q] = CoffeeMessageMiddlewareQueue(host=rabbitmq_host, queue_name=q)
         self.results_queue = CoffeeMessageMiddlewareQueue(host=rabbitmq_host, queue_name=RESULTS_QUEUE)
-        
-        # Exchange publishers for END messages to cleaners
-        self.transactions_end_exchange = CoffeeMessageMiddlewareExchange(
-            host=rabbitmq_host, 
-            exchange_name='transactions_end_exchange', 
-            route_keys=[]
-        )
-        self.transaction_items_end_exchange = CoffeeMessageMiddlewareExchange(
-            host=rabbitmq_host, 
-            exchange_name='transaction_items_end_exchange', 
-            route_keys=[]
-        )
 
     def _setup_socket(self):
         self._server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -114,7 +102,7 @@ class Server:
         
         def on_result(message):
             try:
-                msg_type, data_type, request_id, timestamp, payload = protocol.unpack_message(message)
+                msg_type, data_type, request_id, position, payload = protocol.unpack_message(message)
                 
                 # Initialize logging for this request_id
                 if request_id not in message_log:
@@ -142,14 +130,13 @@ class Server:
                     message_log[request_id]['data_messages'][data_type]['rows'] += row_count
                     message_log[request_id]['data_messages'][data_type]['bytes'] += len(payload)
                     message_log[request_id]['total_payload_bytes'] += len(payload)
-                    
-                    logging.info(f"[GATEWAY ROUTER INCOMING] DATA: data_type={data_type}, request_id={request_id}, rows={row_count}, payload_size={len(payload)}, msg_count={message_log[request_id]['data_messages'][data_type]['count']}, total_rows_for_type={message_log[request_id]['data_messages'][data_type]['rows']}")
-                
+
+                    logging.info(f"[GATEWAY ROUTER INCOMING] DATA: data_type={data_type}, request_id={request_id}, position={position}, rows={row_count}, payload_size={len(payload)}, msg_count={message_log[request_id]['data_messages'][data_type]['count']}, total_rows_for_type={message_log[request_id]['data_messages'][data_type]['rows']}")
                 elif msg_type == protocol.MSG_TYPE_END:
                     if data_type not in message_log[request_id]['end_messages']:
                         message_log[request_id]['end_messages'][data_type] = 0
                     message_log[request_id]['end_messages'][data_type] += 1
-                    logging.info(f"[GATEWAY ROUTER INCOMING] END: data_type={data_type}, request_id={request_id}, end_count_for_this_type={message_log[request_id]['end_messages'][data_type]}")
+                    logging.info(f"[GATEWAY ROUTER INCOMING] END: data_type={data_type}, request_id={request_id}, position={position}, end_count_for_this_type={message_log[request_id]['end_messages'][data_type]}")
                 
                 # Skip messages for already-completed requests
                 if request_id in completed_requests:
@@ -189,7 +176,7 @@ class Server:
                     if data_end_counts[request_id] == data_end_expected:
                         # Send final DATA_END to client
                         try:
-                            protocol.send_message(target_conn, protocol.MSG_TYPE_END, protocol.DATA_END, b"", request_id=request_id)
+                            protocol.send_message(target_conn, protocol.MSG_TYPE_END, protocol.DATA_END, b"", 1, request_id=request_id)
                             logging.info(f"[GATEWAY ROUTER] Sent final DATA_END to client for request_id={request_id}")
                         except Exception as e:
                             logging.warning(f"[GATEWAY ROUTER] Failed to send final DATA_END: {e}")
@@ -211,7 +198,7 @@ class Server:
                 else:
                     # Forward all other messages directly to client (no buffering)
                     try:
-                        protocol.send_message(target_conn, msg_type, data_type, payload, request_id=request_id)
+                        protocol.send_message(target_conn, msg_type, data_type, payload, position, request_id=request_id)
                         if msg_type == protocol.MSG_TYPE_END:
                             logging.info(f"[GATEWAY ROUTER] Forwarded END: data_type={data_type}, request_id={request_id}")
                         elif msg_type == protocol.MSG_TYPE_DATA:
@@ -271,10 +258,6 @@ class Server:
         # Setup RabbitMQ objects for this process (queues only, NOT results_queue)
         rabbitmq_host = os.environ.get('RABBITMQ_HOST', 'rabbitmq')
         queues = {q: CoffeeMessageMiddlewareQueue(host=rabbitmq_host, queue_name=q) for q in queue_names.values()}
-        transactions_end_exchange = CoffeeMessageMiddlewareExchange(
-            host=rabbitmq_host, exchange_name='transactions_end_exchange', route_keys=[])
-        transaction_items_end_exchange = CoffeeMessageMiddlewareExchange(
-            host=rabbitmq_host, exchange_name='transaction_items_end_exchange', route_keys=[])
 
         # Main loop: receive client requests and track them by request_id
         try:
@@ -285,7 +268,7 @@ class Server:
             logging.info(f"Client {addr} new request_id: {current_request_id}")
 
             while True:
-                msg_type, data_type, request_id, timestamp, payload = protocol.receive_message(conn)
+                msg_type, data_type, request_id, position, payload = protocol.receive_message(conn)
                 if not msg_type:
                     break
 
@@ -297,13 +280,12 @@ class Server:
                     data_end_received.clear()
                     logging.info(f"Client {addr} new request_id: {current_request_id} (new batch detected)")
 
-                # Use per-hop timestamps: generate new timestamp for this forwarding step
                 if msg_type == protocol.MSG_TYPE_DATA:
-                    message = protocol.create_data_message(data_type, payload, current_request_id)
+                    message = protocol.create_data_message(data_type, payload, current_request_id, position)
                 elif msg_type == protocol.MSG_TYPE_END:
-                    message = protocol.create_end_message(data_type, current_request_id)
+                    message = protocol.create_end_message(data_type, current_request_id, position)
                 else:
-                    message = protocol.create_notification_message(data_type, payload, current_request_id)
+                    message = protocol.create_notification_message(data_type, payload, current_request_id, position)
 
                 if msg_type == protocol.MSG_TYPE_DATA:
                     if data_type in queue_names:
@@ -313,28 +295,17 @@ class Server:
                         logging.warning(f"Unknown data type: {data_type}")
                 elif msg_type == protocol.MSG_TYPE_END:
                     if data_type == protocol.DATA_END:
-                        # Special handling for DATA_END - send to all data queues and exchanges
-                        logging.info("Received DATA_END from client, broadcasting to all queues and exchanges")
-                        for queue_name in queue_names.values():
-                            queues[queue_name].send(message)
-                            logging.debug(f"Sent DATA_END to {queue_name} with request_id={current_request_id}")
-                        # Also broadcast DATA_END to exchanges for cleaners
-                        transactions_end_exchange.send(message)
-                        transaction_items_end_exchange.send(message)
-                        logging.debug("Sent DATA_END to cleaner exchanges")
+                        # Special handling for DATA_END - send to all data queues
+                        logging.info("Received DATA_END from client")
+                        # logging.info("Received DATA_END from client, broadcasting to all queues")
+                        # for queue_name in queue_names.values():
+                        #     queues[queue_name].send(message)
+                        #     logging.debug(f"Sent DATA_END to {queue_name} with request_id={current_request_id}")
                         # Mark all data_types as ended for this batch
                         data_end_received.update(queue_names.keys())
                     elif data_type in queue_names:
                         queues[queue_names[data_type]].send(message)
                         logging.debug(f"Sent END message for {data_type_names.get(data_type, data_type)} to queue with request_id={current_request_id}")
-
-                        # Additionally send END messages to exchanges for transactions and transaction_items
-                        if data_type == protocol.DATA_TRANSACTIONS:
-                            transactions_end_exchange.send(message)
-                            logging.debug(f"Sent END message for transactions to exchange")
-                        elif data_type == protocol.DATA_TRANSACTION_ITEMS:
-                            transaction_items_end_exchange.send(message)
-                            logging.debug(f"Sent END message for transaction_items to exchange")
 
                         # Mark this data_type as ended for this batch
                         data_end_received.add(data_type)

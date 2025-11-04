@@ -1,13 +1,19 @@
 import os
 import signal
 import sys
+import socket
 from common.client import Client
 
+def get_client_id():
+    """Generate client ID based on container hostname"""
+    hostname = socket.gethostname()
+    # Docker Compose creates hostnames like: <service>_<replica_number>
+    return hostname
 
 def main():
     
     server_address = os.getenv("SERVER_ADDRESS", "gateway:5000")
-    client_id = os.getenv("CLIENT_ID", "client1")
+    client_id = os.getenv("CLIENT_ID", get_client_id())
     data_dir = os.getenv("DATA_DIR", "/app/.data")
     batch_max_amount = int(os.getenv("BATCH_MAX_AMOUNT", "100"))
     requests_amount = int(os.getenv("REQUESTS_PER_CLIENT", "1"))

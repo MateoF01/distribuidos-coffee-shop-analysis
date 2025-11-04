@@ -47,21 +47,23 @@ class WSMClient:
         }
         self._send_message(msg)
 
-    def update_state(self, state, request_id=None):
+    def update_state(self, state, request_id=None, position=None):
         msg = {
             "action": "update_state",
             "worker_type": self.worker_type,
             "replica_id": self.replica_id,
             "state": state,
-            "request_id": request_id
+            "request_id": request_id,
+            "position": position
         }
         return self._send_message(msg)
 
-    def can_send_end(self, request_id):
+    def can_send_end(self, request_id, position):
         msg = {
             "action": "can_send_end",
             "worker_type": self.worker_type,
-            "request_id": request_id
+            "request_id": request_id,
+            "position": position
         }
         return self._send_message(msg) == "OK"
 

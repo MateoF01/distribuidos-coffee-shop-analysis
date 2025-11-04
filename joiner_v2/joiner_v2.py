@@ -128,9 +128,9 @@ class Joiner_v2(Worker):
 
             logging.info(f"[Joiner] Initialized request_id={request_id} → outputs={ [f for _, f in self._outputs_by_request[request_id]] } temp_dir={temp_dir}")
 
-    
-    def _process_message(self, message, msg_type, data_type, request_id, timestamp, payload, queue_name=None):
-        """Process messages from input queues"""        
+
+    def _process_message(self, message, msg_type, data_type, request_id, position, payload, queue_name=None):
+        """Process messages from input queues"""
         # Initialize request-specific paths if needed
         self._initialize_request_paths(request_id)
                 
@@ -139,7 +139,7 @@ class Joiner_v2(Worker):
         temp_dir = self._temp_dir_by_request[request_id]
 
         wsm_client = self.dict_wsm_clients[queue_name]
-        wsm_client.update_state("PROCESSING", request_id)
+        wsm_client.update_state("PROCESSING", request_id, position)
 
         file_path = os.path.join(temp_dir, f"{queue_name}/" ,f"{self.replica_id}.csv")
 
@@ -186,7 +186,7 @@ class Joiner_v2(Worker):
             # logging.info(f"[Joiner:{self.query_type}] Acquired lock on {file_path}")
             self._save_to_temp_file(queue_name, processed_rows, file_path)
 
-            wsm_client.update_state("WAITING")
+            wsm_client.update_state("WAITING", request_id, position)
             #logging.info(f"[Joiner:{self.query_type}] Processed {len(processed_rows)} rows from {queue_name} (request_id={request_id}). Total rows received for this request: {self._rows_received_per_request[request_id]}")
             # if self.shm_client.unlock(file_path) != "OK":
             #     logging.error(f"[Joiner:{self.query_type}] Error unlocking {file_path}")
@@ -194,7 +194,7 @@ class Joiner_v2(Worker):
             # if self.shm_client.change_state(file_path, "WAITING") == "ERROR":
             #     logging.error(f"[Joiner:{self.query_type}] ERROR cambiando estado de {file_path} en SHM.")
     
-    def _handle_end_signal(self, message, msg_type, data_type, request_id, queue_name=None):
+    def _handle_end_signal(self, message, msg_type, data_type, request_id, position, queue_name=None):
         """
         Handle END signals per request_id and per input queue.
         Evita mezclar los END de distintos requests.
@@ -211,7 +211,7 @@ class Joiner_v2(Worker):
         wsm_client = self.dict_wsm_clients[queue_name]
 
         time.sleep(1)
-        while not wsm_client.can_send_end(request_id):
+        while not wsm_client.can_send_end(request_id, position):
             logging.info(f"[Joiner:{self.query_type}] Esperando permiso para verificacion de enviar END de {request_id} desde {queue_name}...")
             time.sleep(1)
 

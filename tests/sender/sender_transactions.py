@@ -62,10 +62,12 @@ class SenderWorker(Worker):
 
             logging.info(f"[SENDER] 🚀 Iniciando envío para request_id={request_id} ({len(data_rows)} filas)")
 
+            position = 1
             for i in range(0, len(data_rows), self.batch_size):
                 batch_rows = data_rows[i:i + self.batch_size]
                 payload = "\n".join(batch_rows).encode("utf-8")
-                msg = protocol.pack_message(protocol.MSG_TYPE_DATA, self.data_type, payload, request_id)
+                msg = protocol.pack_message(protocol.MSG_TYPE_DATA, self.data_type, payload, request_id, position)
+                position += 1
 
                 for q in self.out_queues:
                     q.send(msg)
@@ -75,7 +77,7 @@ class SenderWorker(Worker):
                 time.sleep(0.05)
 
             # 🔚 Enviar END para este request_id
-            end_msg = protocol.create_end_message(self.data_type, request_id)
+            end_msg = protocol.create_end_message(self.data_type, request_id, position)
             for q in self.out_queues:
                 q.send(end_msg)
 
