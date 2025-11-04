@@ -29,7 +29,19 @@ def main():
         print("⚠️  No se encontró servicio base 'client' en el YAML base.")
         sys.exit(1)
 
-    base_client = compose["services"].pop("client")
+    # Modificar el cliente base para que sea escalable
+    base_client = compose["services"]["client"]
+    
+    # Actualizar environment del cliente base
+    if "environment" not in base_client:
+        base_client["environment"] = {}
+    
+    base_client["environment"]["REQUESTS_PER_CLIENT"] = requests_por_cliente
+    base_client["environment"]["INITIAL_CLIENT_COUNT"] = cantidad_clientes
+    
+    # Remover container_name si existe para permitir scaling
+    if "container_name" in base_client:
+        del base_client["container_name"]
 
     # Añadir REQUESTS_PER_CLIENT y GATEWAY_MAX_PROCESSES al gateway
     if "gateway" in compose["services"]:
@@ -38,28 +50,12 @@ def main():
         gateway_env["GATEWAY_MAX_PROCESSES"] = max_clientes
         compose["services"]["gateway"]["environment"] = gateway_env
 
-    # Generar clientes dinamicos
-    services = compose["services"]
-    new_services = {}
-    inserted_clients = False
-    for key in services:
-        new_services[key] = services[key]
-        if key == "gateway" and not inserted_clients:
-            for i in range(1, cantidad_clientes + 1):
-                client_name = f"client{i}"
-                client = copy.deepcopy(base_client)
-                client["container_name"] = client_name
-                client["environment"]["CLIENT_ID"] = client_name
-                client["environment"]["REQUESTS_PER_CLIENT"] = requests_por_cliente
-                new_services[client_name] = client
-            inserted_clients = True
-    compose["services"] = new_services
-
     # Guardar nuevo archivo
     with open("docker-compose.yml", "w", encoding="utf-8") as f:
         yaml.dump(compose, f, sort_keys=False, default_flow_style=False)
 
-    print(f"✅ docker-compose.yml generado con {cantidad_clientes} clientes, {requests_por_cliente} requests por cliente, máximo de {max_clientes} clientes.")
+    print(f"✅ docker-compose.yml generado con cliente escalable (inicial: {cantidad_clientes}), {requests_por_cliente} requests por cliente, máximo de {max_clientes} clientes.")
+    print(f"💡 Para escalar dinámicamente: docker compose up -d --scale client=<N>")
 
 if __name__ == "__main__":
     main()

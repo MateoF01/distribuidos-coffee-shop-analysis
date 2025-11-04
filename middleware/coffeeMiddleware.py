@@ -107,11 +107,14 @@ class CoffeeMessageMiddlewareQueue(MessageMiddlewareQueue):
         # Separate publisher connection (thread-safe for publishing only)
         self._publisher_connection = pika.BlockingConnection(params)
         self._publisher_channel = self._publisher_connection.channel()
-        self._publisher_channel.queue_declare(queue=self.queue_name, durable=True, arguments=QUEUE_ARGS)
+        # self._publisher_channel.queue_declare(queue=self.queue_name, durable=True, arguments=QUEUE_ARGS)
+        self._publisher_channel.queue_declare(queue=self.queue_name, durable=True)
+
         # Separate consumer connection (dedicated to consuming only)
         self._consumer_connection = pika.BlockingConnection(params)
         self._consumer_channel = self._consumer_connection.channel()
-        self._consumer_channel.queue_declare(queue=self.queue_name, durable=True, arguments=QUEUE_ARGS)
+        # self._consumer_channel.queue_declare(queue=self.queue_name, durable=True, arguments=QUEUE_ARGS)
+        self._consumer_channel.queue_declare(queue=self.queue_name, durable=True)
         with self._state_lock:
           self._state = ConnectionState.CONNECTED
         break

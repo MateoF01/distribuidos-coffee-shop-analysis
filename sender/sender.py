@@ -157,7 +157,7 @@ class Sender(FileProcessingWorker):
             query_result_type = data_type_map.get(self.query_type, protocol.Q1_RESULT)
             message1 = protocol.create_end_message(query_result_type, self.current_request_id, position_counter)
             self.out_queues[0].send(message1)
-            print(f"[INFO] Sent MSG_TYPE_END with {self.query_type.upper()}_RESULT ({query_result_type}) to results queue: request_id={self.current_request_id}")
+            print(f"[INFO] Sent MSG_TYPE_END with {self.query_type.upper()}_RESULT ({query_result_type}) and position {position_counter} to results queue: request_id={self.current_request_id}")
             
             # Send second END signal with DATA_END
             message2 = protocol.create_end_message(protocol.DATA_END, self.current_request_id)

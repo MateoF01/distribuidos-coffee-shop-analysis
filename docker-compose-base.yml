@@ -48,7 +48,6 @@ services:
     build:
       context: .
       dockerfile: client/Dockerfile
-    container_name: client1
     depends_on:
       gateway:
         condition: service_started
@@ -66,8 +65,8 @@ services:
       PYTHONUNBUFFERED: 1
       DATA_DIR: /app/.data
       SERVER_ADDRESS: gateway:5000
-      CLIENT_ID: client1
       BATCH_MAX_AMOUNT: 5000
+      REQUESTS_PER_CLIENT: 1
     volumes:
     - ./data:/app/.data
     - ./client/results:/app/client/results
