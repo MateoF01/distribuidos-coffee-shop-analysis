@@ -36,6 +36,13 @@ class Filter(StreamProcessingWorker):
     # ------------------------------------------------------------
     def _process_message(self, message, msg_type, data_type, request_id, position, payload, queue_name=None):
         """Procesa mensajes de datos (no END)."""
+        
+        #VALIDO QUE LA POSICION HAYA SIDO PROCESADA ANTERIORMENTE, SI YA FUE PROCESADA LO DESCARTO EL MENSAJE
+        if self.wsm_client.is_position_processed(request_id, position):
+            logging.info(f"🔁 Mensaje duplicado detectado ({request_id}:{position}), descartando...")
+            return
+
+        
         # 1️⃣ Notificar al WSM que esta réplica está procesando
         self.wsm_client.update_state("PROCESSING", request_id, position)
 

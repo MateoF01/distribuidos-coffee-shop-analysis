@@ -53,6 +53,11 @@ class GrouperV2(StreamProcessingWorker):
     def _process_message(self, message, msg_type, data_type, request_id, position, payload, queue_name=None):
         self._initialize_request_paths(request_id)
 
+        #VALIDO QUE LA POSICION HAYA SIDO PROCESADA ANTERIORMENTE, SI YA FUE PROCESADA LO DESCARTO EL MENSAJE
+        if self.wsm_client.is_position_processed(request_id, position):
+            logging.info(f"🔁 Mensaje duplicado detectado ({request_id}:{position}), descartando...")
+            return
+
         # 1️⃣ Notificar inicio de procesamiento
         self.wsm_client.update_state("PROCESSING", request_id, position)
 

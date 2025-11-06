@@ -140,6 +140,13 @@ class SplitterQ1(StreamProcessingWorker):
         # inicializo dir al primer mensaje del request
         self._ensure_request_dir(request_id)
 
+
+        #VALIDO QUE LA POSICION HAYA SIDO PROCESADA ANTERIORMENTE, SI YA FUE PROCESADA LO DESCARTO EL MENSAJE
+        if self.wsm_client.is_position_processed(request_id, position):
+            logging.info(f"🔁 Mensaje duplicado detectado ({request_id}:{position}), descartando...")
+            return
+
+
         # estado WSM
         self.wsm_client.update_state("PROCESSING", request_id, position)        
 

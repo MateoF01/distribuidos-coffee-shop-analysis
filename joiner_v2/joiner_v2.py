@@ -133,12 +133,23 @@ class Joiner_v2(Worker):
         """Process messages from input queues"""
         # Initialize request-specific paths if needed
         self._initialize_request_paths(request_id)
-                
+
+
+
+
+
         # Bind request-specific paths
         outputs = self._outputs_by_request[request_id]
         temp_dir = self._temp_dir_by_request[request_id]
 
         wsm_client = self.dict_wsm_clients[queue_name]
+
+        #TODO: ANALIZAR SI ACA HACE FALTA ESTO:        
+        #VALIDO QUE LA POSICION HAYA SIDO PROCESADA ANTERIORMENTE, SI YA FUE PROCESADA LO DESCARTO EL MENSAJE
+        #if wsm_client.is_position_processed(request_id, position):
+        #    logging.info(f"🔁 Mensaje duplicado detectado ({request_id}:{position}), descartando...")
+        #    return
+
         wsm_client.update_state("PROCESSING", request_id, position)
 
         file_path = os.path.join(temp_dir, f"{queue_name}/" ,f"{self.replica_id}.csv")
