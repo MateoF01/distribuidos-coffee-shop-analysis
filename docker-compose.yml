@@ -107,7 +107,7 @@ services:
       HOST: 0.0.0.0
       PORT: 9000
     volumes:
-    - ./output_wsm:/app/output
+    - ./output_wsm/worker_states_transactions:/app/output
     networks:
     - coffee-net
   coordinator_cleaner_transactions:
@@ -163,7 +163,7 @@ services:
       HOST: 0.0.0.0
       PORT: 9001
     volumes:
-    - ./output_wsm:/app/output
+    - ./output_wsm/worker_states_transaction_items:/app/output
     networks:
     - coffee-net
   coordinator_cleaner_transaction_items:
@@ -219,7 +219,7 @@ services:
       HOST: 0.0.0.0
       PORT: 9002
     volumes:
-    - ./output_wsm:/app/output
+    - ./output_wsm/worker_states_users:/app/output
     networks:
     - coffee-net
   coordinator_cleaner_users:
@@ -275,7 +275,7 @@ services:
       HOST: 0.0.0.0
       PORT: 9003
     volumes:
-    - ./output_wsm:/app/output
+    - ./output_wsm/worker_states_stores:/app/output
     networks:
     - coffee-net
   coordinator_cleaner_stores:
@@ -331,7 +331,7 @@ services:
       HOST: 0.0.0.0
       PORT: 9004
     volumes:
-    - ./output_wsm:/app/output
+    - ./output_wsm/worker_states_menu_items:/app/output
     networks:
     - coffee-net
   coordinator_cleaner_menu_items:
@@ -387,7 +387,7 @@ services:
       HOST: 0.0.0.0
       PORT: 9005
     volumes:
-    - ./output_wsm:/app/output
+    - ./output_wsm/worker_states_transactions_q4:/app/output
     networks:
     - coffee-net
   coordinator_cleaner_transactions_q4:
@@ -444,7 +444,7 @@ services:
       HOST: 0.0.0.0
       PORT: 9009
     volumes:
-    - ./output_wsm:/app/output
+    - ./output_wsm/worker_states_temporal_filter_transactions:/app/output
     networks:
     - coffee-net
   coordinator_temporal_filter_transactions_q1:
@@ -539,7 +539,7 @@ services:
       HOST: 0.0.0.0
       PORT: 9010
     volumes:
-    - ./output_wsm:/app/output
+    - ./output_wsm/worker_states_temporal_filter_transaction_items:/app/output
     networks:
     - coffee-net
   coordinator_temporal_filter_transaction_items:
@@ -597,7 +597,7 @@ services:
       HOST: 0.0.0.0
       PORT: 9011
     volumes:
-    - ./output_wsm:/app/output
+    - ./output_wsm/worker_states_amount_filter_transactions:/app/output
     networks:
     - coffee-net
   coordinator_amount_filter_transactions:
@@ -655,7 +655,7 @@ services:
       HOST: 0.0.0.0
       PORT: 9006
     volumes:
-    - ./output_wsm:/app/output
+    - ./output_wsm/worker_states_grouper_q2:/app/output
     networks:
     - coffee-net
   reducer_q2:
@@ -768,7 +768,7 @@ services:
       HOST: 0.0.0.0
       PORT: 9007
     volumes:
-    - ./output_wsm:/app/output
+    - ./output_wsm/worker_states_grouper_q3:/app/output
     networks:
     - coffee-net
   reducer_q3:
@@ -881,7 +881,7 @@ services:
       HOST: 0.0.0.0
       PORT: 9008
     volumes:
-    - ./output_wsm:/app/output
+    - ./output_wsm/worker_states_grouper_q4:/app/output
     networks:
     - coffee-net
   reducer_q4:
@@ -995,7 +995,7 @@ services:
       HOST: 0.0.0.0
       PORT: 9020
     volumes:
-    - ./output_wsm:/app/output
+    - ./output_wsm/worker_states_splitter_q1:/app/output
     networks:
     - coffee-net
   sorter_q1_v2:
@@ -1085,7 +1085,7 @@ services:
       PORT: 9100
       USING_END_SYNC: 1
     volumes:
-    - ./output_wsm:/app/output
+    - ./output_wsm/joiner_states_q2:/app/output
     networks:
     - coffee-net
   sender_q2_a:
@@ -1176,7 +1176,7 @@ services:
       PORT: 9102
       USING_END_SYNC: 1
     volumes:
-    - ./output_wsm:/app/output
+    - ./output_wsm/joiner_states_q3:/app/output
     networks:
     - coffee-net
   sorter_q3:
@@ -1269,7 +1269,7 @@ services:
       PORT: 9101
       USING_END_SYNC: 1
     volumes:
-    - ./output_wsm:/app/output
+    - ./output_wsm/joiner_states_q4:/app/output
     networks:
     - coffee-net
   sorter_q4:
