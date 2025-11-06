@@ -70,6 +70,7 @@ class WSMClient:
     def can_send_last_end(self, request_id):
         msg = {
             "action": "can_send_last_end",
+            "replica_id": self.replica_id,
             "worker_type": self.worker_type,
             "request_id": request_id
         }

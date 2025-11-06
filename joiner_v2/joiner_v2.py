@@ -264,6 +264,9 @@ class Joiner_v2(Worker):
                 self._processed_requests.add(request_id)
                 if request_id in self._rows_received_per_request:
                     del self._rows_received_per_request[request_id]
+            
+        wsm_client.update_state("WAITING", request_id, position)
+
 
     # =====================
     # Utils de CSV por salida
