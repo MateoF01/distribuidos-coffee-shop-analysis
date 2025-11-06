@@ -14,8 +14,10 @@ from WSM.wsm_client import WSMClient
 
 
 class Filter(StreamProcessingWorker):
-    def __init__(self, queue_in, queue_out, rabbitmq_host):
+    def __init__(self, queue_in, queue_out, rabbitmq_host, backoff_start=0.1, backoff_max=3.0):
         super().__init__(queue_in, queue_out, rabbitmq_host)
+        self.backoff_start = backoff_start
+        self.backoff_max = backoff_max
 
         # 🔗 Conexión con el Worker State Manager
         self.replica_id = socket.gethostname()
@@ -57,10 +59,20 @@ class Filter(StreamProcessingWorker):
         self.wsm_client.update_state("END", request_id, position)
         logging.info(f"[Filter:{self.replica_id}] Recibido END para request {request_id}. Esperando permiso del WSM...")
 
-        # Esperar permiso del WSM para reenviar END (busy loop temporal)
+        # Esperar permiso del WSM para reenviar END con exponential backoff
+        backoff = self.backoff_start
+        total_wait = 0.0
+        
         while not self.wsm_client.can_send_end(request_id, position):
-            logging.info(f"[Filter:{self.replica_id}] Esperando permiso para reenviar END de {request_id}...")
-            time.sleep(1)
+            if total_wait >= self.backoff_max:
+                error_msg = f"[Filter:{self.replica_id}] Timeout esperando permiso WSM para END de {request_id} después de {total_wait:.2f}s"
+                logging.error(error_msg)
+                raise TimeoutError(error_msg)
+            
+            logging.info(f"[Filter:{self.replica_id}] Esperando permiso para reenviar END de {request_id}... (backoff={backoff:.3f}s, total={total_wait:.2f}s)")
+            time.sleep(backoff)
+            total_wait += backoff
+            backoff = min(backoff * 2, self.backoff_max - total_wait) if total_wait < self.backoff_max else 0
 
         logging.info(f"[Filter:{self.replica_id}] ✅ Permiso otorgado por el WSM para reenviar END de {request_id}")
 
@@ -108,8 +120,8 @@ class Filter(StreamProcessingWorker):
 # ====================
 
 class TemporalFilter(Filter):
-    def __init__(self, queue_in, queue_out, rabbitmq_host, data_type, col_index, config):
-        super().__init__(queue_in, queue_out, rabbitmq_host)
+    def __init__(self, queue_in, queue_out, rabbitmq_host, data_type, col_index, config, backoff_start=0.1, backoff_max=3.0):
+        super().__init__(queue_in, queue_out, rabbitmq_host, backoff_start, backoff_max)
         self.data_type = data_type
         self.col_index = col_index
         self.rules = []
@@ -157,8 +169,8 @@ class TemporalFilter(Filter):
 
 
 class AmountFilter(Filter):
-    def __init__(self, queue_in, queue_out, rabbitmq_host, min_amount, col_index):
-        super().__init__(queue_in, queue_out, rabbitmq_host)
+    def __init__(self, queue_in, queue_out, rabbitmq_host, min_amount, col_index, backoff_start=0.1, backoff_max=3.0):
+        super().__init__(queue_in, queue_out, rabbitmq_host, backoff_start, backoff_max)
         self.min_amount = float(min_amount)
         self.col_index = col_index
 
@@ -199,15 +211,19 @@ if __name__ == '__main__':
         columns_have = [c.strip() for c in config[data_type]['have'].split(',')]
         col_index = {c: i for i, c in enumerate(columns_have)}
 
+        # Load backoff configuration from DEFAULT section
+        backoff_start = float(config['DEFAULT'].get('BACKOFF_START', 0.1))
+        backoff_max = float(config['DEFAULT'].get('BACKOFF_MAX', 3.0))
+
         if filter_type == 'temporal':
             temporal_config_path = os.path.join(os.path.dirname(__file__), 'temporal_filter_config.ini')
             temporal_config = configparser.ConfigParser()
             temporal_config.read(temporal_config_path)
-            return TemporalFilter(queue_in, queue_out, rabbitmq_host, data_type, col_index, temporal_config)
+            return TemporalFilter(queue_in, queue_out, rabbitmq_host, data_type, col_index, temporal_config, backoff_start, backoff_max)
 
         elif filter_type == 'amount':
             min_amount = os.environ.get('MIN_AMOUNT')
-            return AmountFilter(queue_in, queue_out, rabbitmq_host, min_amount, col_index)
+            return AmountFilter(queue_in, queue_out, rabbitmq_host, min_amount, col_index, backoff_start, backoff_max)
 
         else:
             raise ValueError(f"Unknown FILTER_TYPE: {filter_type}")

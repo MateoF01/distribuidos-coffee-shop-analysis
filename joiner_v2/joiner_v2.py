@@ -12,13 +12,15 @@ from pathlib import Path
 
 
 class Joiner_v2(Worker):
-    def __init__(self, queue_out, output_file, columns_want, rabbitmq_host, query_type, wsm_host, wsm_port, multiple_queues=None):
+    def __init__(self, queue_out, output_file, columns_want, rabbitmq_host, query_type, wsm_host, wsm_port, multiple_queues=None, backoff_start=0.1, backoff_max=3.0):
         # Use multiple_input_queues parameter for the Worker superclass
 
         super().__init__(None, queue_out, rabbitmq_host, multiple_input_queues=multiple_queues)
         
         self.query_type = query_type
         self.columns_want = columns_want
+        self.backoff_start = backoff_start
+        self.backoff_max = backoff_max
 
         self.replica_id = socket.gethostname()
 
@@ -210,10 +212,18 @@ class Joiner_v2(Worker):
 
         wsm_client = self.dict_wsm_clients[queue_name]
 
-        time.sleep(1)
+        # Exponential backoff for can_send_end
+        backoff = self.backoff_start
+        total_wait = 0.0
         while not wsm_client.can_send_end(request_id, position):
-            logging.info(f"[Joiner:{self.query_type}] Esperando permiso para verificacion de enviar END de {request_id} desde {queue_name}...")
-            time.sleep(1)
+            if total_wait >= self.backoff_max:
+                error_msg = f"[Joiner:{self.query_type}] Timeout after {total_wait:.2f}s waiting for permission to send END from {queue_name} (request_id={request_id})"
+                logging.error(error_msg)
+                raise TimeoutError(error_msg)
+            logging.info(f"[Joiner:{self.query_type}] Esperando permiso para verificacion de enviar END de {request_id} desde {queue_name} (backoff={backoff:.3f}s, total={total_wait:.2f}s)...")
+            time.sleep(backoff)
+            total_wait += backoff
+            backoff = min(backoff * 2, self.backoff_max - total_wait)
 
         enviar_last_end = wsm_client.can_send_last_end(request_id)
         if not enviar_last_end:
@@ -635,6 +645,10 @@ if __name__ == '__main__':
 
         columns_want = [col.strip() for col in config[query_type]['columns'].split(',')]
 
+        # Load backoff configuration from DEFAULT section
+        backoff_start = float(config['DEFAULT'].get('BACKOFF_START', 0.1))
+        backoff_max = float(config['DEFAULT'].get('BACKOFF_MAX', 3.0))
+
         return Joiner_v2(
             queue_out=queue_out_env,
             output_file=output_file_env,
@@ -643,7 +657,9 @@ if __name__ == '__main__':
             query_type=query_type,
             wsm_host=shm_host,
             wsm_port=shm_port,
-            multiple_queues=multiple_queues
+            multiple_queues=multiple_queues,
+            backoff_start=backoff_start,
+            backoff_max=backoff_max
         )
     
     # Use the Worker base class main entry point

@@ -17,10 +17,12 @@ class SplitterQ1(StreamProcessingWorker):
     - Notifica a sorter_v2 cuando TODAS las réplicas finalizaron (vía WSM).
     """
 
-    def __init__(self, queue_in, queue_out, rabbitmq_host, chunk_size, replica_id):
+    def __init__(self, queue_in, queue_out, rabbitmq_host, chunk_size, replica_id, backoff_start=0.1, backoff_max=3.0):
         super().__init__(queue_in, queue_out, rabbitmq_host)
         self.replica_id = replica_id
         self.chunk_size = int(chunk_size)
+        self.backoff_start = backoff_start
+        self.backoff_max = backoff_max
 
         # base de temporales (puede venir por env, tiene default)
         self.base_temp_root = os.environ.get(
@@ -205,9 +207,20 @@ class SplitterQ1(StreamProcessingWorker):
 
         logging.info(f"[SplitterQ1:{self.replica_id}] END recibido para request {request_id}. Esperando permiso WSM...")
 
-        # esperar permiso global del WSM (todas las réplicas listas)
+        # esperar permiso global del WSM con exponential backoff
+        backoff = self.backoff_start
+        total_wait = 0.0
+        
         while not self.wsm_client.can_send_end(request_id, position):
-            time.sleep(1)
+            if total_wait >= self.backoff_max:
+                error_msg = f"[SplitterQ1:{self.replica_id}] Timeout esperando permiso WSM para END de {request_id} después de {total_wait:.2f}s"
+                logging.error(error_msg)
+                raise TimeoutError(error_msg)
+            
+            logging.info(f"[SplitterQ1:{self.replica_id}] Esperando permiso... (backoff={backoff:.3f}s, total={total_wait:.2f}s)")
+            time.sleep(backoff)
+            total_wait += backoff
+            backoff = min(backoff * 2, self.backoff_max - total_wait) if total_wait < self.backoff_max else 0
 
         logging.info(f"[SplitterQ1:{self.replica_id}] ✅ WSM autorizó END para request {request_id}. Notificando sorter_v2...")
 
@@ -231,11 +244,20 @@ class SplitterQ1(StreamProcessingWorker):
 # ====================
 if __name__ == '__main__':
     def create_splitter():
+        config_path = os.path.join(os.path.dirname(__file__), 'config.ini')
+        config = configparser.ConfigParser()
+        config.read(config_path)
+        
         rabbitmq_host = os.environ.get('RABBITMQ_HOST', 'rabbitmq')
         queue_in = os.environ.get('QUEUE_IN')
         queue_out = os.environ.get('COMPLETION_QUEUE')
         replica_id = socket.gethostname()
         chunk_size = int(os.environ.get('CHUNK_SIZE', 10000))
-        return SplitterQ1(queue_in, queue_out, rabbitmq_host, chunk_size, replica_id)
+        
+        # Load backoff configuration from DEFAULT section
+        backoff_start = float(config['DEFAULT'].get('BACKOFF_START', 0.1))
+        backoff_max = float(config['DEFAULT'].get('BACKOFF_MAX', 3.0))
+        
+        return SplitterQ1(queue_in, queue_out, rabbitmq_host, chunk_size, replica_id, backoff_start, backoff_max)
 
     SplitterQ1.run_worker_main(create_splitter)

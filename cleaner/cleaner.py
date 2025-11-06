@@ -9,12 +9,14 @@ from WSM.wsm_client import WSMClient
 
 
 class Cleaner(StreamProcessingWorker):
-    def __init__(self, queue_in, queue_out, columns_have, columns_want, rabbitmq_host, keep_when_empty=None):
+    def __init__(self, queue_in, queue_out, columns_have, columns_want, rabbitmq_host, keep_when_empty=None, backoff_start=0.1, backoff_max=3.0):
         super().__init__(queue_in, queue_out, rabbitmq_host)
         self.columns_have = columns_have
         self.columns_want = columns_want
         self.keep_indices = [self.columns_have.index(col) for col in self.columns_want]
         self.keep_when_empty = [self.columns_want.index(col) for col in keep_when_empty] if keep_when_empty else []
+        self.backoff_start = backoff_start
+        self.backoff_max = backoff_max
 
         # 🔗 Conexión con el Worker State Manager
         replica_id = socket.gethostname()
@@ -62,10 +64,20 @@ class Cleaner(StreamProcessingWorker):
         self.wsm_client.update_state("END", request_id, position)
         logging.info(f"[Cleaner] Recibido END para request {request_id}. Consultando WSM...")
 
-        # Esperar permiso del WSM para enviar END
+        # Esperar permiso del WSM para enviar END con exponential backoff
+        backoff = self.backoff_start
+        total_wait = 0.0
+        
         while not self.wsm_client.can_send_end(request_id, position):
-            logging.info(f"[Cleaner] Esperando permiso para reenviar END de {request_id}...")
-            time.sleep(1)
+            if total_wait >= self.backoff_max:
+                error_msg = f"[Cleaner] Timeout esperando permiso WSM para END de {request_id} después de {total_wait:.2f}s"
+                logging.error(error_msg)
+                raise TimeoutError(error_msg)
+            
+            logging.info(f"[Cleaner] Esperando permiso para reenviar END de {request_id}... (backoff={backoff:.3f}s, total={total_wait:.2f}s)")
+            time.sleep(backoff)
+            total_wait += backoff
+            backoff = min(backoff * 2, self.backoff_max - total_wait) if total_wait < self.backoff_max else 0
 
         logging.info(f"[Cleaner] ✅ Permiso otorgado para enviar END de {request_id}")
 
@@ -138,8 +150,12 @@ if __name__ == '__main__':
         columns_want = [col.strip() for col in config[data_type]['want'].split(',')]
         keep_when_empty_str = config[data_type].get('keep_when_empty', '').strip()
         keep_when_empty = [col.strip() for col in keep_when_empty_str.split(',')] if keep_when_empty_str else None
+        
+        # Load backoff configuration from DEFAULT section
+        backoff_start = float(config['DEFAULT'].get('BACKOFF_START', 0.1))
+        backoff_max = float(config['DEFAULT'].get('BACKOFF_MAX', 3.0))
 
-        return Cleaner(queue_in, queue_out, columns_have, columns_want, rabbitmq_host, keep_when_empty)
+        return Cleaner(queue_in, queue_out, columns_have, columns_want, rabbitmq_host, keep_when_empty, backoff_start, backoff_max)
 
     config_path = os.path.join(os.path.dirname(__file__), 'config.ini')
     Cleaner.run_worker_main(create_cleaner, config_path)
