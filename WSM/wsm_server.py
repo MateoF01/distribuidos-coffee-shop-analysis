@@ -186,6 +186,18 @@ class WorkerStateManager:
                 logging.debug(f"[WSM] Todos los workers terminaron de procesar {request_id}")
             return True
 
+    def is_position_processed(self, worker_type, request_id, position):
+        """
+        Devuelve True si la posición ya fue registrada como procesada
+        por este tipo de worker en este request.
+        """
+        with self.lock:
+            key = (worker_type, request_id)
+            pos_set = self.positions_by_requests.get(key, set())
+            processed = position in pos_set
+            logging.debug(f"[WSM] is_position_processed({worker_type}, {request_id}, {position}) = {processed}")
+            return processed
+
 # -------------------------------
 # ⚡ Servidor TCP multicliente
 # -------------------------------
@@ -242,6 +254,9 @@ class WSMServer:
         elif action == "can_send_last_end":
             can_send = self.manager.can_send_last_end(worker_type, replica_id, msg.get("request_id"))
             return "OK" if can_send else "WAIT"
+        elif action == "is_position_processed":
+            processed = self.manager.is_position_processed(worker_type, msg.get("request_id"), msg.get("position"))
+            return processed
         else:
             return "ERROR: unknown action"
 

@@ -74,3 +74,13 @@ class WSMClient:
             "request_id": request_id
         }
         return self._send_message(msg) == "OK"
+
+    def is_position_processed(self, request_id, position):
+        print("ME CONSULTAN SOBRE LA POSICION")
+        msg = {
+            "action": "is_position_processed",
+            "worker_type": self.worker_type,
+            "request_id": request_id,
+            "position": position
+        }
+        return self._send_message(msg) == True
