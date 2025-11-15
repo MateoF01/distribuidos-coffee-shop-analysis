@@ -1,0 +1,36 @@
+wsm_transactions_q4_3                                                  | 2025-11-15T20:44:02.960860838Z Traceback (most recent call last):
+wsm_transactions_q4_3                                                  | 2025-11-15T20:44:02.960952546Z   File "/app/WSM/wsm_server.py", line 8, in <module>
+wsm_transactions_q4_3                                                  | 2025-11-15T20:44:02.965940754Z     from wsm_server import WSMServer
+wsm_transactions_q4_3                                                  | 2025-11-15T20:44:02.966105046Z   File "/app/WSM/wsm_server.py", line 8, in <module>
+wsm_transactions_q4_3                                                  | 2025-11-15T20:44:02.966115546Z     from wsm_server import WSMServer
+wsm_transactions_q4_3                                                  | 2025-11-15T20:44:02.966120963Z ImportError: cannot import name 'WSMServer' from partially initialized module 'wsm_server' (most likely due to a circular import) (/app/WSM/wsm_server.py)
+wsm_transactions                                                       | 2025-11-15T20:44:02.253193921Z Traceback (most recent call last):
+wsm_transactions                                                       | 2025-11-15T20:44:02.253228379Z   File "/app/WSM/wsm_server.py", line 8, in <module>
+wsm_transactions                                                       | 2025-11-15T20:44:02.253232296Z     from wsm_server import WSMServer
+wsm_transactions                                                       | 2025-11-15T20:44:02.253234129Z   File "/app/WSM/wsm_server.py", line 8, in <module>
+wsm_transactions                                                       | 2025-11-15T20:44:02.253236129Z     from wsm_server import WSMServer
+wsm_transactions                                                       | 2025-11-15T20:44:02.253237879Z ImportError: cannot import name 'WSMServer' from partially initialized module 'wsm_server' (most likely due to a circular import) (/app/WSM/wsm_server.py)
+wsm_transactions_2                                                     | 2025-11-15T20:44:02.773181004Z Traceback (most recent call last):
+wsm_transactions_2                                                     | 2025-11-15T20:44:02.773219838Z   File "/app/WSM/wsm_server.py", line 8, in <module>
+wsm_transactions_2                                                     | 2025-11-15T20:44:02.773222921Z     from wsm_server import WSMServer
+wsm_transactions_2                                                     | 2025-11-15T20:44:02.773225046Z   File "/app/WSM/wsm_server.py", line 8, in <module>
+wsm_transactions_2                                                     | 2025-11-15T20:44:02.773226963Z     from wsm_server import WSMServer
+wsm_transactions_2                                                     | 2025-11-15T20:44:02.773228879Z ImportError: cannot import name 'WSMServer' from partially initialized module 'wsm_server' (most likely due to a circular import) (/app/WSM/wsm_server.py)
+wsm_transactions_3                                                     | 2025-11-15T20:44:00.421612003Z Traceback (most recent call last):
+wsm_transactions_3                                                     | 2025-11-15T20:44:00.421649128Z   File "/app/WSM/wsm_server.py", line 8, in <module>
+wsm_transactions_3                                                     | 2025-11-15T20:44:00.421653753Z     from wsm_server import WSMServer
+wsm_transactions_3                                                     | 2025-11-15T20:44:00.421655461Z   File "/app/WSM/wsm_server.py", line 8, in <module>
+wsm_transactions_3                                                     | 2025-11-15T20:44:00.421658378Z     from wsm_server import WSMServer
+wsm_transactions_3                                                     | 2025-11-15T20:44:00.421662878Z ImportError: cannot import name 'WSMServer' from partially initialized module 'wsm_server' (most likely due to a circular import) (/app/WSM/wsm_server.py)
+wsm_transactions_q4_2                                                  | 2025-11-15T20:43:59.549002419Z Traceback (most recent call last):
+wsm_transactions_q4                                                    | 2025-11-15T20:44:05.654352672Z Traceback (most recent call last):
+wsm_transactions_q4                                                    | 2025-11-15T20:44:05.654441381Z   File "/app/WSM/wsm_server.py", line 8, in <module>
+wsm_transactions_q4                                                    | 2025-11-15T20:44:05.654446672Z     from wsm_server import WSMServer
+wsm_transactions_q4                                                    | 2025-11-15T20:44:05.654448756Z   File "/app/WSM/wsm_server.py", line 8, in <module>
+wsm_transactions_q4                                                    | 2025-11-15T20:44:05.654450839Z     from wsm_server import WSMServer
+wsm_transactions_q4                                                    | 2025-11-15T20:44:05.654452672Z ImportError: cannot import name 'WSMServer' from partially initialized module 'wsm_server' (most likely due to a circular import) (/app/WSM/wsm_server.py)
+wsm_transactions_q4_2                                                  | 2025-11-15T20:43:59.549021294Z   File "/app/WSM/wsm_server.py", line 8, in <module>
+wsm_transactions_q4_2                                                  | 2025-11-15T20:43:59.549024503Z     from wsm_server import WSMServer
+wsm_transactions_q4_2                                                  | 2025-11-15T20:43:59.549026669Z   File "/app/WSM/wsm_server.py", line 8, in <module>
+wsm_transactions_q4_2                                                  | 2025-11-15T20:43:59.549028586Z     from wsm_server import WSMServer
+wsm_transactions_q4_2                                                  | 2025-11-15T20:43:59.549030878Z ImportError: cannot import name 'WSMServer' from partially initialized module 'wsm_server' (most likely due to a circular import) (/app/WSM/wsm_server.py)

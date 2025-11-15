@@ -8,54 +8,88 @@ def main():
         print("Uso: python3 mi-generador.py <cantidad_clientes> <requests_por_cliente> <max_clientes>")
         sys.exit(1)
 
-    try:
-        cantidad_clientes = int(sys.argv[1])
-        requests_por_cliente = int(sys.argv[2])
-        max_clientes = int(sys.argv[3])
-    except ValueError:
-        print("Todos los parámetros deben ser enteros.")
-        sys.exit(1)
+    cantidad_clientes = int(sys.argv[1])
+    requests_por_cliente = int(sys.argv[2])
+    max_clientes = int(sys.argv[3])
 
-    if cantidad_clientes > max_clientes:
-        print(f"Error: cantidad_clientes ({cantidad_clientes}) no puede ser mayor que cantidad maxima de clientes ({max_clientes})")
-        sys.exit(1)
-
-    # Plantilla base del docker-compose
     with open("docker-compose-base.yml", "r", encoding="utf-8") as base_file:
         compose = yaml.safe_load(base_file)
 
-    # Si ya existia una clave 'client' base, la usamos como plantilla
-    if "client" not in compose["services"]:
-        print("⚠️  No se encontró servicio base 'client' en el YAML base.")
+    services = compose["services"]
+
+    # ============================================
+    # 1. Expandir CLIENT
+    # ============================================
+    if "client" not in services:
+        print("⚠️ No está el servicio 'client' en el YAML base.")
         sys.exit(1)
 
-    # Modificar el cliente base para que sea escalable
-    base_client = compose["services"]["client"]
-    
-    # Actualizar environment del cliente base
-    if "environment" not in base_client:
-        base_client["environment"] = {}
-    
-    base_client["environment"]["REQUESTS_PER_CLIENT"] = requests_por_cliente
-    base_client["environment"]["INITIAL_CLIENT_COUNT"] = cantidad_clientes
-    
-    # Remover container_name si existe para permitir scaling
-    if "container_name" in base_client:
-        del base_client["container_name"]
+    client_base = services["client"]
+    if "container_name" in client_base:
+        del client_base["container_name"]
 
-    # Añadir REQUESTS_PER_CLIENT y GATEWAY_MAX_PROCESSES al gateway
-    if "gateway" in compose["services"]:
-        gateway_env = compose["services"]["gateway"].get("environment", {})
-        gateway_env["REQUESTS_PER_CLIENT"] = requests_por_cliente
-        gateway_env["GATEWAY_MAX_PROCESSES"] = max_clientes
-        compose["services"]["gateway"]["environment"] = gateway_env
+    client_env = client_base.setdefault("environment", {})
+    client_env["REQUESTS_PER_CLIENT"] = requests_por_cliente
+    client_env["INITIAL_CLIENT_COUNT"] = cantidad_clientes
 
-    # Guardar nuevo archivo
+    # Gateway config
+    if "gateway" in services:
+        gw_env = services["gateway"].setdefault("environment", {})
+        gw_env["REQUESTS_PER_CLIENT"] = requests_por_cliente
+        gw_env["GATEWAY_MAX_PROCESSES"] = max_clientes
+
+    # ============================================
+    # 2. Expandir WSMs automáticamente
+    # ============================================
+    WSM_REPLICAS = 3   # Cantidad total de réplicas del WSM
+
+    # Detectar todos los servicios WSM en el base
+    wsm_services = {
+        name: svc
+        for name, svc in services.items()
+        if name.startswith("wsm_")
+    }
+
+    for base_name, base_service in wsm_services.items():
+
+        # -------------------------------------------------------
+        # 1) El servicio base se convierte en la réplica 1
+        # -------------------------------------------------------
+        base_env = base_service.setdefault("environment", {})
+
+        base_env["WSM_ID"] = 1
+        base_env["WSM_NAME"] = base_name  # ej: "wsm_transactions"
+        # WSM_CONTROL_BASE_PORT ya viene del YAML base
+        # PORT / HOST ya vienen en el YAML base
+        base_service["container_name"] = base_name
+
+
+
+        # -------------------------------------------------------
+        # 2) Clonar réplicas 2..N
+        # -------------------------------------------------------
+        for i in range(2, WSM_REPLICAS + 1):
+            replica_name = f"{base_name}_{i}"
+
+            replica_service = copy.deepcopy(base_service)
+            replica_env = replica_service.setdefault("environment", {})
+
+            replica_env["WSM_ID"] = i
+            replica_env["WSM_NAME"] = base_name
+
+            # Agregar servicio clonado
+            services[replica_name] = replica_service
+            replica_service["container_name"] = replica_name
+
+
+    # ============================================
+    # Guardar archivo final
+    # ============================================
     with open("docker-compose.yml", "w", encoding="utf-8") as f:
         yaml.dump(compose, f, sort_keys=False, default_flow_style=False)
 
-    print(f"✅ docker-compose.yml generado con cliente escalable (inicial: {cantidad_clientes}), {requests_por_cliente} requests por cliente, máximo de {max_clientes} clientes.")
-    print(f"💡 Para escalar dinámicamente: docker compose up -d --scale client=<N>")
+    print("✅ docker-compose.yml generado con réplicas WSM y clientes escalables.")
+
 
 if __name__ == "__main__":
     main()

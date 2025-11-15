@@ -96,20 +96,23 @@ services:
       DATA_TYPE: transactions
     networks:
     - coffee-net
+  
   wsm_transactions:
     build:
       context: .
       dockerfile: WSM/Dockerfile
-    container_name: wsm_transactions
     environment:
       PYTHONUNBUFFERED: 1
       STATE_FILE_PATH: /app/output/worker_states_transactions.json
       HOST: 0.0.0.0
       PORT: 9000
+      WSM_CONTROL_BASE_PORT: 9100
+      WSM_NAME: wsm_transactions
     volumes:
       - ./output_wsm:/app/output
     networks:
       - coffee-net
+  
   coordinator_cleaner_transactions:
     build:
       context: .

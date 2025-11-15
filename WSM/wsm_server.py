@@ -206,16 +206,31 @@ class WSMServer:
         self.host = host
         self.port = port
         self.manager = WorkerStateManager()
+        self.running = False
+        self.server_socket = None
 
     def start(self):
-        server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        server_socket.bind((self.host, self.port))
-        server_socket.listen(100)
-        logging.info(f"[WSM] Servidor escuchando en {self.host}:{self.port}")
+            self.running = True
+            self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.server_socket.bind((self.host, self.port))
+            self.server_socket.listen(100)
+            logging.info(f"[WSM] Servidor escuchando en {self.host}:{self.port}")
 
-        while True:
-            conn, addr = server_socket.accept()
-            threading.Thread(target=self.handle_client, args=(conn, addr), daemon=True).start()
+            while self.running:
+                try:
+                    conn, addr = self.server_socket.accept()
+                    threading.Thread(target=self.handle_client, args=(conn, addr), daemon=True).start()
+                except OSError:
+                    break  # socket cerrado → stop
+
+    def stop(self):
+        logging.info("[WSM] Deteniendo servidor líder...")
+        self.running = False
+        try:
+            self.server_socket.close()
+        except:
+            pass
+    
 
     def handle_client(self, conn, addr):
         try:
@@ -262,4 +277,5 @@ class WSMServer:
 
 
 if __name__ == "__main__":
-    WSMServer().start()
+    from wsm_node import WSMNode
+    WSMNode().start()
