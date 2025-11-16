@@ -227,8 +227,7 @@ class WorkerStateManager:
         por este tipo de worker en este request.
         """
         with self.lock:
-            key = (worker_type, request_id)
-            pos_set = self.positions_by_requests.get(key, set())
+            pos_set = self._load_positions(worker_type, request_id)
             processed = position in pos_set
             logging.debug(f"[WSM] is_position_processed({worker_type}, {request_id}, {position}) = {processed}")
             return processed
