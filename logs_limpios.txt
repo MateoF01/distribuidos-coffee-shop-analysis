@@ -1,8 +1,0 @@
-wsm_transactions_q4_2                                                  | 2025-11-16T19:56:14.523797924Z 2025-11-16 19:56:14,523 [INFO] 📘 Ya hay líder: 1
-wsm_transactions_2                                                     | 2025-11-16T19:56:14.391021174Z 2025-11-16 19:56:14,386 [INFO] 📘 Ya hay líder: 1
-wsm_transactions_q4_3                                                  | 2025-11-16T19:56:15.512627632Z 2025-11-16 19:56:15,511 [INFO] 📘 Ya hay líder: 1
-wsm_transactions_q4                                                    | 2025-11-16T19:56:13.393188340Z 2025-11-16 19:56:13,388 [INFO] 👑 No existe líder → me proclamo líder
-wsm_transactions_q4                                                    | 2025-11-16T19:56:13.393223131Z 2025-11-16 19:56:13,388 [INFO] 👑 Ahora soy el líder
-wsm_transactions                                                       | 2025-11-16T19:56:12.959634048Z 2025-11-16 19:56:12,958 [INFO] 👑 No existe líder → me proclamo líder
-wsm_transactions                                                       | 2025-11-16T19:56:12.959680006Z 2025-11-16 19:56:12,958 [INFO] 👑 Ahora soy el líder
-wsm_transactions_3                                                     | 2025-11-16T19:56:15.162966341Z 2025-11-16 19:56:15,162 [INFO] 📘 Ya hay líder: 1
