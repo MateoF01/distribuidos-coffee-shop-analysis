@@ -107,6 +107,8 @@ class CoffeeMessageMiddlewareQueue(MessageMiddlewareQueue):
         # Separate publisher connection (thread-safe for publishing only)
         self._publisher_connection = pika.BlockingConnection(params)
         self._publisher_channel = self._publisher_connection.channel()
+        # Enable publisher confirms for guaranteed delivery
+        self._publisher_channel.confirm_delivery()
         # self._publisher_channel.queue_declare(queue=self.queue_name, durable=True, arguments=QUEUE_ARGS)
         self._publisher_channel.queue_declare(queue=self.queue_name, durable=True)
 
@@ -257,7 +259,7 @@ class CoffeeMessageMiddlewareQueue(MessageMiddlewareQueue):
       self._state = ConnectionState.CONNECTED
 
   def send(self, message):
-    """Thread-safe publishing using dedicated publisher channel - sends raw bytes"""
+    """Thread-safe publishing using dedicated publisher channel - sends raw bytes with confirmed delivery"""
     with self._state_lock:
       if self._state == ConnectionState.DISCONNECTED:
         raise MessageMiddlewareDisconnectedError("Not connected")
@@ -274,12 +276,18 @@ class CoffeeMessageMiddlewareQueue(MessageMiddlewareQueue):
       else:
         body = str(message).encode('utf-8')
         
+      # basic_publish will now block until confirmation is received from RabbitMQ
+      # If the message cannot be routed or stored, it will raise an exception
       self._publisher_channel.basic_publish(
         exchange='',
         routing_key=self.queue_name,
         body=body,
         properties=pika.BasicProperties(delivery_mode=2)
       )
+    except pika.exceptions.UnroutableError as e:
+      raise MessageMiddlewareMessageError(f"Message could not be routed to queue: {str(e)}")
+    except pika.exceptions.NackError as e:
+      raise MessageMiddlewareMessageError(f"Message was rejected by broker: {str(e)}")
     except Exception as e:
       raise MessageMiddlewareMessageError(str(e))
 
@@ -389,6 +397,8 @@ class CoffeeMessageMiddlewareExchange(MessageMiddlewareExchange):
       # Separate publisher connection
       self._publisher_connection = pika.BlockingConnection(params)
       self._publisher_channel = self._publisher_connection.channel()
+      # Enable publisher confirms for guaranteed delivery
+      self._publisher_channel.confirm_delivery()
       self._publisher_channel.exchange_declare(exchange=self.exchange_name, exchange_type=self.exchange_type)
       
       # Separate consumer connection with exclusive queue
@@ -551,7 +561,7 @@ class CoffeeMessageMiddlewareExchange(MessageMiddlewareExchange):
       self._state = ConnectionState.CONNECTED
 
   def send(self, message):
-    """Thread-safe publishing using dedicated publisher channel"""
+    """Thread-safe publishing using dedicated publisher channel with confirmed delivery"""
     with self._state_lock:
       if self._state == ConnectionState.DISCONNECTED:
         raise MessageMiddlewareDisconnectedError("Not connected")
@@ -570,12 +580,19 @@ class CoffeeMessageMiddlewareExchange(MessageMiddlewareExchange):
         
       # For fanout exchanges, routing key should be empty
       routing_key = '' if self.exchange_type == 'fanout' else (self.route_keys[0] if self.route_keys else '')
+      
+      # basic_publish will now block until confirmation is received from RabbitMQ
+      # If the message cannot be routed or stored, it will raise an exception
       self._publisher_channel.basic_publish(
         exchange=self.exchange_name,
         routing_key=routing_key,
         body=body,
         properties=pika.BasicProperties(delivery_mode=2)
       )
+    except pika.exceptions.UnroutableError as e:
+      raise MessageMiddlewareMessageError(f"Message could not be routed: {str(e)}")
+    except pika.exceptions.NackError as e:
+      raise MessageMiddlewareMessageError(f"Message was rejected by broker: {str(e)}")
     except Exception as e:
       raise MessageMiddlewareMessageError(str(e))
 
