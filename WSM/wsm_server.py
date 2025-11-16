@@ -21,20 +21,61 @@ class WorkerStateManager:
     def __init__(self, state_file=STATE_FILE, using_end_sync=USING_END_SYNC):
         self.state_file = state_file
         self.using_end_sync = using_end_sync
+        self.output_base_dir = os.path.dirname(self.state_file)
         # persisted state structures
         self.worker_states = {}
         self.workers_being_used = {}
         self.ends_by_requests = {}
-        self.positions_by_requests = {}
+        # No longer store positions_by_requests in memory - will be in individual files
         self.lock = threading.Lock()
         # _load_state will populate self.worker_states, self.workers_being_used and
         # self.ends_by_requests if a saved file exists. If not, defaults above remain.
         self._load_state()
         logging.info(f"[WSM] Archivo de estado: {self.state_file}")
+        logging.info(f"[WSM] Directorio base de salida: {self.output_base_dir}")
 
     # -------------------------------
     # 🔄 Persistencia
     # -------------------------------
+    def _get_positions_dir(self, worker_type):
+        """Retorna el directorio para las posiciones de un tipo de worker."""
+        return os.path.join(self.output_base_dir, f"{worker_type}_positions")
+    
+    def _get_positions_file(self, worker_type, request_id):
+        """Retorna la ruta del archivo de posiciones para un worker_type y request_id."""
+        positions_dir = self._get_positions_dir(worker_type)
+        return os.path.join(positions_dir, f"{request_id}.txt")
+    
+    def _add_position(self, worker_type, request_id, position):
+        """Agrega una posición al archivo append-only."""
+        positions_dir = self._get_positions_dir(worker_type)
+        os.makedirs(positions_dir, exist_ok=True)
+        
+        positions_file = self._get_positions_file(worker_type, request_id)
+        try:
+            with open(positions_file, "a", encoding="utf-8") as f:
+                f.write(f"{position}\n")
+        except Exception as e:
+            logging.error(f"[WSM] Error agregando posición a {positions_file}: {e}")
+
+    def _load_positions(self, worker_type, request_id):
+        """Carga las posiciones desde el archivo correspondiente."""
+        positions_file = self._get_positions_file(worker_type, request_id)
+        if not os.path.exists(positions_file):
+            return set()
+        
+        try:
+            with open(positions_file, "r", encoding="utf-8") as f:
+                positions = set()
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        positions.add(int(line))
+                return positions
+        except Exception as e:
+            logging.error(f"[WSM] Error cargando posiciones de {positions_file}: {e}")
+            return set()
+    
     def _load_state(self):
         if os.path.exists(self.state_file):
             try:
@@ -45,13 +86,7 @@ class WorkerStateManager:
                     self.worker_states = data.get("worker_states", {})
                     self.workers_being_used = data.get("workers_being_used", {})
                     self.ends_by_requests = data.get("ends_by_requests", {})
-                    self.positions_by_requests = {}
-                    for k, v in data.get("positions_by_requests", {}).items():
-                        try:
-                            worker_type, request_id = k.split("|", 1)
-                            self.positions_by_requests[(worker_type, request_id)] = set(v)
-                        except Exception:
-                            logging.warning(f"[WSM] clave de posición inválida en {k}")
+                    # Positions are now stored in separate files, no longer in main state file
                     logging.info(f"[WSM] Estado cargado desde {self.state_file}")
                 else:
                     logging.error(f"[WSM] Formato de estado inválido en {self.state_file}")
@@ -60,12 +95,11 @@ class WorkerStateManager:
 
     def _save_state(self):
         try:
-            serializable_positions = { f"{wt}|{rid}": list(v) for (wt, rid), v in self.positions_by_requests.items() }
             payload = {
                 "worker_states": self.worker_states,
                 "workers_being_used": self.workers_being_used,
                 "ends_by_requests": self.ends_by_requests,
-                "positions_by_requests": serializable_positions,
+                # positions_by_requests no longer stored in main state file
             }
             with open(self.state_file, "w", encoding="utf-8") as f:
                 json.dump(payload, f, indent=2, ensure_ascii=False)
@@ -75,18 +109,22 @@ class WorkerStateManager:
     # -------------------------------
     # Operaciones de ayuda
     # -------------------------------
-    def _compute_lowest_contiguous(self, pos_set):
-        """ Returns the highest contiguous position starting from the
-        lowest value. E.g. if positions = {0,1,2,4,5} → returns 2. """
+    def _find_first_missing_position(self, pos_set):
+        """ Returns the first missing position in the sequence starting from 1.
+        E.g. if positions = {1,2,3,5,6} → returns 4 (first missing).
+        E.g. if positions = {2,3,5} → returns 1 (missing 1).
+        E.g. if positions = {1,2,4,5} → returns 3 (missing 3).
+        """
         if not pos_set:
-            return -1
+            return 1
+        
         sorted_positions = sorted(pos_set)
-        expected = sorted_positions[0]
+        expected = 1
         for p in sorted_positions:
             if p != expected:
-                break
+                return expected
             expected += 1
-        return expected - 1
+        return expected
 
     # -------------------------------
     # 🧱 Operaciones básicas
@@ -128,11 +166,9 @@ class WorkerStateManager:
             if (request_id
                 and position is not None
                 and state == "WAITING"
-                and previous_state == "PROCESSING"
+                and (previous_state == "PROCESSING" or previous_state == "END")
             ):
-                key = (worker_type, request_id)
-                pos_set = self.positions_by_requests.setdefault(key, set())
-                pos_set.add(position)
+                self._add_position(worker_type, request_id, position)
                 logging.debug(f"[WSM] {worker_type}:{replica_id} registró posición {position} para {request_id}")
 
             self._save_state()
@@ -150,18 +186,17 @@ class WorkerStateManager:
                     logging.debug(f"[WSM] {worker_type}:{rid} todavía procesando {request_id}")
                     return False
 
-            key = (worker_type, request_id)
-            pos_set = self.positions_by_requests.get(key, set())
-            lowest = self._compute_lowest_contiguous(pos_set)
+            pos_set = self._load_positions(worker_type, request_id)
+            first_missing = self._find_first_missing_position(pos_set)
 
             if position is None:
                 logging.warning(f"[WSM] can_send_end() llamado sin posición para {worker_type}:{request_id}")
                 return False
-            if lowest == position - 1:
-                logging.info(f"[WSM] {worker_type}:{request_id} stream completo hasta {lowest}, END válido en {position}")
+            if first_missing == position:
+                logging.info(f"[WSM] {worker_type}:{request_id} stream completo hasta {position-1}, END válido en {position}")
                 return True
             else:
-                logging.info(f"[WSM] {worker_type}:{request_id} faltan posiciones (lowest={lowest}, esperado={position-1})")
+                logging.info(f"[WSM] {worker_type}:{request_id} faltan posicion {first_missing} (intentando enviar END en {position})")
                 return False
 
     def can_send_last_end(self, worker_type, replica_id, request_id):

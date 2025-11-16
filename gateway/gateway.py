@@ -281,8 +281,10 @@ class Server:
                     logging.info(f"Client {addr} new request_id: {current_request_id} (new batch detected)")
 
                 if msg_type == protocol.MSG_TYPE_DATA:
+                    logging.info(f"Received DATA message from client {addr}: data_type={data_type}, request_id={current_request_id}, position={position}, payload_size={len(payload)}")
                     message = protocol.create_data_message(data_type, payload, current_request_id, position)
                 elif msg_type == protocol.MSG_TYPE_END:
+                    logging.info(f"Received END message from client {addr}: data_type={data_type}, request_id={current_request_id}, position={position}")
                     message = protocol.create_end_message(data_type, current_request_id, position)
                 else:
                     message = protocol.create_notification_message(data_type, payload, current_request_id, position)

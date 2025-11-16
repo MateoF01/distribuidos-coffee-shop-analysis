@@ -26,10 +26,12 @@ def get_semester_str(dt_str):
 class GrouperV2(StreamProcessingWorker):
     """Agrupa transacciones por usuario o tienda y acumula totales."""
 
-    def __init__(self, queue_in, queue_out, rabbitmq_host, grouper_mode, replica_id):
+    def __init__(self, queue_in, queue_out, rabbitmq_host, grouper_mode, replica_id, backoff_start=0.1, backoff_max=3.0):
         super().__init__(queue_in, queue_out, rabbitmq_host)
         self.grouper_mode = grouper_mode
         self.replica_id = replica_id
+        self.backoff_start = backoff_start
+        self.backoff_max = backoff_max
         self.base_temp_root = os.environ.get('BASE_TEMP_DIR', os.path.join(os.path.dirname(__file__), 'temp'))
         self.temp_dir = None
         self.current_request_id = None
@@ -78,9 +80,20 @@ class GrouperV2(StreamProcessingWorker):
         self.wsm_client.update_state("END", request_id, position)
         logging.info(f"[GrouperV2:{self.grouper_mode}] Recibido END para request {request_id}. Esperando permiso del WSM...")
 
-        # Esperar permiso del WSM (se puede mejorar para evitar busy loop)
+        # Esperar permiso del WSM con exponential backoff
+        backoff = self.backoff_start
+        total_wait = 0.0
+        
         while not self.wsm_client.can_send_end(request_id, position):
-            time.sleep(1)
+            if total_wait >= self.backoff_max:
+                error_msg = f"[GrouperV2:{self.grouper_mode}] Timeout esperando permiso WSM para END de {request_id} después de {total_wait:.2f}s"
+                logging.error(error_msg)
+                raise TimeoutError(error_msg)
+            
+            logging.info(f"[GrouperV2:{self.grouper_mode}] Esperando permiso... (backoff={backoff:.3f}s, total={total_wait:.2f}s)")
+            time.sleep(backoff)
+            total_wait += backoff
+            backoff = min(backoff * 2, self.backoff_max - total_wait) if total_wait < self.backoff_max else 0
 
         logging.info(f"[GrouperV2:{self.grouper_mode}] ✅ Permiso otorgado por el WSM para reenviar END de {request_id}")
 
@@ -240,7 +253,12 @@ if __name__ == '__main__':
         replica_id = socket.gethostname()
         if not mode:
             raise ValueError("GROUPER_MODE not set")
-        return GrouperV2(queue_in, queue_out, rabbitmq_host, mode, replica_id)
+        
+        # Load backoff configuration from DEFAULT section
+        backoff_start = float(config['DEFAULT'].get('BACKOFF_START', 0.1))
+        backoff_max = float(config['DEFAULT'].get('BACKOFF_MAX', 3.0))
+        
+        return GrouperV2(queue_in, queue_out, rabbitmq_host, mode, replica_id, backoff_start, backoff_max)
 
     config_path = os.path.join(os.path.dirname(__file__), 'config.ini')
     GrouperV2.run_worker_main(create_grouperv2, config_path)
