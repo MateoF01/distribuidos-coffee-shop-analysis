@@ -39,11 +39,10 @@ def main():
         gw_env["GATEWAY_MAX_PROCESSES"] = max_clientes
 
     # ============================================
-    # 2. Expandir WSMs automáticamente
+    # 2. Expandir WSMs automáticamente + depends_on
     # ============================================
     WSM_REPLICAS = 3   # Cantidad total de réplicas del WSM
 
-    # Detectar todos los servicios WSM en el base
     wsm_services = {
         name: svc
         for name, svc in services.items()
@@ -52,35 +51,36 @@ def main():
 
     for base_name, base_service in wsm_services.items():
 
-        # -------------------------------------------------------
-        # 1) El servicio base se convierte en la réplica 1
-        # -------------------------------------------------------
+        # Replica 1 (el servicio base)
         base_env = base_service.setdefault("environment", {})
-
         base_env["WSM_ID"] = 1
-        base_env["WSM_NAME"] = base_name  # ej: "wsm_transactions"
-        # WSM_CONTROL_BASE_PORT ya viene del YAML base
-        # PORT / HOST ya vienen en el YAML base
+        base_env["WSM_NAME"] = base_name
         base_service["container_name"] = base_name
 
+        # La réplica base NO depende de ninguna
+        base_service.pop("depends_on", None)
 
+        # -------------------------------------------
+        # Crear réplicas 2..N con depends_on en cascada
+        # -------------------------------------------
+        previous = base_name  # la réplica 2 depende de la original
 
-        # -------------------------------------------------------
-        # 2) Clonar réplicas 2..N
-        # -------------------------------------------------------
         for i in range(2, WSM_REPLICAS + 1):
             replica_name = f"{base_name}_{i}"
 
             replica_service = copy.deepcopy(base_service)
             replica_env = replica_service.setdefault("environment", {})
-
             replica_env["WSM_ID"] = i
             replica_env["WSM_NAME"] = base_name
-
-            # Agregar servicio clonado
-            services[replica_name] = replica_service
             replica_service["container_name"] = replica_name
 
+            # AGREGAR depends_on en cascada
+            replica_service["depends_on"] = [previous]
+
+            services[replica_name] = replica_service
+
+            # actualiza cadena
+            previous = replica_name
 
     # ============================================
     # Guardar archivo final
@@ -88,7 +88,7 @@ def main():
     with open("docker-compose.yml", "w", encoding="utf-8") as f:
         yaml.dump(compose, f, sort_keys=False, default_flow_style=False)
 
-    print("✅ docker-compose.yml generado con réplicas WSM y clientes escalables.")
+    print("✅ docker-compose.yml generado con réplicas WSM, depends_on en cascada y clientes escalables.")
 
 
 if __name__ == "__main__":
