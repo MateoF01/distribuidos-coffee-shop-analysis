@@ -5,6 +5,8 @@ import threading
 import time
 import logging
 
+from wsm_server import WSMServer
+
 class WSMNode:
     def __init__(self):
         logging.basicConfig(level=logging.INFO, format=f"[WSM NODE %(levelname)s] %(message)s")
@@ -28,6 +30,10 @@ class WSMNode:
         self.role = "UNKNOWN"
         self.running = True
         self.ok_received = False
+
+        # Server WSM (solo cuando soy líder)
+        self.wsm_server = None
+        self.wsm_server_started = False
 
     # ======================================================
     # INICIO DEL NODO
@@ -76,12 +82,25 @@ class WSMNode:
     # ME PROCLAMO LÍDER
     # ======================================================
     def become_leader(self):
+        # Si ya soy líder y el server está arrancado, no hago nada
+        if self.role == "LEADER" and self.wsm_server_started:
+            logging.info("👑 Ya era líder, ignore become_leader extra")
+            return
+
         self.leader_id = self.id
         self.role = "LEADER"
         logging.info("👑 Ahora soy el líder")
 
+        # 🔥 Arrancar el WSMServer solo en el líder
+        if not self.wsm_server_started:
+            logging.info("🚀 Iniciando WSMServer (líder activo)")
+            self.wsm_server = WSMServer()
+            threading.Thread(target=self.wsm_server.start, daemon=True).start()
+            self.wsm_server_started = True
+
         # Anunciar a todos
         self.broadcast({"type": "COORDINATOR", "leader_id": self.id})
+
 
     # ======================================================
     # LISTENER DE CONTROL
