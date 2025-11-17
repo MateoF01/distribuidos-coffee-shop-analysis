@@ -255,18 +255,29 @@ for store in client_by_store:
         all_valid = False
         continue
     
-    # Get the top 3 entries by quantity from kaggle
-    # This means: sort by qty desc, take top 3
-    top_3_kaggle = store_entries[:3]
-    top_3_birthdates = {bd for bd, qty in top_3_kaggle}
+    # Get the top 3 unique quantities (handles ties properly)
+    # If there are ties at any position (1st, 2nd, or 3rd), all tied entries are valid
+    # Examples:
+    #   [3,3,3,3,3] -> all 3s are valid for top-3 (5 candidates)
+    #   [3,3,2,1]   -> both 3s valid for 1st/2nd, one 2 for 3rd (3 candidates)
+    #   [5,4,3,2,1] -> exactly 3 candidates (5,4,3)
+    
+    # Get top 3 entries (or fewer if store has < 3 customers)
+    top_3_kaggle = store_entries[:3] if len(store_entries) >= 3 else store_entries
     top_3_quantities = [qty for bd, qty in top_3_kaggle]
     
-    # Get all entries that have the same quantity as the 3rd highest
-    # This handles ties: if multiple entries share the 3rd place quantity, any of them are valid
-    third_place_qty = top_3_quantities[2] if len(top_3_quantities) >= 3 else 0
+    # Find the minimum quantity among top-3 to determine valid candidates
+    # All entries with qty >= this minimum are valid candidates for top-3
+    if len(top_3_quantities) >= 3:
+        min_top3_qty = top_3_quantities[2]  # 3rd place quantity
+    elif len(top_3_quantities) > 0:
+        min_top3_qty = top_3_quantities[-1]  # Lowest available
+    else:
+        min_top3_qty = 0
     
-    # Get all valid birthdates: anything with quantity >= third_place_qty is valid for top 3
-    valid_birthdates = {bd for bd, qty in store_entries if qty >= third_place_qty}
+    # Get all valid birthdates: anything with quantity >= min_top3_qty is valid for top-3
+    # This automatically handles ties at 1st, 2nd, or 3rd place
+    valid_birthdates = {bd for bd, qty in store_entries if qty >= min_top3_qty}
     
     # Check if all client birthdates are valid (in the top-3 candidate pool)
     invalid_entries = []
@@ -277,7 +288,7 @@ for store in client_by_store:
             if client_qty is None:
                 invalid_entries.append(f"{birthdate} (not found in Kaggle)")
             else:
-                invalid_entries.append(f"{birthdate} (qty={client_qty}, minimum required={third_place_qty})")
+                invalid_entries.append(f"{birthdate} (qty={client_qty}, minimum required={min_top3_qty})")
     
     if invalid_entries:
         errors.append(f"   ❌ Store '{store}': Invalid birthdates not in top-3:")
@@ -290,7 +301,7 @@ for store in client_by_store:
         unique_qtys = sorted(set(top_3_quantities), reverse=True)
         num_candidates = len(valid_birthdates)
         if num_candidates > 3:
-            store_validations[store] = f"✅ Valid (3 of {num_candidates} candidates with qty >= {third_place_qty})"
+            store_validations[store] = f"✅ Valid (3 of {num_candidates} candidates with qty >= {min_top3_qty})"
         else:
             store_validations[store] = f"✅ Valid (all {num_candidates} top entries, quantities: {unique_qtys})"
 
