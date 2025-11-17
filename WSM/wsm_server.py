@@ -191,6 +191,7 @@ class WorkerStateManager:
         Devuelve True si la posición ya fue registrada como procesada
         por este tipo de worker en este request.
         """
+        print(f"RECIBO CONSULTA DE POSICION [WORKER TYPE]: {worker_type} [REQUEST_ID]: {request_id}, [POSITION]: {position}")
         with self.lock:
             key = (worker_type, request_id)
             pos_set = self.positions_by_requests.get(key, set())

@@ -35,6 +35,10 @@ class WSMNode:
         self.wsm_server = None
         self.wsm_server_started = False
 
+        self.leader_lock = threading.Lock()
+        self.leader_being_selected = False
+
+
     # ======================================================
     # INICIO DEL NODO
     # ======================================================
@@ -82,24 +86,36 @@ class WSMNode:
     # ME PROCLAMO LÍDER
     # ======================================================
     def become_leader(self):
-        # Si ya soy líder y el server está arrancado, no hago nada
-        if self.role == "LEADER" and self.wsm_server_started:
-            logging.info("👑 Ya era líder, ignore become_leader extra")
-            return
+        # Evitar carreras: solo un thread puede entrar
+        with self.leader_lock:
+            # Si ya había un líder definido o ya estábamos iniciando líder → salir
+            if self.role == "LEADER" and self.wsm_server_started:
+                logging.info("👑 Ya era líder, ignore become_leader extra")
+                return
 
-        self.leader_id = self.id
-        self.role = "LEADER"
-        logging.info("👑 Ahora soy el líder")
+            if self.leader_being_selected:
+                logging.info("⏳ Otro hilo ya está iniciando el líder, ignorando...")
+                return
 
-        # 🔥 Arrancar el WSMServer solo en el líder
-        if not self.wsm_server_started:
-            logging.info("🚀 Iniciando WSMServer (líder activo)")
-            self.wsm_server = WSMServer()
-            threading.Thread(target=self.wsm_server.start, daemon=True).start()
-            self.wsm_server_started = True
+            # Marcar que este hilo está iniciando el liderazgo
+            self.leader_being_selected = True
 
-        # Anunciar a todos
-        self.broadcast({"type": "COORDINATOR", "leader_id": self.id})
+            self.leader_id = self.id
+            self.role = "LEADER"
+            logging.info("👑 Ahora soy el líder")
+
+            if not self.wsm_server_started:
+                logging.info("🚀 Iniciando WSMServer (líder activo)")
+                self.wsm_server = WSMServer()
+                threading.Thread(target=self.wsm_server.start, daemon=True).start()
+                self.wsm_server_started = True
+
+            # Anunciar a otros nodos
+            self.broadcast({"type": "COORDINATOR", "leader_id": self.id})
+
+            # FINAL: liberar bandera
+            self.leader_being_selected = False
+
 
 
     # ======================================================
@@ -149,22 +165,24 @@ class WSMNode:
     # BULLY
     # ======================================================
     def start_election(self):
-        logging.info("🏳️ Iniciando elección Bully")
+        with self.leader_lock:  # evita que dos hilos entren a elecciones paralelas
+            logging.info("🏳️ Iniciando elección Bully")
 
-        self.ok_received = False
-        higher = [p for p in self.peers if p["id"] > self.id]
+            self.ok_received = False
+            higher = [p for p in self.peers if p["id"] > self.id]
 
-        # Enviar ELECTION a los de id mayor
-        for p in higher:
-            self.send_to(p["id"], {"type": "ELECTION", "from": self.id})
+            for p in higher:
+                self.send_to(p["id"], {"type": "ELECTION", "from": self.id})
 
-        # Esperar OK
+        # Esperar respuesta fuera del lock
         time.sleep(1)
-        if self.ok_received:
-            return  # hay alguien más grande vivo
 
-        # Si nadie contesta → soy el nuevo líder
+        if self.ok_received:
+            return
+
+        # Solo un hilo podrá entrar a become_leader
         self.become_leader()
+
 
     # ======================================================
     # HEARTBEAT SOLO PARA BACKUPS

@@ -4,48 +4,68 @@ import logging
 import time
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
-
-
 class WSMClient:
-    def __init__(self, worker_type, replica_id, host="wsm", port=9000, retry_interval=2):
+    def __init__(self, worker_type, replica_id, host="wsm", port=9000):
         self.worker_type = worker_type
         self.replica_id = replica_id
         self.host = host
         self.port = port
-        self.retry_interval = retry_interval
+        self.sock = None
+
+        self._connect_with_retry()
         self._register()
 
 
     # -------------------------------
-    # 🔌 Comunicación base
+    # 🔌 Conexión persistente
     # -------------------------------
-    def _send_message(self, message):
-        """
-        Envía un mensaje JSON al WSM y espera una respuesta.
-        Devuelve el campo 'response' como string (OK, WAIT, ERROR...).
-        """
-        for attempt in range(3):
+    def _connect_with_retry(self):
+        """Intenta conectar infinitamente hasta que haya un WSM válido."""
+        while True:
             try:
-                with socket.create_connection((self.host, self.port), timeout=5) as sock:
-                    sock.sendall(json.dumps(message).encode())
-                    data = sock.recv(4096)
-                    if not data:
-                        raise ConnectionError("Sin respuesta del WSM")
-                    response = json.loads(data.decode()).get("response")
-                    return response
-            except (ConnectionRefusedError, TimeoutError, OSError) as e:
-                logging.warning(f"[WSMClient] Intento {attempt+1}: Error comunicando con WSM ({e})")
-                time.sleep(self.retry_interval)
-        logging.error("[WSMClient] No se pudo comunicar con el WSM después de 3 intentos")
-        return "ERROR"
+                logging.info(f"[WSMClient] Conectando a WSM {self.host}:{self.port} ...")
+                self.sock = socket.create_connection((self.host, self.port), timeout=5)
+                logging.info("[WSMClient] Conectado.")
+                return
+            except Exception as e:
+                logging.warning(f"[WSMClient] No se pudo conectar ({e}), reintentando...")
+                time.sleep(1)
 
+
+    def _safe_send(self, msg):
+        """Envía mensaje asegurándose de reconectar si el WSM cae."""
+        payload = json.dumps(msg).encode()
+
+        while True:
+            try:
+                self.sock.sendall(payload)
+                data = self.sock.recv(4096)
+                if not data:
+                    raise ConnectionError("WSM cerró la conexión")
+                return json.loads(data.decode()).get("response")
+
+            except Exception as e:
+                logging.warning(f"[WSMClient] Conexión perdida ({e}), reconectando...")
+                # cerrar socket roto
+                try:
+                    self.sock.close()
+                except:
+                    pass
+
+                # reconectar infinite loop
+                self._connect_with_retry()
+
+
+    # -------------------------------
+    # 🔁 API de alto nivel
+    # -------------------------------
     def _register(self):
         msg = {
             "action": "register",
             "worker_type": self.worker_type,
             "replica_id": self.replica_id
         }
-        self._send_message(msg)
+        self._safe_send(msg)
 
     def update_state(self, state, request_id=None, position=None):
         msg = {
@@ -56,7 +76,7 @@ class WSMClient:
             "request_id": request_id,
             "position": position
         }
-        return self._send_message(msg)
+        return self._safe_send(msg)
 
     def can_send_end(self, request_id, position):
         msg = {
@@ -65,7 +85,7 @@ class WSMClient:
             "request_id": request_id,
             "position": position
         }
-        return self._send_message(msg) == "OK"
+        return self._safe_send(msg) == "OK"
 
     def can_send_last_end(self, request_id):
         msg = {
@@ -73,14 +93,13 @@ class WSMClient:
             "worker_type": self.worker_type,
             "request_id": request_id
         }
-        return self._send_message(msg) == "OK"
+        return self._safe_send(msg) == "OK"
 
     def is_position_processed(self, request_id, position):
-        print("ME CONSULTAN SOBRE LA POSICION")
         msg = {
             "action": "is_position_processed",
             "worker_type": self.worker_type,
             "request_id": request_id,
             "position": position
         }
-        return self._send_message(msg) == True
+        return self._safe_send(msg) == True
