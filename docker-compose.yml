@@ -41,7 +41,7 @@ services:
       GATEWAY_PORT: 5000
       QUEUE_IN: results
       REQUESTS_PER_CLIENT: 1
-      GATEWAY_MAX_PROCESSES: 1
+      GATEWAY_MAX_PROCESSES: 2
     networks:
     - coffee-net
   client:
@@ -67,7 +67,7 @@ services:
       SERVER_ADDRESS: gateway:5000
       BATCH_MAX_AMOUNT: 5000
       REQUESTS_PER_CLIENT: 1
-      INITIAL_CLIENT_COUNT: 1
+      INITIAL_CLIENT_COUNT: 2
     volumes:
     - ./data:/app/.data
     - ./client/results:/app/client/results
@@ -111,7 +111,9 @@ services:
     volumes:
     - ./output_wsm/worker_states_transactions:/app/output
     networks:
-    - coffee-net
+      coffee-net:
+        aliases:
+        - wsm_transactions
     container_name: wsm_transactions
   coordinator_cleaner_transactions:
     build:
@@ -170,7 +172,9 @@ services:
     volumes:
     - ./output_wsm/worker_states_transaction_items:/app/output
     networks:
-    - coffee-net
+      coffee-net:
+        aliases:
+        - wsm_transaction_items
     container_name: wsm_transaction_items
   coordinator_cleaner_transaction_items:
     build:
@@ -229,7 +233,9 @@ services:
     volumes:
     - ./output_wsm/worker_states_users:/app/output
     networks:
-    - coffee-net
+      coffee-net:
+        aliases:
+        - wsm_users
     container_name: wsm_users
   coordinator_cleaner_users:
     build:
@@ -288,7 +294,9 @@ services:
     volumes:
     - ./output_wsm/worker_states_stores:/app/output
     networks:
-    - coffee-net
+      coffee-net:
+        aliases:
+        - wsm_stores
     container_name: wsm_stores
   coordinator_cleaner_stores:
     build:
@@ -347,7 +355,9 @@ services:
     volumes:
     - ./output_wsm/worker_states_menu_items:/app/output
     networks:
-    - coffee-net
+      coffee-net:
+        aliases:
+        - wsm_menu_items
     container_name: wsm_menu_items
   coordinator_cleaner_menu_items:
     build:
@@ -406,7 +416,9 @@ services:
     volumes:
     - ./output_wsm/worker_states_transactions_q4:/app/output
     networks:
-    - coffee-net
+      coffee-net:
+        aliases:
+        - wsm_transactions_q4
     container_name: wsm_transactions_q4
   coordinator_cleaner_transactions_q4:
     build:
@@ -466,7 +478,9 @@ services:
     volumes:
     - ./output_wsm/worker_states_temporal_filter_transactions:/app/output
     networks:
-    - coffee-net
+      coffee-net:
+        aliases:
+        - wsm_temporal_filter_transactions
     container_name: wsm_temporal_filter_transactions
   coordinator_temporal_filter_transactions_q1:
     build:
@@ -564,7 +578,9 @@ services:
     volumes:
     - ./output_wsm/worker_states_temporal_filter_transaction_items:/app/output
     networks:
-    - coffee-net
+      coffee-net:
+        aliases:
+        - wsm_temporal_filter_transaction_items
     container_name: wsm_temporal_filter_transaction_items
   coordinator_temporal_filter_transaction_items:
     build:
@@ -625,7 +641,9 @@ services:
     volumes:
     - ./output_wsm/worker_states_amount_filter_transactions:/app/output
     networks:
-    - coffee-net
+      coffee-net:
+        aliases:
+        - wsm_amount_filter_transactions
     container_name: wsm_amount_filter_transactions
   coordinator_amount_filter_transactions:
     build:
@@ -686,7 +704,9 @@ services:
     volumes:
     - ./output_wsm/worker_states_grouper_q2:/app/output
     networks:
-    - coffee-net
+      coffee-net:
+        aliases:
+        - wsm_grouper_q2
     container_name: wsm_grouper_q2
   reducer_q2:
     build:
@@ -802,7 +822,9 @@ services:
     volumes:
     - ./output_wsm/worker_states_grouper_q3:/app/output
     networks:
-    - coffee-net
+      coffee-net:
+        aliases:
+        - wsm_grouper_q3
     container_name: wsm_grouper_q3
   reducer_q3:
     build:
@@ -918,7 +940,9 @@ services:
     volumes:
     - ./output_wsm/worker_states_grouper_q4:/app/output
     networks:
-    - coffee-net
+      coffee-net:
+        aliases:
+        - wsm_grouper_q4
     container_name: wsm_grouper_q4
   reducer_q4:
     build:
@@ -1035,7 +1059,9 @@ services:
     volumes:
     - ./output_wsm/worker_states_splitter_q1:/app/output
     networks:
-    - coffee-net
+      coffee-net:
+        aliases:
+        - wsm_splitter_q1
     container_name: wsm_splitter_q1
   sorter_q1_v2:
     build:
@@ -1128,7 +1154,9 @@ services:
     volumes:
     - ./output_wsm/joiner_states_q2:/app/output
     networks:
-    - coffee-net
+      coffee-net:
+        aliases:
+        - wsm_q2
     container_name: wsm_q2
   sender_q2_a:
     build:
@@ -1222,7 +1250,9 @@ services:
     volumes:
     - ./output_wsm/joiner_states_q3:/app/output
     networks:
-    - coffee-net
+      coffee-net:
+        aliases:
+        - wsm_q3
     container_name: wsm_q3
   sorter_q3:
     build:
@@ -1318,7 +1348,9 @@ services:
     volumes:
     - ./output_wsm/joiner_states_q4:/app/output
     networks:
-    - coffee-net
+      coffee-net:
+        aliases:
+        - wsm_q4
     container_name: wsm_q4
   sorter_q4:
     build:
@@ -1381,9 +1413,11 @@ services:
       WSM_NAME: wsm_transactions
       WSM_ID: 2
     volumes:
-    - ./output_wsm:/app/output
+    - ./output_wsm/worker_states_transactions:/app/output
     networks:
-    - coffee-net
+      coffee-net:
+        aliases:
+        - wsm_transactions
     container_name: wsm_transactions_2
     depends_on:
     - wsm_transactions
@@ -1400,9 +1434,11 @@ services:
       WSM_NAME: wsm_transactions
       WSM_ID: 3
     volumes:
-    - ./output_wsm:/app/output
+    - ./output_wsm/worker_states_transactions:/app/output
     networks:
-    - coffee-net
+      coffee-net:
+        aliases:
+        - wsm_transactions
     container_name: wsm_transactions_3
     depends_on:
     - wsm_transactions_2
@@ -1419,9 +1455,11 @@ services:
       WSM_NAME: wsm_transaction_items
       WSM_ID: 2
     volumes:
-    - ./output_wsm:/app/output
+    - ./output_wsm/worker_states_transaction_items:/app/output
     networks:
-    - coffee-net
+      coffee-net:
+        aliases:
+        - wsm_transaction_items
     container_name: wsm_transaction_items_2
     depends_on:
     - wsm_transaction_items
@@ -1438,9 +1476,11 @@ services:
       WSM_NAME: wsm_transaction_items
       WSM_ID: 3
     volumes:
-    - ./output_wsm:/app/output
+    - ./output_wsm/worker_states_transaction_items:/app/output
     networks:
-    - coffee-net
+      coffee-net:
+        aliases:
+        - wsm_transaction_items
     container_name: wsm_transaction_items_3
     depends_on:
     - wsm_transaction_items_2
@@ -1457,9 +1497,11 @@ services:
       WSM_NAME: wsm_users
       WSM_ID: 2
     volumes:
-    - ./output_wsm:/app/output
+    - ./output_wsm/worker_states_users:/app/output
     networks:
-    - coffee-net
+      coffee-net:
+        aliases:
+        - wsm_users
     container_name: wsm_users_2
     depends_on:
     - wsm_users
@@ -1476,9 +1518,11 @@ services:
       WSM_NAME: wsm_users
       WSM_ID: 3
     volumes:
-    - ./output_wsm:/app/output
+    - ./output_wsm/worker_states_users:/app/output
     networks:
-    - coffee-net
+      coffee-net:
+        aliases:
+        - wsm_users
     container_name: wsm_users_3
     depends_on:
     - wsm_users_2
@@ -1495,9 +1539,11 @@ services:
       WSM_NAME: wsm_stores
       WSM_ID: 2
     volumes:
-    - ./output_wsm:/app/output
+    - ./output_wsm/worker_states_stores:/app/output
     networks:
-    - coffee-net
+      coffee-net:
+        aliases:
+        - wsm_stores
     container_name: wsm_stores_2
     depends_on:
     - wsm_stores
@@ -1514,9 +1560,11 @@ services:
       WSM_NAME: wsm_stores
       WSM_ID: 3
     volumes:
-    - ./output_wsm:/app/output
+    - ./output_wsm/worker_states_stores:/app/output
     networks:
-    - coffee-net
+      coffee-net:
+        aliases:
+        - wsm_stores
     container_name: wsm_stores_3
     depends_on:
     - wsm_stores_2
@@ -1533,9 +1581,11 @@ services:
       WSM_NAME: wsm_menu_items
       WSM_ID: 2
     volumes:
-    - ./output_wsm:/app/output
+    - ./output_wsm/worker_states_menu_items:/app/output
     networks:
-    - coffee-net
+      coffee-net:
+        aliases:
+        - wsm_menu_items
     container_name: wsm_menu_items_2
     depends_on:
     - wsm_menu_items
@@ -1552,9 +1602,11 @@ services:
       WSM_NAME: wsm_menu_items
       WSM_ID: 3
     volumes:
-    - ./output_wsm:/app/output
+    - ./output_wsm/worker_states_menu_items:/app/output
     networks:
-    - coffee-net
+      coffee-net:
+        aliases:
+        - wsm_menu_items
     container_name: wsm_menu_items_3
     depends_on:
     - wsm_menu_items_2
@@ -1571,9 +1623,11 @@ services:
       WSM_NAME: wsm_transactions_q4
       WSM_ID: 2
     volumes:
-    - ./output_wsm:/app/output
+    - ./output_wsm/worker_states_transactions_q4:/app/output
     networks:
-    - coffee-net
+      coffee-net:
+        aliases:
+        - wsm_transactions_q4
     container_name: wsm_transactions_q4_2
     depends_on:
     - wsm_transactions_q4
@@ -1590,9 +1644,11 @@ services:
       WSM_NAME: wsm_transactions_q4
       WSM_ID: 3
     volumes:
-    - ./output_wsm:/app/output
+    - ./output_wsm/worker_states_transactions_q4:/app/output
     networks:
-    - coffee-net
+      coffee-net:
+        aliases:
+        - wsm_transactions_q4
     container_name: wsm_transactions_q4_3
     depends_on:
     - wsm_transactions_q4_2
@@ -1609,9 +1665,11 @@ services:
       WSM_NAME: wsm_temporal_filter_transactions
       WSM_ID: 2
     volumes:
-    - ./output_wsm:/app/output
+    - ./output_wsm/worker_states_temporal_filter_transactions:/app/output
     networks:
-    - coffee-net
+      coffee-net:
+        aliases:
+        - wsm_temporal_filter_transactions
     container_name: wsm_temporal_filter_transactions_2
     depends_on:
     - wsm_temporal_filter_transactions
@@ -1628,9 +1686,11 @@ services:
       WSM_NAME: wsm_temporal_filter_transactions
       WSM_ID: 3
     volumes:
-    - ./output_wsm:/app/output
+    - ./output_wsm/worker_states_temporal_filter_transactions:/app/output
     networks:
-    - coffee-net
+      coffee-net:
+        aliases:
+        - wsm_temporal_filter_transactions
     container_name: wsm_temporal_filter_transactions_3
     depends_on:
     - wsm_temporal_filter_transactions_2
@@ -1647,9 +1707,11 @@ services:
       WSM_NAME: wsm_temporal_filter_transaction_items
       WSM_ID: 2
     volumes:
-    - ./output_wsm:/app/output
+    - ./output_wsm/worker_states_temporal_filter_transaction_items:/app/output
     networks:
-    - coffee-net
+      coffee-net:
+        aliases:
+        - wsm_temporal_filter_transaction_items
     container_name: wsm_temporal_filter_transaction_items_2
     depends_on:
     - wsm_temporal_filter_transaction_items
@@ -1666,9 +1728,11 @@ services:
       WSM_NAME: wsm_temporal_filter_transaction_items
       WSM_ID: 3
     volumes:
-    - ./output_wsm:/app/output
+    - ./output_wsm/worker_states_temporal_filter_transaction_items:/app/output
     networks:
-    - coffee-net
+      coffee-net:
+        aliases:
+        - wsm_temporal_filter_transaction_items
     container_name: wsm_temporal_filter_transaction_items_3
     depends_on:
     - wsm_temporal_filter_transaction_items_2
@@ -1685,9 +1749,11 @@ services:
       WSM_NAME: wsm_amount_filter_transactions
       WSM_ID: 2
     volumes:
-    - ./output_wsm:/app/output
+    - ./output_wsm/worker_states_amount_filter_transactions:/app/output
     networks:
-    - coffee-net
+      coffee-net:
+        aliases:
+        - wsm_amount_filter_transactions
     container_name: wsm_amount_filter_transactions_2
     depends_on:
     - wsm_amount_filter_transactions
@@ -1704,9 +1770,11 @@ services:
       WSM_NAME: wsm_amount_filter_transactions
       WSM_ID: 3
     volumes:
-    - ./output_wsm:/app/output
+    - ./output_wsm/worker_states_amount_filter_transactions:/app/output
     networks:
-    - coffee-net
+      coffee-net:
+        aliases:
+        - wsm_amount_filter_transactions
     container_name: wsm_amount_filter_transactions_3
     depends_on:
     - wsm_amount_filter_transactions_2
@@ -1723,9 +1791,11 @@ services:
       WSM_NAME: wsm_grouper_q2
       WSM_ID: 2
     volumes:
-    - ./output_wsm:/app/output
+    - ./output_wsm/worker_states_grouper_q2:/app/output
     networks:
-    - coffee-net
+      coffee-net:
+        aliases:
+        - wsm_grouper_q2
     container_name: wsm_grouper_q2_2
     depends_on:
     - wsm_grouper_q2
@@ -1742,9 +1812,11 @@ services:
       WSM_NAME: wsm_grouper_q2
       WSM_ID: 3
     volumes:
-    - ./output_wsm:/app/output
+    - ./output_wsm/worker_states_grouper_q2:/app/output
     networks:
-    - coffee-net
+      coffee-net:
+        aliases:
+        - wsm_grouper_q2
     container_name: wsm_grouper_q2_3
     depends_on:
     - wsm_grouper_q2_2
@@ -1761,9 +1833,11 @@ services:
       WSM_NAME: wsm_grouper_q3
       WSM_ID: 2
     volumes:
-    - ./output_wsm:/app/output
+    - ./output_wsm/worker_states_grouper_q3:/app/output
     networks:
-    - coffee-net
+      coffee-net:
+        aliases:
+        - wsm_grouper_q3
     container_name: wsm_grouper_q3_2
     depends_on:
     - wsm_grouper_q3
@@ -1780,9 +1854,11 @@ services:
       WSM_NAME: wsm_grouper_q3
       WSM_ID: 3
     volumes:
-    - ./output_wsm:/app/output
+    - ./output_wsm/worker_states_grouper_q3:/app/output
     networks:
-    - coffee-net
+      coffee-net:
+        aliases:
+        - wsm_grouper_q3
     container_name: wsm_grouper_q3_3
     depends_on:
     - wsm_grouper_q3_2
@@ -1799,9 +1875,11 @@ services:
       WSM_NAME: wsm_grouper_q4
       WSM_ID: 2
     volumes:
-    - ./output_wsm:/app/output
+    - ./output_wsm/worker_states_grouper_q4:/app/output
     networks:
-    - coffee-net
+      coffee-net:
+        aliases:
+        - wsm_grouper_q4
     container_name: wsm_grouper_q4_2
     depends_on:
     - wsm_grouper_q4
@@ -1818,9 +1896,11 @@ services:
       WSM_NAME: wsm_grouper_q4
       WSM_ID: 3
     volumes:
-    - ./output_wsm:/app/output
+    - ./output_wsm/worker_states_grouper_q4:/app/output
     networks:
-    - coffee-net
+      coffee-net:
+        aliases:
+        - wsm_grouper_q4
     container_name: wsm_grouper_q4_3
     depends_on:
     - wsm_grouper_q4_2
@@ -1837,9 +1917,11 @@ services:
       WSM_NAME: wsm_splitter_q1
       WSM_ID: 2
     volumes:
-    - ./output_wsm:/app/output
+    - ./output_wsm/worker_states_splitter_q1:/app/output
     networks:
-    - coffee-net
+      coffee-net:
+        aliases:
+        - wsm_splitter_q1
     container_name: wsm_splitter_q1_2
     depends_on:
     - wsm_splitter_q1
@@ -1856,9 +1938,11 @@ services:
       WSM_NAME: wsm_splitter_q1
       WSM_ID: 3
     volumes:
-    - ./output_wsm:/app/output
+    - ./output_wsm/worker_states_splitter_q1:/app/output
     networks:
-    - coffee-net
+      coffee-net:
+        aliases:
+        - wsm_splitter_q1
     container_name: wsm_splitter_q1_3
     depends_on:
     - wsm_splitter_q1_2
@@ -1876,9 +1960,11 @@ services:
       USING_END_SYNC: 1
       WSM_ID: 2
     volumes:
-    - ./output_wsm:/app/output
+    - ./output_wsm/joiner_states_q2:/app/output
     networks:
-    - coffee-net
+      coffee-net:
+        aliases:
+        - wsm_q2
     container_name: wsm_q2_2
     depends_on:
     - wsm_q2
@@ -1896,9 +1982,11 @@ services:
       USING_END_SYNC: 1
       WSM_ID: 3
     volumes:
-    - ./output_wsm:/app/output
+    - ./output_wsm/joiner_states_q2:/app/output
     networks:
-    - coffee-net
+      coffee-net:
+        aliases:
+        - wsm_q2
     container_name: wsm_q2_3
     depends_on:
     - wsm_q2_2
@@ -1916,9 +2004,11 @@ services:
       USING_END_SYNC: 1
       WSM_ID: 2
     volumes:
-    - ./output_wsm:/app/output
+    - ./output_wsm/joiner_states_q3:/app/output
     networks:
-    - coffee-net
+      coffee-net:
+        aliases:
+        - wsm_q3
     container_name: wsm_q3_2
     depends_on:
     - wsm_q3
@@ -1936,9 +2026,11 @@ services:
       USING_END_SYNC: 1
       WSM_ID: 3
     volumes:
-    - ./output_wsm:/app/output
+    - ./output_wsm/joiner_states_q3:/app/output
     networks:
-    - coffee-net
+      coffee-net:
+        aliases:
+        - wsm_q3
     container_name: wsm_q3_3
     depends_on:
     - wsm_q3_2
@@ -1956,9 +2048,11 @@ services:
       USING_END_SYNC: 1
       WSM_ID: 2
     volumes:
-    - ./output_wsm:/app/output
+    - ./output_wsm/joiner_states_q4:/app/output
     networks:
-    - coffee-net
+      coffee-net:
+        aliases:
+        - wsm_q4
     container_name: wsm_q4_2
     depends_on:
     - wsm_q4
@@ -1976,9 +2070,11 @@ services:
       USING_END_SYNC: 1
       WSM_ID: 3
     volumes:
-    - ./output_wsm:/app/output
+    - ./output_wsm/joiner_states_q4:/app/output
     networks:
-    - coffee-net
+      coffee-net:
+        aliases:
+        - wsm_q4
     container_name: wsm_q4_3
     depends_on:
     - wsm_q4_2
