@@ -36,7 +36,6 @@ class WSMNode:
         self.wsm_server_started = False
 
         self.leader_lock = threading.Lock()
-        self.leader_being_selected = False
 
 
     # ======================================================
@@ -86,19 +85,12 @@ class WSMNode:
     # ME PROCLAMO LÍDER
     # ======================================================
     def become_leader(self):
-        # Evitar carreras: solo un thread puede entrar
+
         with self.leader_lock:
             # Si ya había un líder definido o ya estábamos iniciando líder → salir
             if self.role == "LEADER" and self.wsm_server_started:
                 logging.info("👑 Ya era líder, ignore become_leader extra")
                 return
-
-            if self.leader_being_selected:
-                logging.info("⏳ Otro hilo ya está iniciando el líder, ignorando...")
-                return
-
-            # Marcar que este hilo está iniciando el liderazgo
-            self.leader_being_selected = True
 
             self.leader_id = self.id
             self.role = "LEADER"
@@ -112,9 +104,6 @@ class WSMNode:
 
             # Anunciar a otros nodos
             self.broadcast({"type": "COORDINATOR", "leader_id": self.id})
-
-            # FINAL: liberar bandera
-            self.leader_being_selected = False
 
 
 
@@ -174,7 +163,12 @@ class WSMNode:
             for p in higher:
                 self.send_to(p["id"], {"type": "ELECTION", "from": self.id})
 
-        # Esperar respuesta fuera del lock
+        # Este sleep no es elegante y no me gusta, pero los tiempos apremian.
+        # Su razon de ser es representar un timeout. Un tiempo maximo de espera
+        # Por el mensaje de OK de los demas nodos. Si nadie me responde OK antes de 1 segundo 
+        # Es porque YO SOY EL LIDER
+        # Pero estoy esperando innecesariamente 1 segundo cada mensaje de OK, que podría
+        # haber llegado antes.  
         time.sleep(1)
 
         if self.ok_received:
