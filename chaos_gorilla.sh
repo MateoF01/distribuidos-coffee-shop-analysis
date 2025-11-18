@@ -21,7 +21,6 @@ while IFS=' ?= ' read -r VAR _ VALUE; do
   [ -z "$VAR" ] && continue
   [ -z "$VALUE" ] && continue
 
-  # limpiar nombre
   NAME=$(echo "$VAR" | sed -E 's/_REPLICAS$//' | tr '[:upper:]' '[:lower:]')
   COUNT=$(echo "$VALUE" | tr -d ' ')
 
@@ -29,6 +28,22 @@ while IFS=' ?= ' read -r VAR _ VALUE; do
     CONTAINERS+=("distribuidos-coffee-shop-analysis-${NAME}-${i}")
   done
 done <<< "$REPLICA_LINES"
+
+
+# -------------------------------------------------------
+# 🟦 AGREGAR LOS WSMs (detección automática por prefijo)
+# -------------------------------------------------------
+WSM_PREFIX="distribuidos-coffee-shop-analysis-wsm"
+
+WSM_CONTAINERS=$(docker ps --format '{{.Names}}' | grep "$WSM_PREFIX")
+
+if [ -n "$WSM_CONTAINERS" ]; then
+  while IFS= read -r WSM; do
+    CONTAINERS+=("$WSM")
+  done <<< "$WSM_CONTAINERS"
+fi
+# -------------------------------------------------------
+
 
 TOTAL=${#CONTAINERS[@]}
 if [ "$TOTAL" -eq 0 ]; then
@@ -52,6 +67,7 @@ done
 
 # Ejecutar el caos
 echo "💥 Chaos Gorilla: matando $KILL_COUNT de $TOTAL contenedores..."
+
 for CONTAINER in "${TO_KILL[@]}"; do
   echo "🧨 Eliminando $CONTAINER"
   if [ "$CHAOTIC" = true ]; then
