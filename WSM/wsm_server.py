@@ -180,11 +180,11 @@ class WorkerStateManager:
         terminaron de procesar el request dado.
         """
         with self.lock:
-            replicas = self.worker_states.get(worker_type, {})
-            for rid, info in replicas.items():
-                if info["state"] == "PROCESSING" and info["request_id"] == request_id:
-                    logging.debug(f"[WSM] {worker_type}:{rid} todavía procesando {request_id}")
-                    return False
+            # replicas = self.worker_states.get(worker_type, {})
+            # for rid, info in replicas.items():
+            #     if info["state"] == "PROCESSING" and info["request_id"] == request_id:
+            #         logging.debug(f"[WSM] {worker_type}:{rid} todavía procesando {request_id}")
+            #         return False
 
             pos_set = self._load_positions(worker_type, request_id)
             first_missing = self._find_first_missing_position(pos_set)

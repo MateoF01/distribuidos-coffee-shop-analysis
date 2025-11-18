@@ -136,21 +136,15 @@ class Joiner_v2(Worker):
         # Initialize request-specific paths if needed
         self._initialize_request_paths(request_id)
 
-
-
-
-
         # Bind request-specific paths
         outputs = self._outputs_by_request[request_id]
         temp_dir = self._temp_dir_by_request[request_id]
 
         wsm_client = self.dict_wsm_clients[queue_name]
 
-        #TODO: ANALIZAR SI ACA HACE FALTA ESTO:        
-        #VALIDO QUE LA POSICION HAYA SIDO PROCESADA ANTERIORMENTE, SI YA FUE PROCESADA LO DESCARTO EL MENSAJE
-        #if wsm_client.is_position_processed(request_id, position):
-        #    logging.info(f"🔁 Mensaje duplicado detectado ({request_id}:{position}), descartando...")
-        #    return
+        if wsm_client.is_position_processed(request_id, position):
+           logging.info(f"🔁 Mensaje duplicado detectado ({request_id}:{position}), descartando...")
+           return
 
         wsm_client.update_state("PROCESSING", request_id, position)
 
@@ -197,7 +191,7 @@ class Joiner_v2(Worker):
             #     logging.info(f"[Joiner:{self.query_type}] Waiting for lock on {file_path}...")
             #     time.sleep(1)
             # logging.info(f"[Joiner:{self.query_type}] Acquired lock on {file_path}")
-            self._save_to_temp_file(queue_name, processed_rows, file_path)
+            self._save_to_temp_file(queue_name, processed_rows, file_path, position)
 
             wsm_client.update_state("WAITING", request_id, position)
             #logging.info(f"[Joiner:{self.query_type}] Processed {len(processed_rows)} rows from {queue_name} (request_id={request_id}). Total rows received for this request: {self._rows_received_per_request[request_id]}")
@@ -222,6 +216,20 @@ class Joiner_v2(Worker):
         temp_dir = self._temp_dir_by_request[request_id]
 
         wsm_client = self.dict_wsm_clients[queue_name]
+
+        if wsm_client.is_position_processed(request_id, position):
+           logging.info(f"🔁 Mensaje END duplicado detectado ({request_id}:{position}), descartando...")
+           return
+
+        # 2️⃣ Check if output files already exist (join was already processed)
+        # This handles the case where joiner died after processing but before acknowledging
+        all_outputs_exist = all(os.path.exists(file_path) for _, file_path in outputs)
+        if all_outputs_exist:
+            logging.info(f"[Joiner:{self.query_type}] ✅ Output files already exist for request_id={request_id}, skipping join processing")
+            self._send_sort_request(request_id, outputs)
+            wsm_client.update_state("WAITING", request_id, position)
+            logging.info(f"[Joiner:{self.query_type}] Sent sort request and marked as WAITING for request_id={request_id}")
+            return
 
         # Exponential backoff for can_send_end
         backoff = self.backoff_start
@@ -293,33 +301,85 @@ class Joiner_v2(Worker):
     # Utils de CSV por salida
     # =====================
 
-    def _initialize_csv_idx(self, out_idx: int, request_id, outputs, custom_headers=None):
-        """Inicializa un archivo CSV (por índice de salida) con headers si aún no se hizo."""
-        file_path = outputs[out_idx][1]
+    def _atomic_write(self, target_file, write_func):
+        """
+        Atomically write to a file using a temporary file and rename.
+        
+        Args:
+            target_file: The final destination file path
+            write_func: A callable that takes a file path and writes to it
+        """
+        import tempfile
+        import shutil
+        
+        # Create temp file in the same directory as target for atomic rename
+        target_dir = os.path.dirname(target_file)
+        os.makedirs(target_dir, exist_ok=True)
+        
+        # Create temporary file with a unique name in the same directory
+        fd, temp_path = tempfile.mkstemp(dir=target_dir, prefix='.tmp_', suffix='.csv')
         try:
-            with open(file_path, 'w', newline='', encoding='utf-8') as csvfile:
-                writer = csv.writer(csvfile)
-                headers = custom_headers if custom_headers else self.columns_want
-                writer.writerow(headers)
-            self._csv_initialized_per_request[request_id][file_path] = True
-            logging.info(f"Initialized CSV file {file_path} (request_id={request_id}) with headers: {headers}")
+            os.close(fd)  # Close the file descriptor, we'll open it normally
+            
+            # Execute the write function on the temp file
+            write_func(temp_path)
+            
+            # Atomically rename temp file to target
+            os.rename(temp_path, target_file)
+            logging.debug(f"Atomically wrote to {target_file}")
         except Exception as e:
-            logging.error(f"Error initializing CSV file {file_path}: {e}")
+            # Clean up temp file on error
+            try:
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
+            except:
+                pass
+            raise e
 
     def _write_rows_to_csv_idx(self, out_idx: int, rows_data, request_id, outputs, custom_headers=None):
-        """Escribe rows SOLO en el archivo del índice dado (inicializa si hace falta)."""
+        """Escribe rows SOLO en el archivo del índice dado (inicializa si hace falta) usando escritura atómica."""
         file_path = outputs[out_idx][1]
 
         try:
+            file_exists = os.path.exists(file_path)
+            
+            # Skip if file already exists (join was already completed)
+            # This handles recovery after crash during END signal processing
+            if file_exists:
+                with self._lock:
+                    if not self._csv_initialized_per_request[request_id].get(file_path, False):
+                        # First time seeing this file in this run, but it already exists
+                        logging.info(f"[Joiner:{self.query_type}] ✓ Output file already exists, skipping write: {file_path}")
+                        self._csv_initialized_per_request[request_id][file_path] = True
+                        # Don't update row count as we didn't write anything
+                return
+            
+            # File doesn't exist, proceed with write
+            needs_header = False
             with self._lock:
                 if not self._csv_initialized_per_request[request_id].get(file_path, False):
-                    self._initialize_csv_idx(out_idx, request_id, outputs, custom_headers)
-            with open(file_path, 'a', newline='', encoding='utf-8') as csvfile:
-                writer = csv.writer(csvfile)
-                writer.writerows(rows_data)
+                    needs_header = True
+                    self._csv_initialized_per_request[request_id][file_path] = True
+            
+            # Define write function for atomic operation (file is new)
+            def write_func(path):
+                with open(path, 'w', newline='', encoding='utf-8') as csvfile:
+                    writer = csv.writer(csvfile)
+                    
+                    # Write header for new file
+                    if needs_header:
+                        headers = custom_headers if custom_headers else self.columns_want
+                        writer.writerow(headers)
+                    
+                    # Write rows
+                    writer.writerows(rows_data)
+            
+            # Perform atomic write
+            self._atomic_write(file_path, write_func)
+            
             with self._lock:
                 self._rows_written_per_request[request_id][file_path] += len(rows_data)
-                logging.info(f"[Joiner:{self.query_type}] Appended {len(rows_data)} rows to {file_path} (request_id={request_id}). Total: {self._rows_written_per_request[request_id][file_path]}")
+                logging.info(f"[Joiner:{self.query_type}] Atomically appended {len(rows_data)} rows to {file_path} (request_id={request_id}). Total: {self._rows_written_per_request[request_id][file_path]}")
         except Exception as e:
             logging.error(f"Error writing rows to CSV file {file_path}: {e}")
 
@@ -328,30 +388,61 @@ class Joiner_v2(Worker):
         for i in range(len(outputs)):
             self._write_rows_to_csv_idx(i, rows_data, request_id, outputs)
 
-    def _save_to_temp_file(self, queue_name, rows_data, temp_file):
-        """Guarda rows crudas por cola en CSV temporales para joins posteriores."""
-
+    def _save_to_temp_file(self, queue_name, rows_data, temp_file, position):
+        """Guarda rows crudas por cola en CSV temporales para joins posteriores usando escritura atómica optimizada.
+        
+        Args:
+            queue_name: Name of the queue (determines header)
+            rows_data: List of rows to append (without position)
+            temp_file: Path to temp file
+            position: Position number to add to each row for deduplication
+        """
+        import shutil
+        
         try:
             file_exists = os.path.exists(temp_file)
-            with open(temp_file, 'a', newline='', encoding='utf-8') as csvfile:
-                writer = csv.writer(csvfile)
-                if not file_exists:
-                    if queue_name == 'stores_cleaned_q4':
-                        writer.writerow(['store_id', 'store_name'])
-                    elif queue_name == 'users_cleaned':
-                        writer.writerow(['user_id', 'birthdate'])
-                    elif queue_name == 'resultados_groupby_q4':
-                        writer.writerow(['store_id', 'user_id', 'purchase_qty'])
-                    elif queue_name == 'menu_items_cleaned':
-                        writer.writerow(['item_id', 'item_name'])
-                    elif queue_name == 'resultados_groupby_q2':
-                        writer.writerow(['month_year', 'quantity_or_subtotal', 'item_id', 'quantity', 'subtotal'])
-                    elif queue_name == 'stores_cleaned_q3':
-                        writer.writerow(['store_id', 'store_name'])
-                    elif queue_name == 'resultados_groupby_q3':
-                        writer.writerow(['year_half_created_at', 'store_id', 'tpv'])
-                writer.writerows(rows_data)
-            logging.debug(f"Saved {len(rows_data)} rows to temp file: {temp_file}")
+            
+            # Add position as first column to each row
+            rows_with_position = [[position] + list(row) for row in rows_data]
+            
+            # Define write function for atomic operation
+            def write_func(path):
+                if file_exists:
+                    # Optimization: Copy existing file and append, instead of reading all rows
+                    # This is much faster for large files (O(1) copy + O(n_new) vs O(n_total))
+                    shutil.copy2(temp_file, path)
+                    
+                    # Append new rows to the copied file
+                    with open(path, 'a', newline='', encoding='utf-8') as csvfile:
+                        writer = csv.writer(csvfile)
+                        writer.writerows(rows_with_position)
+                else:
+                    # New file: write header and data
+                    with open(path, 'w', newline='', encoding='utf-8') as csvfile:
+                        writer = csv.writer(csvfile)
+                        
+                        # Write header based on queue name (position is always first column)
+                        if queue_name == 'stores_cleaned_q4':
+                            writer.writerow(['position', 'store_id', 'store_name'])
+                        elif queue_name == 'users_cleaned':
+                            writer.writerow(['position', 'user_id', 'birthdate'])
+                        elif queue_name == 'resultados_groupby_q4':
+                            writer.writerow(['position', 'store_id', 'user_id', 'purchase_qty'])
+                        elif queue_name == 'menu_items_cleaned':
+                            writer.writerow(['position', 'item_id', 'item_name'])
+                        elif queue_name == 'resultados_groupby_q2':
+                            writer.writerow(['position', 'month_year', 'quantity_or_subtotal', 'item_id', 'quantity', 'subtotal'])
+                        elif queue_name == 'stores_cleaned_q3':
+                            writer.writerow(['position', 'store_id', 'store_name'])
+                        elif queue_name == 'resultados_groupby_q3':
+                            writer.writerow(['position', 'year_half_created_at', 'store_id', 'tpv'])
+                        
+                        # Write new rows (with position already added)
+                        writer.writerows(rows_with_position)
+            
+            # Perform atomic write
+            self._atomic_write(temp_file, write_func)
+            logging.debug(f"Atomically saved {len(rows_data)} rows to temp file: {temp_file}")
         except Exception as e:
             logging.error(f"Error saving to temp file {temp_file}: {e}")
 
@@ -405,10 +496,11 @@ class Joiner_v2(Worker):
         for file in (Path(stores_path).rglob("*.csv")):
             if os.path.exists(file):
                 with open(file, 'r', encoding='utf-8') as f:
-                    reader = csv.reader(f); next(reader, None)
+                    reader = csv.reader(f); next(reader, None)  # Skip header
                     for row in reader:
-                        if len(row) >= 2:
-                            stores_lookup[row[0]] = row[1]
+                        # Row format: [position, store_id, store_name]
+                        if len(row) >= 3:
+                            stores_lookup[row[1]] = row[2]
         logging.debug(f"Loaded {len(stores_lookup)} store mappings")
 
         # Users
@@ -416,10 +508,11 @@ class Joiner_v2(Worker):
         for file in (Path(users_path).rglob("*.csv")):
             if os.path.exists(file):
                 with open(file, 'r', encoding='utf-8') as f:
-                    reader = csv.reader(f); next(reader, None)
+                    reader = csv.reader(f); next(reader, None)  # Skip header
                     for row in reader:
-                        if len(row) >= 2:
-                            users_lookup[row[0]] = row[1]
+                        # Row format: [position, user_id, birthdate]
+                        if len(row) >= 3:
+                            users_lookup[row[1]] = row[2]
         logging.debug(f"Loaded {len(users_lookup)} user mappings")
 
         # # Users
@@ -434,14 +527,32 @@ class Joiner_v2(Worker):
 
         # Main
         processed_rows = []
+        processed_positions = set()  # Track positions across files to avoid duplicates from different replicas
         main_path = os.path.join(temp_dir, 'resultados_groupby_q4/')
         for file in (Path(main_path).rglob("*.csv")):
             if os.path.exists(file):
+                # Get the first position in this file to check if file was already processed
+                file_position = None
                 with open(file, 'r', encoding='utf-8') as f:
-                    reader = csv.reader(f); next(reader, None)
+                    reader = csv.reader(f); next(reader, None)  # Skip header
+                    first_row = next(reader, None)
+                    if first_row and len(first_row) >= 4:
+                        file_position = first_row[0]
+                
+                # Skip entire file if its position was already processed
+                if file_position and file_position in processed_positions:
+                    continue
+                
+                # Process all rows in this file
+                if file_position:
+                    processed_positions.add(file_position)
+                
+                with open(file, 'r', encoding='utf-8') as f:
+                    reader = csv.reader(f); next(reader, None)  # Skip header
                     for row in reader:
-                        if len(row) >= 3:
-                            store_id, user_id, _purchase_qty = row[0], row[1], row[2]
+                        # Row format: [position, store_id, user_id, purchase_qty]
+                        if len(row) >= 4:
+                            store_id, user_id, _purchase_qty = row[1], row[2], row[3]
                             store_name = stores_lookup.get(store_id, store_id)
                             birthdate = users_lookup.get(user_id, user_id)
                             processed_rows.append([store_name, birthdate])
@@ -471,10 +582,11 @@ class Joiner_v2(Worker):
         for file in (Path(menu_path).rglob("*.csv")):
             if os.path.exists(file):
                 with open(file, 'r', encoding='utf-8') as f:
-                    reader = csv.reader(f); next(reader, None)
+                    reader = csv.reader(f); next(reader, None)  # Skip header
                     for row in reader:
-                        if len(row) >= 2:
-                            items_lookup[row[0]] = row[1]
+                        # Row format: [position, item_id, item_name]
+                        if len(row) >= 3:
+                            items_lookup[row[1]] = row[2]
         logging.info(f"Loaded {len(items_lookup)} item mappings")
 
         # menu_file = os.path.join(temp_dir, 'menu_items_cleaned.csv')
@@ -491,15 +603,32 @@ class Joiner_v2(Worker):
         rows_subtotal = []
         rows_all = []  # por si hay 1 output o fallback
 
+        processed_positions = set()  # Track positions across files to avoid duplicates from different replicas
         main_path = os.path.join(temp_dir, 'resultados_groupby_q2/')
         for file in (Path(main_path).rglob("*.csv")):
             if os.path.exists(file):
+                # Get the first position in this file to check if file was already processed
+                file_position = None
                 with open(file, 'r', encoding='utf-8') as f:
-                    reader = csv.reader(f); next(reader, None)
+                    reader = csv.reader(f); next(reader, None)  # Skip header
+                    first_row = next(reader, None)
+                    if first_row and len(first_row) >= 6:
+                        file_position = first_row[0]
+                
+                # Skip entire file if its position was already processed
+                if file_position and file_position in processed_positions:
+                    continue
+                
+                # Process all rows in this file
+                if file_position:
+                    processed_positions.add(file_position)
+                
+                with open(file, 'r', encoding='utf-8') as f:
+                    reader = csv.reader(f); next(reader, None)  # Skip header
                     for row in reader:
-                        # Esperado: month_year, quantity_or_subtotal('quantity'|'subtotal'), item_id, quantity, subtotal
-                        if len(row) >= 5:
-                            month_year, quantity_or_subtotal, item_id, quantity, subtotal = row[0], row[1], row[2], row[3], row[4]
+                        # Row format: [position, month_year, quantity_or_subtotal, item_id, quantity, subtotal]
+                        if len(row) >= 6:
+                            month_year, quantity_or_subtotal, item_id, quantity, subtotal = row[1], row[2], row[3], row[4], row[5]
                             item_name = items_lookup.get(item_id, item_id)
                             if quantity_or_subtotal == 'quantity':
                                 rows_quantity.append([month_year, item_name, quantity])
@@ -571,10 +700,11 @@ class Joiner_v2(Worker):
         for file in (Path(stores_path).rglob("*.csv")):
             if os.path.exists(file):
                 with open(file, 'r', encoding='utf-8') as f:
-                    reader = csv.reader(f); next(reader, None)
+                    reader = csv.reader(f); next(reader, None)  # Skip header
                     for row in reader:
-                        if len(row) >= 2:
-                            stores_lookup[row[0]] = row[1]  # store_id -> store_name
+                        # Row format: [position, store_id, store_name]
+                        if len(row) >= 3:
+                            stores_lookup[row[1]] = row[2]  # store_id -> store_name
         logging.info(f"Loaded {len(stores_lookup)} store mappings")
 
         # stores_file = os.path.join(temp_dir, 'stores_cleaned_q3.csv')
@@ -588,16 +718,33 @@ class Joiner_v2(Worker):
 
         # Main
         processed_rows = []
+        processed_positions = set()  # Track positions across files to avoid duplicates from different replicas
 
         main_path = os.path.join(temp_dir, 'resultados_groupby_q3/')
         for file in (Path(main_path).rglob("*.csv")):
             if os.path.exists(file):
+                # Get the first position in this file to check if file was already processed
+                file_position = None
                 with open(file, 'r', encoding='utf-8') as f:
-                    reader = csv.reader(f); next(reader, None)
+                    reader = csv.reader(f); next(reader, None)  # Skip header
+                    first_row = next(reader, None)
+                    if first_row and len(first_row) >= 4:
+                        file_position = first_row[0]
+                
+                # Skip entire file if its position was already processed
+                if file_position and file_position in processed_positions:
+                    continue
+                
+                # Process all rows in this file
+                if file_position:
+                    processed_positions.add(file_position)
+                
+                with open(file, 'r', encoding='utf-8') as f:
+                    reader = csv.reader(f); next(reader, None)  # Skip header
                     for row in reader:
-                        # Esperado: year_half_created_at, store_id, tpv
-                        if len(row) >= 3:
-                            year_half, store_id, tpv = row[0], row[1], row[2]
+                        # Row format: [position, year_half_created_at, store_id, tpv]
+                        if len(row) >= 4:
+                            year_half, store_id, tpv = row[1], row[2], row[3]
                             store_name = stores_lookup.get(store_id, store_id)
                             processed_rows.append([year_half, store_name, tpv])
 
