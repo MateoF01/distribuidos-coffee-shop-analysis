@@ -23,9 +23,7 @@ class WSMClient:
         """Intenta conectar infinitamente hasta que haya un WSM válido."""
         while True:
             try:
-                logging.info(f"[WSMClient] Conectando a WSM {self.host}:{self.port} ...")
                 self.sock = socket.create_connection((self.host, self.port), timeout=5)
-                logging.info("[WSMClient] Conectado.")
                 return
             except Exception as e:
                 logging.warning(f"[WSMClient] No se pudo conectar ({e}), reintentando...")
@@ -45,8 +43,7 @@ class WSMClient:
                 return json.loads(data.decode()).get("response")
 
             except Exception as e:
-                logging.warning(f"[WSMClient] Conexión perdida ({e}), reconectando...")
-                # cerrar socket roto
+                # cerrar socket
                 try:
                     self.sock.close()
                 except:
