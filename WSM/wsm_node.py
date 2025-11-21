@@ -18,7 +18,7 @@ class WSMNode:
         self.wsm_name = os.getenv("WSM_NAME")
         total = int(os.getenv("WSM_REPLICAS", "3"))
 
-        # Peers
+        # Peers (control plane)
         self.peers = []
         for i in range(1, total + 1):
             if i != self.id:
@@ -31,9 +31,8 @@ class WSMNode:
         self.running = True
         self.ok_received = False
 
-        # Server WSM (solo cuando soy líder)
+        # WSM Server para este nodo (lado data plane)
         self.wsm_server = None
-        self.wsm_server_started = False
 
         self.leader_lock = threading.Lock()
 
@@ -44,17 +43,26 @@ class WSMNode:
     def start(self):
         threading.Thread(target=self.control_listener, daemon=True).start()
 
-        # 1) Preguntar si ya hay líder
+        # Buscar si hay líder
         if self.try_find_leader():
             logging.info(f"📘 Ya hay líder: {self.leader_id}")
             self.role = "BACKUP"
         else:
-            # 2) Si nadie responde → soy el primer nodo → líder
             logging.info("👑 No existe líder → me proclamo líder")
-            self.become_leader()
+            self.become_leader(initial=True)
 
+        # Arrancar el WSMServer para este nodo
+        self.wsm_server = WSMServer(role=self.role)
+        threading.Thread(target=self.wsm_server.start, daemon=True).start()
+
+        logging.info(f"🚀 WSMServer iniciado como rol: {self.role}")
+
+        # Heartbeat en backup
         threading.Thread(target=self.heartbeat_loop, daemon=True).start()
+
+        # Bloquear thread principal
         threading.Event().wait()
+
 
     # ======================================================
     # DETECTAR LÍDER EXISTENTE
@@ -64,7 +72,7 @@ class WSMNode:
 
         for p in self.peers:
             try:
-                with socket.create_connection((p["host"], p["port"]), timeout=0.3) as s:
+                with socket.create_connection((p["host"], p["port"]), timeout=0.4) as s:
                     s.sendall(json.dumps(msg).encode())
                     data = s.recv(2048)
 
@@ -81,30 +89,28 @@ class WSMNode:
 
         return False
 
+
     # ======================================================
-    # ME PROCLAMO LÍDER
+    # PROCLAMARSE LÍDER
     # ======================================================
-    def become_leader(self):
+    def become_leader(self, initial=False):
 
         with self.leader_lock:
-            # Si ya había un líder definido o ya estábamos iniciando líder → salir
-            if self.role == "LEADER" and self.wsm_server_started:
-                logging.info("👑 Ya era líder, ignore become_leader extra")
+            # Evitar conflictos
+            if self.role == "LEADER":
                 return
 
             self.leader_id = self.id
             self.role = "LEADER"
             logging.info("👑 Ahora soy el líder")
 
-            if not self.wsm_server_started:
-                logging.info("🚀 Iniciando WSMServer (líder activo)")
-                self.wsm_server = WSMServer()
-                threading.Thread(target=self.wsm_server.start, daemon=True).start()
-                self.wsm_server_started = True
+            # Si ya existía server, actualizarle rol
+            if self.wsm_server:
+                self.wsm_server.role = "LEADER"
 
-            # Anunciar a otros nodos
-            self.broadcast({"type": "COORDINATOR", "leader_id": self.id})
-
+            # Solo anunciar si no es inicio del sistema
+            if not initial:
+                self.broadcast({"type": "COORDINATOR", "leader_id": self.id})
 
 
     # ======================================================
@@ -122,6 +128,7 @@ class WSMNode:
                 self.handle_msg(json.loads(data.decode()), conn)
             conn.close()
 
+
     def handle_msg(self, msg, conn):
         t = msg.get("type")
 
@@ -135,7 +142,8 @@ class WSMNode:
 
         if t == "ELECTION":
             sender = msg["from"]
-            # Respondo OK
+
+            # Responder OK
             self.send_to(sender, {"type": "OK", "from": self.id})
 
             # Si soy más grande → inicio elección
@@ -148,13 +156,16 @@ class WSMNode:
         if t == "COORDINATOR":
             self.leader_id = msg["leader_id"]
             self.role = "BACKUP"
+            if self.wsm_server:
+                self.wsm_server.role = "BACKUP"
             logging.info(f"📘 Nuevo líder: {self.leader_id}")
 
+
     # ======================================================
-    # BULLY
+    # ALGORITMO BULLY
     # ======================================================
     def start_election(self):
-        with self.leader_lock:  # evita que dos hilos entren a elecciones paralelas
+        with self.leader_lock:
             logging.info("🏳️ Iniciando elección Bully")
 
             self.ok_received = False
@@ -163,23 +174,15 @@ class WSMNode:
             for p in higher:
                 self.send_to(p["id"], {"type": "ELECTION", "from": self.id})
 
-        # Este sleep no es elegante y no me gusta, pero los tiempos apremian.
-        # Su razon de ser es representar un timeout. Un tiempo maximo de espera
-        # Por el mensaje de OK de los demas nodos. Si nadie me responde OK antes de 1 segundo 
-        # Es porque YO SOY EL LIDER
-        # Pero estoy esperando innecesariamente 1 segundo cada mensaje de OK, que podría
-        # haber llegado antes.  
+        # Timeout para recibir OK
         time.sleep(1)
 
-        if self.ok_received:
-            return
-
-        # Solo un hilo podrá entrar a become_leader
-        self.become_leader()
+        if not self.ok_received:
+            self.become_leader()
 
 
     # ======================================================
-    # HEARTBEAT SOLO PARA BACKUPS
+    # HEARTBEAT SOLO EN BACKUP
     # ======================================================
     def heartbeat_loop(self):
         while True:
@@ -188,8 +191,9 @@ class WSMNode:
             if self.role == "BACKUP" and self.leader_id:
                 alive = self.send_to(self.leader_id, {"type": "HEARTBEAT"})
                 if not alive:
-                    logging.info("⚠️ El líder no responde → elección")
+                    logging.info("⚠️ El líder no responde → iniciando elección")
                     self.start_election()
+
 
     # ======================================================
     # ENVÍOS

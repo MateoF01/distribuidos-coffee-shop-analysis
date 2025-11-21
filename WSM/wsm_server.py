@@ -237,9 +237,10 @@ class WorkerStateManager:
 # ⚡ Servidor TCP multicliente
 # -------------------------------
 class WSMServer:
-    def __init__(self, host=HOST, port=PORT):
+    def __init__(self, host=HOST, port=PORT, role="BACKUP"):
         self.host = host
         self.port = port
+        self.role = role 
         self.manager = WorkerStateManager()
         self.running = False
         self.server_socket = None
@@ -307,6 +308,8 @@ class WSMServer:
         elif action == "is_position_processed":
             processed = self.manager.is_position_processed(worker_type, msg.get("request_id"), msg.get("position"))
             return processed
+        elif action == "is_leader":
+            return "YES" if self.role == "LEADER" else "NO"
         else:
             return "ERROR: unknown action"
 
