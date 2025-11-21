@@ -263,65 +263,6 @@ class Worker(ABC):
     # Atomic Write Utility
     # =====================
     
-    @staticmethod
-    def atomic_write(target_file, write_func):
-        """
-        Atomically write to a file using a temporary file and rename.
-        
-        Este patrón asegura que:
-        1. El archivo se escribe completamente a un archivo temporal en el mismo directorio
-        2. Solo si la escritura es exitosa, se renombra al destino final
-        3. Si falla la escritura, el archivo temporal se limpia pero el destino no se corrompe
-        
-        Esto proporciona tolerancia a fallos: si el proceso falla durante la escritura,
-        el archivo final no queda en estado incompleto o corrupto.
-        
-        Args:
-            target_file: The final destination file path
-            write_func: A callable that takes a file path and writes to it.
-                       Should handle opening/closing the file itself.
-        
-        Raises:
-            Exception: Re-raises any exception from write_func after cleanup
-        
-        Example:
-            def write_my_data(path):
-                with open(path, 'w') as f:
-                    f.write("data")
-            
-            Worker.atomic_write('/path/to/file.csv', write_my_data)
-        """
-        # Crear archivo temporal en el mismo directorio que el destino
-        # para asegurar que pueden tener la misma operación de rename (atómica)
-        target_dir = os.path.dirname(target_file) or '.'
-        os.makedirs(target_dir, exist_ok=True)
-        
-        # Crear archivo temporal con nombre único
-        fd, temp_path = tempfile.mkstemp(dir=target_dir, prefix='.tmp_', suffix='.csv')
-        try:
-            # Cerrar el file descriptor, lo abriremos normalmente en write_func
-            os.close(fd)
-            
-            # Ejecutar la función de escritura en el archivo temporal
-            write_func(temp_path)
-            
-            # Renombrar atómicamente el archivo temporal al destino
-            # En POSIX, esto es una operación atómica (o falla por completo)
-            os.rename(temp_path, target_file)
-            
-            logging.debug(f"[atomic_write] Successfully wrote to {target_file}")
-            
-        except Exception as e:
-            # Limpiar archivo temporal en caso de error
-            try:
-                if os.path.exists(temp_path):
-                    os.remove(temp_path)
-            except Exception as cleanup_err:
-                logging.warning(f"[atomic_write] Failed to cleanup temp file {temp_path}: {cleanup_err}")
-            
-            logging.error(f"[atomic_write] Error writing to {target_file}: {e}")
-            raise e
-    
     @classmethod
     def setup_signal_handlers(cls, worker_instance):
         """Set up signal handlers for graceful shutdown."""
