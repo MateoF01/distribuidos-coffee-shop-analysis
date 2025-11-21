@@ -37,6 +37,9 @@ class Cleaner(StreamProcessingWorker):
     def _process_message(self, message, msg_type, data_type, request_id, position, payload, queue_name=None):
         """Procesa mensajes de datos (no END)."""
 
+        logging.info(f"INICIO procesado mensaje ({request_id}:{position})")
+
+
         #VALIDO QUE LA POSICION HAYA SIDO PROCESADA ANTERIORMENTE, SI LO DESCARTO EL MENSAJE
         if self.wsm_client.is_position_processed(request_id, position):
             logging.info(f"🔁 Mensaje duplicado detectado ({request_id}:{position}), descartando...")
@@ -54,6 +57,10 @@ class Cleaner(StreamProcessingWorker):
             new_msg = protocol.pack_message(msg_type, data_type, new_payload, request_id, position)
             for q in self.out_queues:
                 q.send(new_msg)
+
+        logging.info(f"FIN procesado mensaje ({request_id}:{position})")
+
+        #SI MUERE ACA!!!! TENEMOS PROBLEMAS
 
         # 2️⃣ Marcar fin de procesamiento
         self.wsm_client.update_state("WAITING", request_id, position)
