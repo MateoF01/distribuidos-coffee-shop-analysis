@@ -301,41 +301,6 @@ class Joiner_v2(Worker):
     # Utils de CSV por salida
     # =====================
 
-    def _atomic_write(self, target_file, write_func):
-        """
-        Atomically write to a file using a temporary file and rename.
-        
-        Args:
-            target_file: The final destination file path
-            write_func: A callable that takes a file path and writes to it
-        """
-        import tempfile
-        import shutil
-        
-        # Create temp file in the same directory as target for atomic rename
-        target_dir = os.path.dirname(target_file)
-        os.makedirs(target_dir, exist_ok=True)
-        
-        # Create temporary file with a unique name in the same directory
-        fd, temp_path = tempfile.mkstemp(dir=target_dir, prefix='.tmp_', suffix='.csv')
-        try:
-            os.close(fd)  # Close the file descriptor, we'll open it normally
-            
-            # Execute the write function on the temp file
-            write_func(temp_path)
-            
-            # Atomically rename temp file to target
-            os.rename(temp_path, target_file)
-            logging.debug(f"Atomically wrote to {target_file}")
-        except Exception as e:
-            # Clean up temp file on error
-            try:
-                if os.path.exists(temp_path):
-                    os.remove(temp_path)
-            except:
-                pass
-            raise e
-
     def _write_rows_to_csv_idx(self, out_idx: int, rows_data, request_id, outputs, custom_headers=None):
         """Escribe rows SOLO en el archivo del índice dado (inicializa si hace falta) usando escritura atómica."""
         file_path = outputs[out_idx][1]
@@ -375,7 +340,7 @@ class Joiner_v2(Worker):
                     writer.writerows(rows_data)
             
             # Perform atomic write
-            self._atomic_write(file_path, write_func)
+            Worker.atomic_write(file_path, write_func)
             
             with self._lock:
                 self._rows_written_per_request[request_id][file_path] += len(rows_data)
@@ -441,7 +406,7 @@ class Joiner_v2(Worker):
                         writer.writerows(rows_with_position)
             
             # Perform atomic write
-            self._atomic_write(temp_file, write_func)
+            Worker.atomic_write(temp_file, write_func)
             logging.debug(f"Atomically saved {len(rows_data)} rows to temp file: {temp_file}")
         except Exception as e:
             logging.error(f"Error saving to temp file {temp_file}: {e}")

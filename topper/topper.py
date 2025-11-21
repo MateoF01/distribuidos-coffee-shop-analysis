@@ -161,7 +161,7 @@ class Topper(Worker):
         return results
 
     def _write_output(self, all_rows, header=None, output_path=None):
-        """Escribe las filas al archivo de salida y manda signal si corresponde"""
+        """Escribe las filas al archivo de salida usando atomic_write y manda signal si corresponde"""
         if not all_rows:
             print("[Topper] No data to process")
             return
@@ -170,11 +170,16 @@ class Topper(Worker):
         output_dir = os.path.dirname(output_file)
         os.makedirs(output_dir, exist_ok=True)
 
-        with open(output_file, 'w', newline='', encoding='utf-8') as f:
-            csv_writer = csv.writer(f)
-            if header:
-                csv_writer.writerow(header)
-            csv_writer.writerows(all_rows)
+        # Define write function for atomic operation
+        def write_func(temp_path):
+            with open(temp_path, 'w', newline='', encoding='utf-8') as f:
+                csv_writer = csv.writer(f)
+                if header:
+                    csv_writer.writerow(header)
+                csv_writer.writerows(all_rows)
+        
+        # Use atomic_write to guarantee safe write
+        Worker.atomic_write(output_file, write_func)
 
         print(f"[Topper] Successfully created output file: {output_file}")
         print(f"[Topper] Total rows in output: {len(all_rows)}")

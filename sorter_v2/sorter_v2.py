@@ -57,23 +57,27 @@ class SorterV2(SignalProcessingWorker):
             except Exception as e:
                 logging.error(f"[SorterV2] Error abriendo {path}: {e}")
 
-        # Merge sort
-        with open(output_path, "w", newline="", encoding="utf-8") as out:
-            writer = csv.writer(out)
-            
-            writer.writerow(['transaction_id', 'final_amount'])
+        # Define write function for atomic operation
+        def merge_write_func(temp_path):
+            with open(temp_path, "w", newline="", encoding="utf-8") as out:
+                writer = csv.writer(out)
+                
+                writer.writerow(['transaction_id', 'final_amount'])
 
-            while heap:
-                key, idx, row, reader = heapq.heappop(heap)
-                writer.writerow(row)
-                try:
-                    nxt = next(reader)
-                    nxt_key = tuple(nxt[c] for c in self.sort_columns)
-                    heapq.heappush(heap, (nxt_key, idx, nxt, reader))
-                except StopIteration:
-                    file_handles[idx].close()
-                except Exception as e:
-                    logging.error(f"[SorterV2] Error leyendo {chunk_files[idx]}: {e}")
+                while heap:
+                    key, idx, row, reader = heapq.heappop(heap)
+                    writer.writerow(row)
+                    try:
+                        nxt = next(reader)
+                        nxt_key = tuple(nxt[c] for c in self.sort_columns)
+                        heapq.heappush(heap, (nxt_key, idx, nxt, reader))
+                    except StopIteration:
+                        file_handles[idx].close()
+                    except Exception as e:
+                        logging.error(f"[SorterV2] Error leyendo {chunk_files[idx]}: {e}")
+
+        # Use atomic_write to guarantee safe write
+        SignalProcessingWorker.atomic_write(output_path, merge_write_func)
 
         for f in file_handles:
             if not f.closed:
