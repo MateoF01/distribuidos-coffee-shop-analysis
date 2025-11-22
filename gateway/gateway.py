@@ -6,14 +6,18 @@ import multiprocessing
 from multiprocessing import Value, Manager
 from middleware.coffeeMiddleware import CoffeeMessageMiddlewareQueue, CoffeeMessageMiddlewareExchange
 import os
+import glob
+import tempfile
 from shared import protocol
 import logging
 from shared.logging_config import initialize_log
+from shared.worker import Worker
 
 
 HOST = os.environ.get('GATEWAY_HOST', '0.0.0.0')
 PORT = int(os.environ.get('GATEWAY_PORT', 5000))
 RESULTS_QUEUE = os.environ.get('QUEUE_IN', 'results')
+OUTPUT_GATEWAY_DIR = os.environ.get('GATEWAY_OUTPUT_DIR', 'output_gateway')
 
 
 data_type_names = {
@@ -53,6 +57,77 @@ class Server:
             self.next_request_id = shared_request_id
         else:
             self.next_request_id = Value('i', 1)
+
+    def _ensure_output_dir(self):
+        """Ensure output_gateway directory exists"""
+        os.makedirs(OUTPUT_GATEWAY_DIR, exist_ok=True)
+
+    def _save_active_request(self, request_id):
+        """
+        Save request_id to disk as .active file for recovery
+        Uses atomic write to ensure file is either fully written or not at all
+        """
+        self._ensure_output_dir()
+        active_file = os.path.join(OUTPUT_GATEWAY_DIR, f"request_{request_id}.active")
+        
+        def write_func(temp_path):
+            with open(temp_path, 'w') as f:
+                f.write(str(request_id))
+        
+        try:
+            Worker.atomic_write(active_file, write_func)
+            logging.info(f"[GATEWAY PERSISTENCE] Created active request: request_id={request_id}")
+        except Exception as e:
+            logging.warning(f"[GATEWAY PERSISTENCE] Failed to save active request {request_id}: {e}")
+
+    def _cleanup_active_request(self, request_id):
+        """
+        Remove .active file when request completes successfully
+        """
+        active_file = os.path.join(OUTPUT_GATEWAY_DIR, f"request_{request_id}.active")
+        try:
+            if os.path.exists(active_file):
+                os.remove(active_file)
+                logging.info(f"[GATEWAY PERSISTENCE] Deleted active request: request_id={request_id}")
+        except Exception as e:
+            logging.warning(f"[GATEWAY PERSISTENCE] Failed to cleanup active request {request_id}: {e}")
+
+    def _recover_abandoned_requests(self, queues):
+        """
+        On startup, scan for abandoned .active files and send END signals
+        to all queues for each orphaned request_id
+        """
+        self._ensure_output_dir()
+        active_files = glob.glob(os.path.join(OUTPUT_GATEWAY_DIR, "request_*.active"))
+        
+        if not active_files:
+            logging.info("[GATEWAY RECOVERY] No abandoned requests found on startup")
+            return
+        
+        logging.warning(f"[GATEWAY RECOVERY] Found {len(active_files)} abandoned request(s), sending cancellation signals...")
+        
+        for active_file in active_files:
+            try:
+                with open(active_file, 'r') as f:
+                    request_id_str = f.read().strip()
+                    request_id = int(request_id_str)
+                
+                # Send END signal to all data queues for this request
+                for queue_name in queue_names.values():
+                    try:
+                        message = protocol.create_end_message(protocol.DATA_END, request_id, 1)
+                        queues[queue_name].send(message)
+                    except Exception as e:
+                        logging.error(f"[GATEWAY RECOVERY] Failed to send END to {queue_name} for request_id={request_id}: {e}")
+                
+                # Clean up the .active file after recovery
+                try:
+                    os.remove(active_file)
+                except Exception as e:
+                    logging.warning(f"[GATEWAY RECOVERY] Failed to remove .active file {active_file}: {e}")
+                    
+            except Exception as e:
+                logging.error(f"[GATEWAY RECOVERY] Error processing active file {active_file}: {e}")
 
     def _setup_rabbitmq(self):
         rabbitmq_host = os.environ.get('RABBITMQ_HOST', 'rabbitmq')
@@ -188,6 +263,9 @@ class Server:
                         if request_id in data_end_counts:
                             del data_end_counts[request_id]
                         
+                        # Clean up the .active file now that request is complete
+                        self._cleanup_active_request(request_id)
+                        
                         # Log cleanup
                         elapsed = time.time() - message_log[request_id]['first_seen']
                         logging.info(f"[GATEWAY ROUTER] Request completed: request_id={request_id}, elapsed_seconds={elapsed:.2f}")
@@ -217,6 +295,9 @@ class Server:
     def run(self):
         logging.info(f'Server listening on {self.host}:{self.port}')
         self._setup_rabbitmq()
+        
+        # Recover any abandoned requests from previous run BEFORE starting result router
+        self._recover_abandoned_requests(self.queues)
         
         # Start the result router thread FIRST (only consumer of results_queue)
         router_thread = threading.Thread(target=self._result_router, daemon=True)
@@ -265,6 +346,7 @@ class Server:
             data_end_received = set()
             current_request_id = self._get_next_request_id()
             self.requests[current_request_id] = conn
+            self._save_active_request(current_request_id)
             logging.info(f"Client {addr} new request_id: {current_request_id}")
 
             while True:
@@ -277,6 +359,7 @@ class Server:
                     # New request detected
                     current_request_id = self._get_next_request_id()
                     self.requests[current_request_id] = conn
+                    self._save_active_request(current_request_id)
                     data_end_received.clear()
                     logging.info(f"Client {addr} new request_id: {current_request_id} (new batch detected)")
 
