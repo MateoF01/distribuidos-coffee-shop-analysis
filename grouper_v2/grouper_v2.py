@@ -9,6 +9,7 @@ from datetime import datetime
 from shared import protocol
 from shared.worker import StreamProcessingWorker
 from WSM.wsm_client import WSMClient
+from wsm_config import WSM_NODES
 
 
 def get_month_str(dt_str):
@@ -26,7 +27,7 @@ def get_semester_str(dt_str):
 class GrouperV2(StreamProcessingWorker):
     """Agrupa transacciones por usuario o tienda y acumula totales."""
 
-    def __init__(self, queue_in, queue_out, rabbitmq_host, grouper_mode, replica_id, backoff_start=0.1, backoff_max=3.0):
+    def __init__(self, queue_in, queue_out, rabbitmq_host, grouper_mode, replica_id, backoff_start=0.1, backoff_max=3.0, wsm_nodes = None):
         super().__init__(queue_in, queue_out, rabbitmq_host)
         self.grouper_mode = grouper_mode
         self.replica_id = replica_id
@@ -44,7 +45,8 @@ class GrouperV2(StreamProcessingWorker):
             worker_type="grouper",
             replica_id=replica_id,
             host=wsm_host,
-            port=wsm_port
+            port=wsm_port,
+            nodes=wsm_nodes
         )
 
         logging.info(f"[GrouperV2:{self.grouper_mode}:{replica_id}] Inicializado - input: {queue_in}, output: {queue_out}")
@@ -258,7 +260,10 @@ if __name__ == '__main__':
         backoff_start = float(config['DEFAULT'].get('BACKOFF_START', 0.1))
         backoff_max = float(config['DEFAULT'].get('BACKOFF_MAX', 3.0))
         
-        return GrouperV2(queue_in, queue_out, rabbitmq_host, mode, replica_id, backoff_start, backoff_max)
+        wsm_nodes = WSM_NODES[mode]
+        print("WSM NODES: ", wsm_nodes)
+
+        return GrouperV2(queue_in, queue_out, rabbitmq_host, mode, replica_id, backoff_start, backoff_max, wsm_nodes)
 
     config_path = os.path.join(os.path.dirname(__file__), 'config.ini')
     GrouperV2.run_worker_main(create_grouperv2, config_path)

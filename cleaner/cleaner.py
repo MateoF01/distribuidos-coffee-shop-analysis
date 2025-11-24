@@ -174,7 +174,6 @@ if __name__ == '__main__':
         wsm_nodes = WSM_NODES[data_type]
         print("WSM NODES: ", wsm_nodes)
 
-
         return Cleaner(queue_in, queue_out, columns_have, columns_want, rabbitmq_host, keep_when_empty, backoff_start, backoff_max, wsm_nodes)
 
     config_path = os.path.join(os.path.dirname(__file__), 'config.ini')
