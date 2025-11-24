@@ -60,12 +60,12 @@ class Cleaner(StreamProcessingWorker):
             for q in self.out_queues:
                 q.send(new_msg)
 
-        logging.info(f"FIN procesado mensaje ({request_id}:{position})")
 
         #SI MUERE ACA!!!! TENEMOS PROBLEMAS
 
         # 2️⃣ Marcar fin de procesamiento
         self.wsm_client.update_state("WAITING", request_id, position)
+        logging.info(f"FIN procesado mensaje ({request_id}:{position})")
 
     # ------------------------------------------------------------
     # 🧩 Lógica de END sincronizado (sobrescribe el padre)

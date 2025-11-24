@@ -270,29 +270,37 @@ class WSMServer:
 
     def handle_client(self, conn, addr):
         try:
-            data = conn.recv(4096)
-            if not data:
-                return
+            while True:
+                data = conn.recv(4096)
 
-            try:
-                msg = json.loads(data.decode())
-            except json.JSONDecodeError:
-                conn.sendall(b'{"response": "ERROR: invalid JSON"}')
-                return
+                if not data:
+                    # El cliente cerró la conexión
+                    logging.info(f"[WSM] Cliente {addr} cerró la conexión")
+                    return
 
-            action = msg.get("action")
-            response = self._handle_action(action, msg)
-            conn.sendall(json.dumps({"response": response}).encode())
+                try:
+                    msg = json.loads(data.decode())
+                except json.JSONDecodeError:
+                    conn.sendall(b'{"response": "ERROR: invalid JSON"}')
+                    continue
+
+                action = msg.get("action")
+                response = self._handle_action(action, msg)
+                conn.sendall(json.dumps({"response": response}).encode())
 
         except Exception as e:
             logging.error(f"[WSM] Error con cliente {addr}: {e}")
+
         finally:
             conn.close()
+
 
     def _handle_action(self, action, msg):
         worker_type = msg.get("worker_type")
         replica_id = msg.get("replica_id")
 
+        if action != "is_leader" and self.role != "LEADER":
+            return "NOT_LEADER"
         if action == "register":
             self.manager.register_worker(worker_type, replica_id)
             return "OK"
