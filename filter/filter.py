@@ -11,10 +11,12 @@ from shared.logging_config import initialize_log
 from shared.worker import StreamProcessingWorker
 from shared import protocol
 from WSM.wsm_client import WSMClient
+from wsm_config import WSM_NODES
+
 
 
 class Filter(StreamProcessingWorker):
-    def __init__(self, queue_in, queue_out, rabbitmq_host, backoff_start=0.1, backoff_max=3.0):
+    def __init__(self, queue_in, queue_out, rabbitmq_host, backoff_start=0.1, backoff_max=3.0, wsm_nodes = None):
         super().__init__(queue_in, queue_out, rabbitmq_host)
         self.backoff_start = backoff_start
         self.backoff_max = backoff_max
@@ -28,7 +30,8 @@ class Filter(StreamProcessingWorker):
             worker_type="filter",
             replica_id=self.replica_id,
             host=wsm_host,
-            port=wsm_port
+            port=wsm_port,
+            nodes=wsm_nodes,
         )
 
         logging.info(f"[Filter:{self.replica_id}] Inicializado - input: {queue_in}, output: {queue_out}")
@@ -127,8 +130,8 @@ class Filter(StreamProcessingWorker):
 # ====================
 
 class TemporalFilter(Filter):
-    def __init__(self, queue_in, queue_out, rabbitmq_host, data_type, col_index, config, backoff_start=0.1, backoff_max=3.0):
-        super().__init__(queue_in, queue_out, rabbitmq_host, backoff_start, backoff_max)
+    def __init__(self, queue_in, queue_out, rabbitmq_host, data_type, col_index, config, backoff_start=0.1, backoff_max=3.0, wsm_nodes = None):
+        super().__init__(queue_in, queue_out, rabbitmq_host, backoff_start, backoff_max, wsm_nodes)
         self.data_type = data_type
         self.col_index = col_index
         self.rules = []
@@ -176,8 +179,8 @@ class TemporalFilter(Filter):
 
 
 class AmountFilter(Filter):
-    def __init__(self, queue_in, queue_out, rabbitmq_host, min_amount, col_index, backoff_start=0.1, backoff_max=3.0):
-        super().__init__(queue_in, queue_out, rabbitmq_host, backoff_start, backoff_max)
+    def __init__(self, queue_in, queue_out, rabbitmq_host, min_amount, col_index, backoff_start=0.1, backoff_max=3.0, wsm_nodes = None):
+        super().__init__(queue_in, queue_out, rabbitmq_host, backoff_start, backoff_max, wsm_nodes)
         self.min_amount = float(min_amount)
         self.col_index = col_index
 
@@ -222,15 +225,19 @@ if __name__ == '__main__':
         backoff_start = float(config['DEFAULT'].get('BACKOFF_START', 0.1))
         backoff_max = float(config['DEFAULT'].get('BACKOFF_MAX', 3.0))
 
+        key = filter_type + '_' + data_type
+        wsm_nodes = WSM_NODES[key]
+        print("WSM NODES: ", wsm_nodes)
+
         if filter_type == 'temporal':
             temporal_config_path = os.path.join(os.path.dirname(__file__), 'temporal_filter_config.ini')
             temporal_config = configparser.ConfigParser()
             temporal_config.read(temporal_config_path)
-            return TemporalFilter(queue_in, queue_out, rabbitmq_host, data_type, col_index, temporal_config, backoff_start, backoff_max)
+            return TemporalFilter(queue_in, queue_out, rabbitmq_host, data_type, col_index, temporal_config, backoff_start, backoff_max, wsm_nodes)
 
         elif filter_type == 'amount':
             min_amount = os.environ.get('MIN_AMOUNT')
-            return AmountFilter(queue_in, queue_out, rabbitmq_host, min_amount, col_index, backoff_start, backoff_max)
+            return AmountFilter(queue_in, queue_out, rabbitmq_host, min_amount, col_index, backoff_start, backoff_max, wsm_nodes)
 
         else:
             raise ValueError(f"Unknown FILTER_TYPE: {filter_type}")

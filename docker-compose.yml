@@ -41,7 +41,7 @@ services:
       GATEWAY_PORT: 5000
       QUEUE_IN: results
       REQUESTS_PER_CLIENT: 1
-      GATEWAY_MAX_PROCESSES: 2
+      GATEWAY_MAX_PROCESSES: 1
     networks:
     - coffee-net
   client:
@@ -67,7 +67,7 @@ services:
       SERVER_ADDRESS: gateway:5000
       BATCH_MAX_AMOUNT: 5000
       REQUESTS_PER_CLIENT: 1
-      INITIAL_CLIENT_COUNT: 2
+      INITIAL_CLIENT_COUNT: 1
     volumes:
     - ./data:/app/.data
     - ./client/results:/app/client/results
@@ -104,16 +104,14 @@ services:
       PYTHONUNBUFFERED: 1
       STATE_FILE_PATH: /app/output/worker_states_transactions.json
       HOST: 0.0.0.0
-      PORT: 9000
+      PORT: 9501
       WSM_CONTROL_BASE_PORT: 9100
       WSM_NAME: wsm_transactions
       WSM_ID: 1
     volumes:
     - ./output_wsm/worker_states_transactions:/app/output
     networks:
-      coffee-net:
-        aliases:
-        - wsm_transactions
+    - coffee-net
     container_name: wsm_transactions
   coordinator_cleaner_transactions:
     build:
@@ -165,16 +163,14 @@ services:
       PYTHONUNBUFFERED: 1
       STATE_FILE_PATH: /app/output/worker_states_transaction_items.json
       HOST: 0.0.0.0
-      PORT: 9001
+      PORT: 9511
       WSM_CONTROL_BASE_PORT: 9110
       WSM_NAME: wsm_transaction_items
       WSM_ID: 1
     volumes:
     - ./output_wsm/worker_states_transaction_items:/app/output
     networks:
-      coffee-net:
-        aliases:
-        - wsm_transaction_items
+    - coffee-net
     container_name: wsm_transaction_items
   coordinator_cleaner_transaction_items:
     build:
@@ -226,16 +222,14 @@ services:
       PYTHONUNBUFFERED: 1
       STATE_FILE_PATH: /app/output/worker_states_users.json
       HOST: 0.0.0.0
-      PORT: 9002
+      PORT: 9521
       WSM_CONTROL_BASE_PORT: 9120
       WSM_NAME: wsm_users
       WSM_ID: 1
     volumes:
     - ./output_wsm/worker_states_users:/app/output
     networks:
-      coffee-net:
-        aliases:
-        - wsm_users
+    - coffee-net
     container_name: wsm_users
   coordinator_cleaner_users:
     build:
@@ -287,16 +281,14 @@ services:
       PYTHONUNBUFFERED: 1
       STATE_FILE_PATH: /app/output/worker_states_stores.json
       HOST: 0.0.0.0
-      PORT: 9003
+      PORT: 9531
       WSM_CONTROL_BASE_PORT: 9130
       WSM_NAME: wsm_stores
       WSM_ID: 1
     volumes:
     - ./output_wsm/worker_states_stores:/app/output
     networks:
-      coffee-net:
-        aliases:
-        - wsm_stores
+    - coffee-net
     container_name: wsm_stores
   coordinator_cleaner_stores:
     build:
@@ -348,16 +340,14 @@ services:
       PYTHONUNBUFFERED: 1
       STATE_FILE_PATH: /app/output/worker_states_menu_items.json
       HOST: 0.0.0.0
-      PORT: 9004
+      PORT: 9541
       WSM_CONTROL_BASE_PORT: 9140
       WSM_NAME: wsm_menu_items
       WSM_ID: 1
     volumes:
     - ./output_wsm/worker_states_menu_items:/app/output
     networks:
-      coffee-net:
-        aliases:
-        - wsm_menu_items
+    - coffee-net
     container_name: wsm_menu_items
   coordinator_cleaner_menu_items:
     build:
@@ -409,16 +399,14 @@ services:
       PYTHONUNBUFFERED: 1
       STATE_FILE_PATH: /app/output/worker_states_transactions_q4.json
       HOST: 0.0.0.0
-      PORT: 9005
+      PORT: 9551
       WSM_CONTROL_BASE_PORT: 9150
       WSM_NAME: wsm_transactions_q4
       WSM_ID: 1
     volumes:
     - ./output_wsm/worker_states_transactions_q4:/app/output
     networks:
-      coffee-net:
-        aliases:
-        - wsm_transactions_q4
+    - coffee-net
     container_name: wsm_transactions_q4
   coordinator_cleaner_transactions_q4:
     build:
@@ -471,16 +459,14 @@ services:
       PYTHONUNBUFFERED: 1
       STATE_FILE_PATH: /app/output/worker_states_temporal_filter_transactions.json
       HOST: 0.0.0.0
-      PORT: 9009
+      PORT: 9561
       WSM_CONTROL_BASE_PORT: 9160
       WSM_NAME: wsm_temporal_filter_transactions
       WSM_ID: 1
     volumes:
     - ./output_wsm/worker_states_temporal_filter_transactions:/app/output
     networks:
-      coffee-net:
-        aliases:
-        - wsm_temporal_filter_transactions
+    - coffee-net
     container_name: wsm_temporal_filter_transactions
   coordinator_temporal_filter_transactions_q1:
     build:
@@ -571,16 +557,14 @@ services:
       PYTHONUNBUFFERED: 1
       STATE_FILE_PATH: /app/output/worker_states_temporal_filter_transaction_items.json
       HOST: 0.0.0.0
-      PORT: 9010
+      PORT: 9571
       WSM_CONTROL_BASE_PORT: 9170
       WSM_NAME: wsm_temporal_filter_transaction_items
       WSM_ID: 1
     volumes:
     - ./output_wsm/worker_states_temporal_filter_transaction_items:/app/output
     networks:
-      coffee-net:
-        aliases:
-        - wsm_temporal_filter_transaction_items
+    - coffee-net
     container_name: wsm_temporal_filter_transaction_items
   coordinator_temporal_filter_transaction_items:
     build:
@@ -634,16 +618,14 @@ services:
       PYTHONUNBUFFERED: 1
       STATE_FILE_PATH: /app/output/worker_states_amount_filter_transactions.json
       HOST: 0.0.0.0
-      PORT: 9011
+      PORT: 9581
       WSM_CONTROL_BASE_PORT: 9180
       WSM_NAME: wsm_amount_filter_transactions
       WSM_ID: 1
     volumes:
     - ./output_wsm/worker_states_amount_filter_transactions:/app/output
     networks:
-      coffee-net:
-        aliases:
-        - wsm_amount_filter_transactions
+    - coffee-net
     container_name: wsm_amount_filter_transactions
   coordinator_amount_filter_transactions:
     build:
@@ -697,16 +679,14 @@ services:
       PYTHONUNBUFFERED: 1
       STATE_FILE_PATH: /app/output/worker_states_grouper_q2.json
       HOST: 0.0.0.0
-      PORT: 9006
+      PORT: 9591
       WSM_CONTROL_BASE_PORT: 9190
       WSM_NAME: wsm_grouper_q2
       WSM_ID: 1
     volumes:
     - ./output_wsm/worker_states_grouper_q2:/app/output
     networks:
-      coffee-net:
-        aliases:
-        - wsm_grouper_q2
+    - coffee-net
     container_name: wsm_grouper_q2
   reducer_q2:
     build:
@@ -815,16 +795,14 @@ services:
       PYTHONUNBUFFERED: 1
       STATE_FILE_PATH: /app/output/worker_states_grouper_q3.json
       HOST: 0.0.0.0
-      PORT: 9007
+      PORT: 9601
       WSM_CONTROL_BASE_PORT: 9200
       WSM_NAME: wsm_grouper_q3
       WSM_ID: 1
     volumes:
     - ./output_wsm/worker_states_grouper_q3:/app/output
     networks:
-      coffee-net:
-        aliases:
-        - wsm_grouper_q3
+    - coffee-net
     container_name: wsm_grouper_q3
   reducer_q3:
     build:
@@ -933,16 +911,14 @@ services:
       PYTHONUNBUFFERED: 1
       STATE_FILE_PATH: /app/output/worker_states_grouper_q4.json
       HOST: 0.0.0.0
-      PORT: 9008
+      PORT: 9611
       WSM_CONTROL_BASE_PORT: 9210
       WSM_NAME: wsm_grouper_q4
       WSM_ID: 1
     volumes:
     - ./output_wsm/worker_states_grouper_q4:/app/output
     networks:
-      coffee-net:
-        aliases:
-        - wsm_grouper_q4
+    - coffee-net
     container_name: wsm_grouper_q4
   reducer_q4:
     build:
@@ -1052,16 +1028,14 @@ services:
       PYTHONUNBUFFERED: 1
       STATE_FILE_PATH: /app/output/worker_states_splitter_q1.json
       HOST: 0.0.0.0
-      PORT: 9020
+      PORT: 9621
       WSM_CONTROL_BASE_PORT: 9220
       WSM_NAME: wsm_splitter_q1
       WSM_ID: 1
     volumes:
     - ./output_wsm/worker_states_splitter_q1:/app/output
     networks:
-      coffee-net:
-        aliases:
-        - wsm_splitter_q1
+    - coffee-net
     container_name: wsm_splitter_q1
   sorter_q1_v2:
     build:
@@ -1146,7 +1120,7 @@ services:
       PYTHONUNBUFFERED: 1
       STATE_FILE_PATH: /app/output/joiner_states_q2.json
       HOST: 0.0.0.0
-      PORT: 9050
+      PORT: 9631
       WSM_CONTROL_BASE_PORT: 9230
       WSM_NAME: wsm_q2
       USING_END_SYNC: 1
@@ -1154,9 +1128,7 @@ services:
     volumes:
     - ./output_wsm/joiner_states_q2:/app/output
     networks:
-      coffee-net:
-        aliases:
-        - wsm_q2
+    - coffee-net
     container_name: wsm_q2
   sender_q2_a:
     build:
@@ -1242,7 +1214,7 @@ services:
       PYTHONUNBUFFERED: 1
       STATE_FILE_PATH: /app/output/joiner_states_q3.json
       HOST: 0.0.0.0
-      PORT: 9052
+      PORT: 9641
       WSM_CONTROL_BASE_PORT: 9240
       WSM_NAME: wsm_q3
       USING_END_SYNC: 1
@@ -1250,9 +1222,7 @@ services:
     volumes:
     - ./output_wsm/joiner_states_q3:/app/output
     networks:
-      coffee-net:
-        aliases:
-        - wsm_q3
+    - coffee-net
     container_name: wsm_q3
   sorter_q3:
     build:
@@ -1340,7 +1310,7 @@ services:
       PYTHONUNBUFFERED: 1
       STATE_FILE_PATH: /app/output/joiner_states_q4.json
       HOST: 0.0.0.0
-      PORT: 9051
+      PORT: 9651
       WSM_CONTROL_BASE_PORT: 9250
       WSM_NAME: wsm_q4
       USING_END_SYNC: 1
@@ -1348,9 +1318,7 @@ services:
     volumes:
     - ./output_wsm/joiner_states_q4:/app/output
     networks:
-      coffee-net:
-        aliases:
-        - wsm_q4
+    - coffee-net
     container_name: wsm_q4
   sorter_q4:
     build:
@@ -1408,16 +1376,14 @@ services:
       PYTHONUNBUFFERED: 1
       STATE_FILE_PATH: /app/output/worker_states_transactions.json
       HOST: 0.0.0.0
-      PORT: 9000
+      PORT: 9502
       WSM_CONTROL_BASE_PORT: 9100
       WSM_NAME: wsm_transactions
       WSM_ID: 2
     volumes:
     - ./output_wsm/worker_states_transactions:/app/output
     networks:
-      coffee-net:
-        aliases:
-        - wsm_transactions
+    - coffee-net
     container_name: wsm_transactions_2
     depends_on:
     - wsm_transactions
@@ -1429,16 +1395,14 @@ services:
       PYTHONUNBUFFERED: 1
       STATE_FILE_PATH: /app/output/worker_states_transactions.json
       HOST: 0.0.0.0
-      PORT: 9000
+      PORT: 9503
       WSM_CONTROL_BASE_PORT: 9100
       WSM_NAME: wsm_transactions
       WSM_ID: 3
     volumes:
     - ./output_wsm/worker_states_transactions:/app/output
     networks:
-      coffee-net:
-        aliases:
-        - wsm_transactions
+    - coffee-net
     container_name: wsm_transactions_3
     depends_on:
     - wsm_transactions_2
@@ -1450,16 +1414,14 @@ services:
       PYTHONUNBUFFERED: 1
       STATE_FILE_PATH: /app/output/worker_states_transaction_items.json
       HOST: 0.0.0.0
-      PORT: 9001
+      PORT: 9512
       WSM_CONTROL_BASE_PORT: 9110
       WSM_NAME: wsm_transaction_items
       WSM_ID: 2
     volumes:
     - ./output_wsm/worker_states_transaction_items:/app/output
     networks:
-      coffee-net:
-        aliases:
-        - wsm_transaction_items
+    - coffee-net
     container_name: wsm_transaction_items_2
     depends_on:
     - wsm_transaction_items
@@ -1471,16 +1433,14 @@ services:
       PYTHONUNBUFFERED: 1
       STATE_FILE_PATH: /app/output/worker_states_transaction_items.json
       HOST: 0.0.0.0
-      PORT: 9001
+      PORT: 9513
       WSM_CONTROL_BASE_PORT: 9110
       WSM_NAME: wsm_transaction_items
       WSM_ID: 3
     volumes:
     - ./output_wsm/worker_states_transaction_items:/app/output
     networks:
-      coffee-net:
-        aliases:
-        - wsm_transaction_items
+    - coffee-net
     container_name: wsm_transaction_items_3
     depends_on:
     - wsm_transaction_items_2
@@ -1492,16 +1452,14 @@ services:
       PYTHONUNBUFFERED: 1
       STATE_FILE_PATH: /app/output/worker_states_users.json
       HOST: 0.0.0.0
-      PORT: 9002
+      PORT: 9522
       WSM_CONTROL_BASE_PORT: 9120
       WSM_NAME: wsm_users
       WSM_ID: 2
     volumes:
     - ./output_wsm/worker_states_users:/app/output
     networks:
-      coffee-net:
-        aliases:
-        - wsm_users
+    - coffee-net
     container_name: wsm_users_2
     depends_on:
     - wsm_users
@@ -1513,16 +1471,14 @@ services:
       PYTHONUNBUFFERED: 1
       STATE_FILE_PATH: /app/output/worker_states_users.json
       HOST: 0.0.0.0
-      PORT: 9002
+      PORT: 9523
       WSM_CONTROL_BASE_PORT: 9120
       WSM_NAME: wsm_users
       WSM_ID: 3
     volumes:
     - ./output_wsm/worker_states_users:/app/output
     networks:
-      coffee-net:
-        aliases:
-        - wsm_users
+    - coffee-net
     container_name: wsm_users_3
     depends_on:
     - wsm_users_2
@@ -1534,16 +1490,14 @@ services:
       PYTHONUNBUFFERED: 1
       STATE_FILE_PATH: /app/output/worker_states_stores.json
       HOST: 0.0.0.0
-      PORT: 9003
+      PORT: 9532
       WSM_CONTROL_BASE_PORT: 9130
       WSM_NAME: wsm_stores
       WSM_ID: 2
     volumes:
     - ./output_wsm/worker_states_stores:/app/output
     networks:
-      coffee-net:
-        aliases:
-        - wsm_stores
+    - coffee-net
     container_name: wsm_stores_2
     depends_on:
     - wsm_stores
@@ -1555,16 +1509,14 @@ services:
       PYTHONUNBUFFERED: 1
       STATE_FILE_PATH: /app/output/worker_states_stores.json
       HOST: 0.0.0.0
-      PORT: 9003
+      PORT: 9533
       WSM_CONTROL_BASE_PORT: 9130
       WSM_NAME: wsm_stores
       WSM_ID: 3
     volumes:
     - ./output_wsm/worker_states_stores:/app/output
     networks:
-      coffee-net:
-        aliases:
-        - wsm_stores
+    - coffee-net
     container_name: wsm_stores_3
     depends_on:
     - wsm_stores_2
@@ -1576,16 +1528,14 @@ services:
       PYTHONUNBUFFERED: 1
       STATE_FILE_PATH: /app/output/worker_states_menu_items.json
       HOST: 0.0.0.0
-      PORT: 9004
+      PORT: 9542
       WSM_CONTROL_BASE_PORT: 9140
       WSM_NAME: wsm_menu_items
       WSM_ID: 2
     volumes:
     - ./output_wsm/worker_states_menu_items:/app/output
     networks:
-      coffee-net:
-        aliases:
-        - wsm_menu_items
+    - coffee-net
     container_name: wsm_menu_items_2
     depends_on:
     - wsm_menu_items
@@ -1597,16 +1547,14 @@ services:
       PYTHONUNBUFFERED: 1
       STATE_FILE_PATH: /app/output/worker_states_menu_items.json
       HOST: 0.0.0.0
-      PORT: 9004
+      PORT: 9543
       WSM_CONTROL_BASE_PORT: 9140
       WSM_NAME: wsm_menu_items
       WSM_ID: 3
     volumes:
     - ./output_wsm/worker_states_menu_items:/app/output
     networks:
-      coffee-net:
-        aliases:
-        - wsm_menu_items
+    - coffee-net
     container_name: wsm_menu_items_3
     depends_on:
     - wsm_menu_items_2
@@ -1618,16 +1566,14 @@ services:
       PYTHONUNBUFFERED: 1
       STATE_FILE_PATH: /app/output/worker_states_transactions_q4.json
       HOST: 0.0.0.0
-      PORT: 9005
+      PORT: 9552
       WSM_CONTROL_BASE_PORT: 9150
       WSM_NAME: wsm_transactions_q4
       WSM_ID: 2
     volumes:
     - ./output_wsm/worker_states_transactions_q4:/app/output
     networks:
-      coffee-net:
-        aliases:
-        - wsm_transactions_q4
+    - coffee-net
     container_name: wsm_transactions_q4_2
     depends_on:
     - wsm_transactions_q4
@@ -1639,16 +1585,14 @@ services:
       PYTHONUNBUFFERED: 1
       STATE_FILE_PATH: /app/output/worker_states_transactions_q4.json
       HOST: 0.0.0.0
-      PORT: 9005
+      PORT: 9553
       WSM_CONTROL_BASE_PORT: 9150
       WSM_NAME: wsm_transactions_q4
       WSM_ID: 3
     volumes:
     - ./output_wsm/worker_states_transactions_q4:/app/output
     networks:
-      coffee-net:
-        aliases:
-        - wsm_transactions_q4
+    - coffee-net
     container_name: wsm_transactions_q4_3
     depends_on:
     - wsm_transactions_q4_2
@@ -1660,16 +1604,14 @@ services:
       PYTHONUNBUFFERED: 1
       STATE_FILE_PATH: /app/output/worker_states_temporal_filter_transactions.json
       HOST: 0.0.0.0
-      PORT: 9009
+      PORT: 9562
       WSM_CONTROL_BASE_PORT: 9160
       WSM_NAME: wsm_temporal_filter_transactions
       WSM_ID: 2
     volumes:
     - ./output_wsm/worker_states_temporal_filter_transactions:/app/output
     networks:
-      coffee-net:
-        aliases:
-        - wsm_temporal_filter_transactions
+    - coffee-net
     container_name: wsm_temporal_filter_transactions_2
     depends_on:
     - wsm_temporal_filter_transactions
@@ -1681,16 +1623,14 @@ services:
       PYTHONUNBUFFERED: 1
       STATE_FILE_PATH: /app/output/worker_states_temporal_filter_transactions.json
       HOST: 0.0.0.0
-      PORT: 9009
+      PORT: 9563
       WSM_CONTROL_BASE_PORT: 9160
       WSM_NAME: wsm_temporal_filter_transactions
       WSM_ID: 3
     volumes:
     - ./output_wsm/worker_states_temporal_filter_transactions:/app/output
     networks:
-      coffee-net:
-        aliases:
-        - wsm_temporal_filter_transactions
+    - coffee-net
     container_name: wsm_temporal_filter_transactions_3
     depends_on:
     - wsm_temporal_filter_transactions_2
@@ -1702,16 +1642,14 @@ services:
       PYTHONUNBUFFERED: 1
       STATE_FILE_PATH: /app/output/worker_states_temporal_filter_transaction_items.json
       HOST: 0.0.0.0
-      PORT: 9010
+      PORT: 9572
       WSM_CONTROL_BASE_PORT: 9170
       WSM_NAME: wsm_temporal_filter_transaction_items
       WSM_ID: 2
     volumes:
     - ./output_wsm/worker_states_temporal_filter_transaction_items:/app/output
     networks:
-      coffee-net:
-        aliases:
-        - wsm_temporal_filter_transaction_items
+    - coffee-net
     container_name: wsm_temporal_filter_transaction_items_2
     depends_on:
     - wsm_temporal_filter_transaction_items
@@ -1723,16 +1661,14 @@ services:
       PYTHONUNBUFFERED: 1
       STATE_FILE_PATH: /app/output/worker_states_temporal_filter_transaction_items.json
       HOST: 0.0.0.0
-      PORT: 9010
+      PORT: 9573
       WSM_CONTROL_BASE_PORT: 9170
       WSM_NAME: wsm_temporal_filter_transaction_items
       WSM_ID: 3
     volumes:
     - ./output_wsm/worker_states_temporal_filter_transaction_items:/app/output
     networks:
-      coffee-net:
-        aliases:
-        - wsm_temporal_filter_transaction_items
+    - coffee-net
     container_name: wsm_temporal_filter_transaction_items_3
     depends_on:
     - wsm_temporal_filter_transaction_items_2
@@ -1744,16 +1680,14 @@ services:
       PYTHONUNBUFFERED: 1
       STATE_FILE_PATH: /app/output/worker_states_amount_filter_transactions.json
       HOST: 0.0.0.0
-      PORT: 9011
+      PORT: 9582
       WSM_CONTROL_BASE_PORT: 9180
       WSM_NAME: wsm_amount_filter_transactions
       WSM_ID: 2
     volumes:
     - ./output_wsm/worker_states_amount_filter_transactions:/app/output
     networks:
-      coffee-net:
-        aliases:
-        - wsm_amount_filter_transactions
+    - coffee-net
     container_name: wsm_amount_filter_transactions_2
     depends_on:
     - wsm_amount_filter_transactions
@@ -1765,16 +1699,14 @@ services:
       PYTHONUNBUFFERED: 1
       STATE_FILE_PATH: /app/output/worker_states_amount_filter_transactions.json
       HOST: 0.0.0.0
-      PORT: 9011
+      PORT: 9583
       WSM_CONTROL_BASE_PORT: 9180
       WSM_NAME: wsm_amount_filter_transactions
       WSM_ID: 3
     volumes:
     - ./output_wsm/worker_states_amount_filter_transactions:/app/output
     networks:
-      coffee-net:
-        aliases:
-        - wsm_amount_filter_transactions
+    - coffee-net
     container_name: wsm_amount_filter_transactions_3
     depends_on:
     - wsm_amount_filter_transactions_2
@@ -1786,16 +1718,14 @@ services:
       PYTHONUNBUFFERED: 1
       STATE_FILE_PATH: /app/output/worker_states_grouper_q2.json
       HOST: 0.0.0.0
-      PORT: 9006
+      PORT: 9592
       WSM_CONTROL_BASE_PORT: 9190
       WSM_NAME: wsm_grouper_q2
       WSM_ID: 2
     volumes:
     - ./output_wsm/worker_states_grouper_q2:/app/output
     networks:
-      coffee-net:
-        aliases:
-        - wsm_grouper_q2
+    - coffee-net
     container_name: wsm_grouper_q2_2
     depends_on:
     - wsm_grouper_q2
@@ -1807,16 +1737,14 @@ services:
       PYTHONUNBUFFERED: 1
       STATE_FILE_PATH: /app/output/worker_states_grouper_q2.json
       HOST: 0.0.0.0
-      PORT: 9006
+      PORT: 9593
       WSM_CONTROL_BASE_PORT: 9190
       WSM_NAME: wsm_grouper_q2
       WSM_ID: 3
     volumes:
     - ./output_wsm/worker_states_grouper_q2:/app/output
     networks:
-      coffee-net:
-        aliases:
-        - wsm_grouper_q2
+    - coffee-net
     container_name: wsm_grouper_q2_3
     depends_on:
     - wsm_grouper_q2_2
@@ -1828,16 +1756,14 @@ services:
       PYTHONUNBUFFERED: 1
       STATE_FILE_PATH: /app/output/worker_states_grouper_q3.json
       HOST: 0.0.0.0
-      PORT: 9007
+      PORT: 9602
       WSM_CONTROL_BASE_PORT: 9200
       WSM_NAME: wsm_grouper_q3
       WSM_ID: 2
     volumes:
     - ./output_wsm/worker_states_grouper_q3:/app/output
     networks:
-      coffee-net:
-        aliases:
-        - wsm_grouper_q3
+    - coffee-net
     container_name: wsm_grouper_q3_2
     depends_on:
     - wsm_grouper_q3
@@ -1849,16 +1775,14 @@ services:
       PYTHONUNBUFFERED: 1
       STATE_FILE_PATH: /app/output/worker_states_grouper_q3.json
       HOST: 0.0.0.0
-      PORT: 9007
+      PORT: 9603
       WSM_CONTROL_BASE_PORT: 9200
       WSM_NAME: wsm_grouper_q3
       WSM_ID: 3
     volumes:
     - ./output_wsm/worker_states_grouper_q3:/app/output
     networks:
-      coffee-net:
-        aliases:
-        - wsm_grouper_q3
+    - coffee-net
     container_name: wsm_grouper_q3_3
     depends_on:
     - wsm_grouper_q3_2
@@ -1870,16 +1794,14 @@ services:
       PYTHONUNBUFFERED: 1
       STATE_FILE_PATH: /app/output/worker_states_grouper_q4.json
       HOST: 0.0.0.0
-      PORT: 9008
+      PORT: 9612
       WSM_CONTROL_BASE_PORT: 9210
       WSM_NAME: wsm_grouper_q4
       WSM_ID: 2
     volumes:
     - ./output_wsm/worker_states_grouper_q4:/app/output
     networks:
-      coffee-net:
-        aliases:
-        - wsm_grouper_q4
+    - coffee-net
     container_name: wsm_grouper_q4_2
     depends_on:
     - wsm_grouper_q4
@@ -1891,16 +1813,14 @@ services:
       PYTHONUNBUFFERED: 1
       STATE_FILE_PATH: /app/output/worker_states_grouper_q4.json
       HOST: 0.0.0.0
-      PORT: 9008
+      PORT: 9613
       WSM_CONTROL_BASE_PORT: 9210
       WSM_NAME: wsm_grouper_q4
       WSM_ID: 3
     volumes:
     - ./output_wsm/worker_states_grouper_q4:/app/output
     networks:
-      coffee-net:
-        aliases:
-        - wsm_grouper_q4
+    - coffee-net
     container_name: wsm_grouper_q4_3
     depends_on:
     - wsm_grouper_q4_2
@@ -1912,16 +1832,14 @@ services:
       PYTHONUNBUFFERED: 1
       STATE_FILE_PATH: /app/output/worker_states_splitter_q1.json
       HOST: 0.0.0.0
-      PORT: 9020
+      PORT: 9622
       WSM_CONTROL_BASE_PORT: 9220
       WSM_NAME: wsm_splitter_q1
       WSM_ID: 2
     volumes:
     - ./output_wsm/worker_states_splitter_q1:/app/output
     networks:
-      coffee-net:
-        aliases:
-        - wsm_splitter_q1
+    - coffee-net
     container_name: wsm_splitter_q1_2
     depends_on:
     - wsm_splitter_q1
@@ -1933,16 +1851,14 @@ services:
       PYTHONUNBUFFERED: 1
       STATE_FILE_PATH: /app/output/worker_states_splitter_q1.json
       HOST: 0.0.0.0
-      PORT: 9020
+      PORT: 9623
       WSM_CONTROL_BASE_PORT: 9220
       WSM_NAME: wsm_splitter_q1
       WSM_ID: 3
     volumes:
     - ./output_wsm/worker_states_splitter_q1:/app/output
     networks:
-      coffee-net:
-        aliases:
-        - wsm_splitter_q1
+    - coffee-net
     container_name: wsm_splitter_q1_3
     depends_on:
     - wsm_splitter_q1_2
@@ -1954,7 +1870,7 @@ services:
       PYTHONUNBUFFERED: 1
       STATE_FILE_PATH: /app/output/joiner_states_q2.json
       HOST: 0.0.0.0
-      PORT: 9050
+      PORT: 9632
       WSM_CONTROL_BASE_PORT: 9230
       WSM_NAME: wsm_q2
       USING_END_SYNC: 1
@@ -1962,9 +1878,7 @@ services:
     volumes:
     - ./output_wsm/joiner_states_q2:/app/output
     networks:
-      coffee-net:
-        aliases:
-        - wsm_q2
+    - coffee-net
     container_name: wsm_q2_2
     depends_on:
     - wsm_q2
@@ -1976,7 +1890,7 @@ services:
       PYTHONUNBUFFERED: 1
       STATE_FILE_PATH: /app/output/joiner_states_q2.json
       HOST: 0.0.0.0
-      PORT: 9050
+      PORT: 9633
       WSM_CONTROL_BASE_PORT: 9230
       WSM_NAME: wsm_q2
       USING_END_SYNC: 1
@@ -1984,9 +1898,7 @@ services:
     volumes:
     - ./output_wsm/joiner_states_q2:/app/output
     networks:
-      coffee-net:
-        aliases:
-        - wsm_q2
+    - coffee-net
     container_name: wsm_q2_3
     depends_on:
     - wsm_q2_2
@@ -1998,7 +1910,7 @@ services:
       PYTHONUNBUFFERED: 1
       STATE_FILE_PATH: /app/output/joiner_states_q3.json
       HOST: 0.0.0.0
-      PORT: 9052
+      PORT: 9642
       WSM_CONTROL_BASE_PORT: 9240
       WSM_NAME: wsm_q3
       USING_END_SYNC: 1
@@ -2006,9 +1918,7 @@ services:
     volumes:
     - ./output_wsm/joiner_states_q3:/app/output
     networks:
-      coffee-net:
-        aliases:
-        - wsm_q3
+    - coffee-net
     container_name: wsm_q3_2
     depends_on:
     - wsm_q3
@@ -2020,7 +1930,7 @@ services:
       PYTHONUNBUFFERED: 1
       STATE_FILE_PATH: /app/output/joiner_states_q3.json
       HOST: 0.0.0.0
-      PORT: 9052
+      PORT: 9643
       WSM_CONTROL_BASE_PORT: 9240
       WSM_NAME: wsm_q3
       USING_END_SYNC: 1
@@ -2028,9 +1938,7 @@ services:
     volumes:
     - ./output_wsm/joiner_states_q3:/app/output
     networks:
-      coffee-net:
-        aliases:
-        - wsm_q3
+    - coffee-net
     container_name: wsm_q3_3
     depends_on:
     - wsm_q3_2
@@ -2042,7 +1950,7 @@ services:
       PYTHONUNBUFFERED: 1
       STATE_FILE_PATH: /app/output/joiner_states_q4.json
       HOST: 0.0.0.0
-      PORT: 9051
+      PORT: 9652
       WSM_CONTROL_BASE_PORT: 9250
       WSM_NAME: wsm_q4
       USING_END_SYNC: 1
@@ -2050,9 +1958,7 @@ services:
     volumes:
     - ./output_wsm/joiner_states_q4:/app/output
     networks:
-      coffee-net:
-        aliases:
-        - wsm_q4
+    - coffee-net
     container_name: wsm_q4_2
     depends_on:
     - wsm_q4
@@ -2064,7 +1970,7 @@ services:
       PYTHONUNBUFFERED: 1
       STATE_FILE_PATH: /app/output/joiner_states_q4.json
       HOST: 0.0.0.0
-      PORT: 9051
+      PORT: 9653
       WSM_CONTROL_BASE_PORT: 9250
       WSM_NAME: wsm_q4
       USING_END_SYNC: 1
@@ -2072,9 +1978,7 @@ services:
     volumes:
     - ./output_wsm/joiner_states_q4:/app/output
     networks:
-      coffee-net:
-        aliases:
-        - wsm_q4
+    - coffee-net
     container_name: wsm_q4_3
     depends_on:
     - wsm_q4_2
