@@ -156,9 +156,14 @@ class GrouperV2(StreamProcessingWorker):
                 existing[k][1] += v[1]
             else:
                 existing[k] = v
-        with open(path, 'w') as f:
-            for k, v in existing.items():
-                f.write(f"{k},{v[0]},{v[1]}\n")
+        
+        # Usar escritura atómica
+        def write_func(temp_path):
+            with open(temp_path, 'w') as f:
+                for k, v in existing.items():
+                    f.write(f"{k},{v[0]},{v[1]}\n")
+        
+        StreamProcessingWorker.atomic_write(path, write_func)
 
     # === Q3 ===
     def _q3_agg(self, rows, temp_dir):
@@ -192,8 +197,12 @@ class GrouperV2(StreamProcessingWorker):
 
             total = old + val
 
-            with open(path, 'w') as f:
-                f.write(f"{total}\n")
+            # Usar escritura atómica
+            def write_func(temp_path):
+                with open(temp_path, 'w') as f:
+                    f.write(f"{total}\n")
+            
+            StreamProcessingWorker.atomic_write(path, write_func)
 
     # === Q4 ===
     def _q4_agg(self, rows, temp_dir):
@@ -223,9 +232,14 @@ class GrouperV2(StreamProcessingWorker):
                             existing[parts[0]] = int(parts[1])
             for u, c in users.items():
                 existing[u] = existing.get(u, 0) + c
-            with open(path, 'w') as f:
-                for u, c in existing.items():
-                    f.write(f"{u},{c}\n")
+            
+            # Usar escritura atómica
+            def write_func(temp_path):
+                with open(temp_path, 'w') as f:
+                    for u, c in existing.items():
+                        f.write(f"{u},{c}\n")
+            
+            StreamProcessingWorker.atomic_write(path, write_func)
 
     # ------------------------------------------------------------
     # 📂 Inicialización de rutas por request

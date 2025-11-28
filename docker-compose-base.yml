@@ -42,6 +42,8 @@ services:
       QUEUE_IN: results
       REQUESTS_PER_CLIENT: 2
       GATEWAY_MAX_PROCESSES: 3
+    volumes:
+      - ./output_gateway:/app/output_gateway
     networks:
     - coffee-net
   client:

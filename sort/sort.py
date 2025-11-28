@@ -130,7 +130,7 @@ class Sorter(FileProcessingWorker):
 
 
     def _write_sorted_chunk(self, chunk_data):
-        """Write a sorted chunk to a temporary file"""
+        """Write a sorted chunk to a temporary file using atomic_write"""
         try:
             # Sort the chunk by the specified columns (string/lexicographic sorting)
             if len(self.config.sort_columns) > 1:
@@ -153,9 +153,14 @@ class Sorter(FileProcessingWorker):
                 self._temp_files_by_request[self.current_request_id] = []
             self._temp_files_by_request[self.current_request_id].append(temp_path)
             
-            with open(temp_path, 'w', newline=self.config.newline_mode, encoding=self.config.encoding) as temp_file:
-                writer = csv.writer(temp_file)
-                writer.writerows(chunk_data)
+            # Define write function for atomic operation
+            def write_func(path):
+                with open(path, 'w', newline=self.config.newline_mode, encoding=self.config.encoding) as temp_file:
+                    writer = csv.writer(temp_file)
+                    writer.writerows(chunk_data)
+            
+            # Use atomic_write to guarantee safe write
+            FileProcessingWorker.atomic_write(temp_path, write_func)
             
             print(f"Wrote sorted chunk with {len(chunk_data)} rows to {temp_path}")
             
@@ -193,30 +198,34 @@ class Sorter(FileProcessingWorker):
                 except StopIteration:
                     f.close()
             
-            # Write merged data to final file
-            with open(self.output_file, 'w', newline=self.config.newline_mode, encoding=self.config.encoding) as output_file:
-                writer = csv.writer(output_file)
-                # Write header
-                writer.writerow(header)
-                
-                # Merge sorted files
-                while heap:
-                    sort_value, file_idx, row = heapq.heappop(heap)
-                    writer.writerow(row)
+            # Write merged data to final file using atomic_write
+            def merge_write_func(output_path):
+                with open(output_path, 'w', newline=self.config.newline_mode, encoding=self.config.encoding) as output_file:
+                    writer = csv.writer(output_file)
+                    # Write header
+                    writer.writerow(header)
                     
-                    # Get next row from the same file
-                    reader, f = file_readers[file_idx]
-                    try:
-                        next_row = next(reader)
-                        if len(self.config.sort_columns) > 1:
-                            # Multi-column sorting key
-                            next_sort_value = tuple(next_row[col] for col in self.config.sort_columns)
-                        else:
-                            # Single column sorting (backward compatibility)
-                            next_sort_value = next_row[self.sort_column_index]
-                        heapq.heappush(heap, (next_sort_value, file_idx, next_row))
-                    except StopIteration:
-                        f.close()
+                    # Merge sorted files
+                    while heap:
+                        sort_value, file_idx, row = heapq.heappop(heap)
+                        writer.writerow(row)
+                        
+                        # Get next row from the same file
+                        reader, f = file_readers[file_idx]
+                        try:
+                            next_row = next(reader)
+                            if len(self.config.sort_columns) > 1:
+                                # Multi-column sorting key
+                                next_sort_value = tuple(next_row[col] for col in self.config.sort_columns)
+                            else:
+                                # Single column sorting (backward compatibility)
+                                next_sort_value = next_row[self.sort_column_index]
+                            heapq.heappush(heap, (next_sort_value, file_idx, next_row))
+                        except StopIteration:
+                            f.close()
+            
+            # Use atomic_write to guarantee safe write of final merged file
+            FileProcessingWorker.atomic_write(self.output_file, merge_write_func)
             
             # Close remaining files and cleanup
             for reader, f in file_readers:

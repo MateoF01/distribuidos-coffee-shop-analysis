@@ -79,6 +79,7 @@ class SplitterQ1(StreamProcessingWorker):
         Carga el último chunk existente (si hay),
         le agrega las filas nuevas, las ordena y lo reescribe.
         Si el tamaño supera chunk_size, crea un nuevo chunk.
+        Utiliza atomic_write para garantizar tolerancia a fallos.
         """
         buf = self.buffers[request_id]
         req_dir = self._ensure_request_dir(request_id)
@@ -104,29 +105,41 @@ class SplitterQ1(StreamProcessingWorker):
             to_write = existing_rows[:self.chunk_size]
             remaining = existing_rows[self.chunk_size:]
 
-            # ordenar y escribir chunk actual
+            # ordenar y escribir chunk actual (con atomic_write)
             to_write.sort(key=lambda ln: ln.split(",")[0])
-            with open(path, "w", encoding="utf-8", newline="") as f:
-                for ln in to_write:
-                    f.write(ln + "\n")
+            
+            def write_chunk_func(temp_path):
+                with open(temp_path, "w", encoding="utf-8", newline="") as f:
+                    for ln in to_write:
+                        f.write(ln + "\n")
+            
+            StreamProcessingWorker.atomic_write(path, write_chunk_func)
 
             # preparar nuevo archivo
             buf["chunk_idx"] += 1
             new_filename = f"chunk_{buf['chunk_idx']}.csv"
             new_path = os.path.join(req_dir, new_filename)
 
-            # escribir el resto (ordenado también)
+            # escribir el resto (ordenado también con atomic_write)
             remaining.sort(key=lambda ln: ln.split(",")[0])
-            with open(new_path, "w", encoding="utf-8", newline="") as f:
-                for ln in remaining:
-                    f.write(ln + "\n")
+            
+            def write_remaining_func(temp_path):
+                with open(temp_path, "w", encoding="utf-8", newline="") as f:
+                    for ln in remaining:
+                        f.write(ln + "\n")
+            
+            StreamProcessingWorker.atomic_write(new_path, write_remaining_func)
 
         else:
-            # ordenar y reescribir el mismo archivo
+            # ordenar y reescribir el mismo archivo (con atomic_write)
             existing_rows.sort(key=lambda ln: ln.split(",")[0])
-            with open(path, "w", encoding="utf-8", newline="") as f:
-                for ln in existing_rows:
-                    f.write(ln + "\n")
+            
+            def write_current_func(temp_path):
+                with open(temp_path, "w", encoding="utf-8", newline="") as f:
+                    for ln in existing_rows:
+                        f.write(ln + "\n")
+            
+            StreamProcessingWorker.atomic_write(path, write_current_func)
 
 
     def _append_row(self, request_id, row_text):
