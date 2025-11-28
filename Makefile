@@ -113,6 +113,7 @@ down:
 		-v $(PWD)/output:/tmp/output \
 		-v $(PWD)/output_wsm:/tmp/output_wsm \
 		-v $(PWD)/output_shm:/tmp/output_shm \
+		-v $(PWD)/output_gateway:/tmp/output_gateway \
 		-v $(PWD)/grouper_v2/temp/q2:/tmp/grouper_q2 \
 		-v $(PWD)/grouper_v2/temp/q3:/tmp/grouper_q3 \
 		-v $(PWD)/grouper_v2/temp/q4:/tmp/grouper_q4 \
@@ -124,6 +125,7 @@ down:
 			/tmp/output/* \
 			/tmp/output_wsm/* \
 			/tmp/output_shm/* \
+			/tmp/output_gateway/* \
 			/tmp/grouper_q2/* \
 			/tmp/grouper_q3/* \
 			/tmp/grouper_q4/* \
@@ -152,6 +154,7 @@ clean:
 		-v $(PWD)/output:/tmp/output \
 		-v $(PWD)/output_wsm:/tmp/output_wsm \
 		-v $(PWD)/output_shm:/tmp/output_shm \
+		-v $(PWD)/output_gateway:/tmp/output_gateway \
 		-v $(PWD)/grouper_v2/temp/q2:/tmp/grouper_q2 \
 		-v $(PWD)/grouper_v2/temp/q3:/tmp/grouper_q3 \
 		-v $(PWD)/grouper_v2/temp/q4:/tmp/grouper_q4 \
@@ -163,6 +166,7 @@ clean:
 			/tmp/output/* \
 			/tmp/output_wsm/* \
 			/tmp/output_shm/* \
+			/tmp/output_gateway/* \
 			/tmp/grouper_q2/* \
 			/tmp/grouper_q3/* \
 			/tmp/grouper_q4/* \
