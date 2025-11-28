@@ -6,10 +6,11 @@ import configparser
 from shared import protocol
 from shared.worker import StreamProcessingWorker
 from WSM.wsm_client import WSMClient
+from wsm_config import WSM_NODES
 
 
 class Cleaner(StreamProcessingWorker):
-    def __init__(self, queue_in, queue_out, columns_have, columns_want, rabbitmq_host, keep_when_empty=None, backoff_start=0.1, backoff_max=3.0):
+    def __init__(self, queue_in, queue_out, columns_have, columns_want, rabbitmq_host, keep_when_empty=None, backoff_start=0.1, backoff_max=3.0, wsm_nodes = None):
         super().__init__(queue_in, queue_out, rabbitmq_host)
         self.columns_have = columns_have
         self.columns_want = columns_want
@@ -26,7 +27,8 @@ class Cleaner(StreamProcessingWorker):
             worker_type="cleaner",
             replica_id=replica_id,
             host=wsm_host,
-            port=wsm_port
+            port=wsm_port,
+            nodes=wsm_nodes,
         )
 
         logging.info(f"[Cleaner:{replica_id}] Inicializado - input: {queue_in}, output: {queue_out}")
@@ -36,6 +38,9 @@ class Cleaner(StreamProcessingWorker):
     # ------------------------------------------------------------
     def _process_message(self, message, msg_type, data_type, request_id, position, payload, queue_name=None):
         """Procesa mensajes de datos (no END)."""
+
+        logging.info(f"INICIO procesado mensaje ({request_id}:{position})")
+
 
         #VALIDO QUE LA POSICION HAYA SIDO PROCESADA ANTERIORMENTE, SI LO DESCARTO EL MENSAJE
         if self.wsm_client.is_position_processed(request_id, position):
@@ -55,8 +60,12 @@ class Cleaner(StreamProcessingWorker):
             for q in self.out_queues:
                 q.send(new_msg)
 
+
+        #SI MUERE ACA!!!! TENEMOS PROBLEMAS
+
         # 2️⃣ Marcar fin de procesamiento
         self.wsm_client.update_state("WAITING", request_id, position)
+        logging.info(f"FIN procesado mensaje ({request_id}:{position})")
 
     # ------------------------------------------------------------
     # 🧩 Lógica de END sincronizado (sobrescribe el padre)
@@ -162,7 +171,10 @@ if __name__ == '__main__':
         backoff_start = float(config['DEFAULT'].get('BACKOFF_START', 0.1))
         backoff_max = float(config['DEFAULT'].get('BACKOFF_MAX', 3.0))
 
-        return Cleaner(queue_in, queue_out, columns_have, columns_want, rabbitmq_host, keep_when_empty, backoff_start, backoff_max)
+        wsm_nodes = WSM_NODES[data_type]
+        print("WSM NODES: ", wsm_nodes)
+
+        return Cleaner(queue_in, queue_out, columns_have, columns_want, rabbitmq_host, keep_when_empty, backoff_start, backoff_max, wsm_nodes)
 
     config_path = os.path.join(os.path.dirname(__file__), 'config.ini')
     Cleaner.run_worker_main(create_cleaner, config_path)

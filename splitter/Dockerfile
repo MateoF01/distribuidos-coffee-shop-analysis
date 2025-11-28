@@ -4,6 +4,7 @@ WORKDIR /app
 
 # Copiamos el código fuente
 COPY splitter/splitter.py .
+COPY splitter/wsm_config.py .
 COPY middleware/ /app/middleware/
 COPY shared/ /app/shared/
 COPY WSM/ /app/WSM/

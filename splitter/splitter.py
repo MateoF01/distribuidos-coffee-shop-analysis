@@ -7,6 +7,7 @@ from collections import defaultdict
 from shared import protocol
 from shared.worker import StreamProcessingWorker
 from WSM.wsm_client import WSMClient
+from wsm_config import WSM_NODES
 
 
 class SplitterQ1(StreamProcessingWorker):
@@ -17,7 +18,7 @@ class SplitterQ1(StreamProcessingWorker):
     - Notifica a sorter_v2 cuando TODAS las réplicas finalizaron (vía WSM).
     """
 
-    def __init__(self, queue_in, queue_out, rabbitmq_host, chunk_size, replica_id, backoff_start=0.1, backoff_max=3.0):
+    def __init__(self, queue_in, queue_out, rabbitmq_host, chunk_size, replica_id, backoff_start=0.1, backoff_max=3.0, wsm_nodes = None):
         super().__init__(queue_in, queue_out, rabbitmq_host)
         self.replica_id = replica_id
         self.chunk_size = int(chunk_size)
@@ -46,7 +47,8 @@ class SplitterQ1(StreamProcessingWorker):
             worker_type="splitter_q1",
             replica_id=replica_id,
             host=wsm_host,
-            port=wsm_port
+            port=wsm_port,
+            nodes=wsm_nodes
         )
 
         logging.info(f"[SplitterQ1:{self.replica_id}] init - in={queue_in}, out={queue_out}, chunk_size={self.chunk_size}")
@@ -265,6 +267,10 @@ if __name__ == '__main__':
         backoff_start = float(config['DEFAULT'].get('BACKOFF_START', 0.1))
         backoff_max = float(config['DEFAULT'].get('BACKOFF_MAX', 3.0))
         
-        return SplitterQ1(queue_in, queue_out, rabbitmq_host, chunk_size, replica_id, backoff_start, backoff_max)
+        key = 'q1' #Solo hay un tipo en el splliter
+        wsm_nodes = WSM_NODES[key]
+        print("WSM NODES: ", wsm_nodes)
+
+        return SplitterQ1(queue_in, queue_out, rabbitmq_host, chunk_size, replica_id, backoff_start, backoff_max, wsm_nodes)
 
     SplitterQ1.run_worker_main(create_splitter)

@@ -77,6 +77,7 @@ class WorkerStateManager:
             return set()
     
     def _load_state(self):
+        print("COMIENZO LOAD STATE...")
         if os.path.exists(self.state_file):
             try:
                 with open(self.state_file, "r", encoding="utf-8") as f:
@@ -163,6 +164,8 @@ class WorkerStateManager:
             else:
                 self.worker_states[worker_type][replica_id] = {"state": state, "request_id": request_id}
 
+            print("PREVIUS STATE: ", previous_state)
+
             if (request_id
                 and position is not None
                 and state == "WAITING"
@@ -181,10 +184,10 @@ class WorkerStateManager:
         """
         with self.lock:
             replicas = self.worker_states.get(worker_type, {})
-            for rid, info in replicas.items():
-                if info["state"] == "PROCESSING" and info["request_id"] == request_id:
-                    logging.debug(f"[WSM] {worker_type}:{rid} todavía procesando {request_id}")
-                    return False
+            #for rid, info in replicas.items():
+            #    if info["state"] == "PROCESSING" and info["request_id"] == request_id:
+            #        logging.debug(f"[WSM] {worker_type}:{rid} todavía procesando {request_id}")
+            #        return False
 
             pos_set = self._load_positions(worker_type, request_id)
             first_missing = self._find_first_missing_position(pos_set)
@@ -237,9 +240,10 @@ class WorkerStateManager:
 # ⚡ Servidor TCP multicliente
 # -------------------------------
 class WSMServer:
-    def __init__(self, host=HOST, port=PORT):
+    def __init__(self, host=HOST, port=PORT, role="BACKUP"):
         self.host = host
         self.port = port
+        self.role = role 
         self.manager = WorkerStateManager()
         self.running = False
         self.server_socket = None
@@ -269,33 +273,42 @@ class WSMServer:
 
     def handle_client(self, conn, addr):
         try:
-            data = conn.recv(4096)
-            if not data:
-                return
+            while True:
+                data = conn.recv(4096)
 
-            try:
-                msg = json.loads(data.decode())
-            except json.JSONDecodeError:
-                conn.sendall(b'{"response": "ERROR: invalid JSON"}')
-                return
+                if not data:
+                    # El cliente cerró la conexión
+                    logging.info(f"[WSM] Cliente {addr} cerró la conexión")
+                    return
 
-            action = msg.get("action")
-            response = self._handle_action(action, msg)
-            conn.sendall(json.dumps({"response": response}).encode())
+                try:
+                    msg = json.loads(data.decode())
+                except json.JSONDecodeError:
+                    conn.sendall(b'{"response": "ERROR: invalid JSON"}')
+                    continue
+
+                action = msg.get("action")
+                response = self._handle_action(action, msg)
+                conn.sendall(json.dumps({"response": response}).encode())
 
         except Exception as e:
             logging.error(f"[WSM] Error con cliente {addr}: {e}")
+
         finally:
             conn.close()
+
 
     def _handle_action(self, action, msg):
         worker_type = msg.get("worker_type")
         replica_id = msg.get("replica_id")
 
+        if action != "is_leader" and self.role != "LEADER":
+            return "NOT_LEADER"
         if action == "register":
             self.manager.register_worker(worker_type, replica_id)
             return "OK"
         elif action == "update_state":
+            print("Recibo update state: ", msg)
             self.manager.update_state(worker_type, replica_id, msg.get("state"), msg.get("request_id"), msg.get("position"))
             return "OK"
         elif action == "can_send_end":
@@ -307,8 +320,19 @@ class WSMServer:
         elif action == "is_position_processed":
             processed = self.manager.is_position_processed(worker_type, msg.get("request_id"), msg.get("position"))
             return processed
+        elif action == "is_leader":
+            return "YES" if self.role == "LEADER" else "NO"
         else:
             return "ERROR: unknown action"
+    
+    def promote_to_leader(self):
+        """
+        Se llama cuando este nodo pasa a ser líder.
+        Recarga el estado desde disco sin reiniciar el servidor (CLAVE).
+        """
+        self.role = "LEADER"
+        logging.info("[WSM] Promovido a LEADER → recargando estado desde disco...")
+        self.manager._load_state() #CLAVE
 
 
 if __name__ == "__main__":

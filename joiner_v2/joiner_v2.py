@@ -9,10 +9,11 @@ from shared import protocol
 from WSM.wsm_client import WSMClient
 from pathlib import Path
 # from SHM.hashmap_client import SharedHashmapClient
+from wsm_config import WSM_NODES
 
 
 class Joiner_v2(Worker):
-    def __init__(self, queue_out, output_file, columns_want, rabbitmq_host, query_type, wsm_host, wsm_port, multiple_queues=None, backoff_start=0.1, backoff_max=3.0):
+    def __init__(self, queue_out, output_file, columns_want, rabbitmq_host, query_type, wsm_host, wsm_port, multiple_queues=None, backoff_start=0.1, backoff_max=3.0, wsm_nodes = None):
         # Use multiple_input_queues parameter for the Worker superclass
 
         super().__init__(None, queue_out, rabbitmq_host, multiple_input_queues=multiple_queues)
@@ -30,7 +31,8 @@ class Joiner_v2(Worker):
                 worker_type=q,
                 replica_id=self.replica_id,
                 host=wsm_host,
-                port=wsm_port
+                port=wsm_port,
+                nodes=wsm_nodes
             )
 
         # # 🔗 Conexión con el Worker State Manager
@@ -660,6 +662,9 @@ if __name__ == '__main__':
         backoff_start = float(config['DEFAULT'].get('BACKOFF_START', 0.1))
         backoff_max = float(config['DEFAULT'].get('BACKOFF_MAX', 3.0))
 
+        wsm_nodes = WSM_NODES[query_type]
+        print("WSM NODES: ", wsm_nodes)
+
         return Joiner_v2(
             queue_out=queue_out_env,
             output_file=output_file_env,
@@ -670,7 +675,8 @@ if __name__ == '__main__':
             wsm_port=shm_port,
             multiple_queues=multiple_queues,
             backoff_start=backoff_start,
-            backoff_max=backoff_max
+            backoff_max=backoff_max,
+            wsm_nodes = wsm_nodes
         )
     
     # Use the Worker base class main entry point
