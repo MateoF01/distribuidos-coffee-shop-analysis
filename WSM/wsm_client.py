@@ -126,9 +126,14 @@ class WSMClient:
         payload = json.dumps(msg).encode("utf-8")
 
         while True:
+            print("INICIO ENVIO DE MENSAJE: ", payload)
+
             # Asegurarse de estar conectado a algún líder
             if self.sock is None:
+                print("No tengo la conexion abierta, busco lider...")
                 self._connect_to_leader()
+                print("Me conecté al nuevo lider: ", self.current_node)
+                print("Y tengo que enviar el payload pendiente: ", payload)
 
             try:
                 self.sock.sendall(payload)
@@ -137,6 +142,7 @@ class WSMClient:
                     raise ConnectionError("WSM cerró la conexión")
 
                 response = json.loads(data.decode("utf-8")).get("response")
+                print("RESPONSE: ", response)
 
                 if response == "NOT_LEADER":
                     logging.warning("[WSMClient] Nodo actual dejó de ser líder, redescubriendo líder...")

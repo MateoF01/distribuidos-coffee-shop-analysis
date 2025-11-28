@@ -104,9 +104,9 @@ class WSMNode:
             self.role = "LEADER"
             logging.info("👑 Ahora soy el líder")
 
-            # Si ya existía server, actualizarle rol
+            # Si ya existía server, convertirlo en leader y que cargue el estado anterior
             if self.wsm_server:
-                self.wsm_server.role = "LEADER"
+                self.wsm_server.promote_to_leader()
 
             # Solo anunciar si no es inicio del sistema
             if not initial:

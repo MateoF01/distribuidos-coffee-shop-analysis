@@ -77,6 +77,7 @@ class WorkerStateManager:
             return set()
     
     def _load_state(self):
+        print("COMIENZO LOAD STATE...")
         if os.path.exists(self.state_file):
             try:
                 with open(self.state_file, "r", encoding="utf-8") as f:
@@ -162,6 +163,8 @@ class WorkerStateManager:
                 self.worker_states[worker_type][replica_id] = {"state": state, "request_id": None}
             else:
                 self.worker_states[worker_type][replica_id] = {"state": state, "request_id": request_id}
+
+            print("PREVIUS STATE: ", previous_state)
 
             if (request_id
                 and position is not None
@@ -305,6 +308,7 @@ class WSMServer:
             self.manager.register_worker(worker_type, replica_id)
             return "OK"
         elif action == "update_state":
+            print("Recibo update state: ", msg)
             self.manager.update_state(worker_type, replica_id, msg.get("state"), msg.get("request_id"), msg.get("position"))
             return "OK"
         elif action == "can_send_end":
@@ -320,6 +324,15 @@ class WSMServer:
             return "YES" if self.role == "LEADER" else "NO"
         else:
             return "ERROR: unknown action"
+    
+    def promote_to_leader(self):
+        """
+        Se llama cuando este nodo pasa a ser líder.
+        Recarga el estado desde disco sin reiniciar el servidor (CLAVE).
+        """
+        self.role = "LEADER"
+        logging.info("[WSM] Promovido a LEADER → recargando estado desde disco...")
+        self.manager._load_state() #CLAVE
 
 
 if __name__ == "__main__":
