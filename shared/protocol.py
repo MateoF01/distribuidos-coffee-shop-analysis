@@ -1,5 +1,4 @@
 import struct
-import time
 
 # Message Types
 MSG_TYPE_DATA = 1

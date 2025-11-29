@@ -10,12 +10,67 @@ from shared.worker import SignalProcessingWorker
 
 class ReducerV2(SignalProcessingWorker):
     """
-    Reducer flexible para Q2, Q3 y Q4.
-    Combina los resultados parciales del GrouperV2, agrupando por prefijo de archivo (ej. '2024_01'),
-    y genera un archivo reducido por grupo dentro del output_dir.
+    Distributed reducer for combining partial aggregation results.
+    
+    Receives notification signals from groupers, combines partial results from multiple
+    replicas, and produces final reduced output files. Supports query-specific reduction
+    strategies (Q2: item aggregation, Q3: store TPV, Q4: user visit counts).
+    
+    Architecture:
+        - Input: Notification signals with request_id
+        - Reads: Partial CSV files from grouper replicas
+        - Groups: Files by common prefix (e.g., month, semester)
+        - Combines: Aggregates values using query-specific logic
+        - Output: Final reduced CSV files per group
+    
+    Attributes:
+        input_dir (str): Base directory for partial files from groupers.
+        output_dir (str): Base directory for final reduced files.
+        reducer_mode (str): Query type ('q2', 'q3', 'q4').
+        current_request_id (int): Latest request ID processed.
+    
+    Example:
+        Environment setup:
+        >>> REDUCER_MODE=q2
+        >>> INPUT_DIR=/app/temp/grouper_q2
+        >>> OUTPUT_DIR=/app/temp/reduced_q2
+        
+        Input structure:
+        /app/temp/grouper_q2/req-123/
+            replica-1/
+                2024-01_replica-1.csv: item1,10,50.0\nitem2,5,25.0
+                2024-02_replica-1.csv: item1,8,40.0
+            replica-2/
+                2024-01_replica-2.csv: item1,12,60.0
+        
+        Output after reduction:
+        /app/temp/reduced_q2/req-123/
+            2024-01.csv: item1,22,110.0\nitem2,5,25.0
+            2024-02.csv: item1,8,40.0
     """
 
     def __init__(self, queue_in, queue_out, rabbitmq_host, input_dir, output_dir, reducer_mode="q2"):
+        """
+        Initialize reducer with directories and query mode.
+        
+        Args:
+            queue_in (str): Queue name for notification signals.
+            queue_out (str): Completion queue for downstream notifications.
+            rabbitmq_host (str): RabbitMQ server hostname.
+            input_dir (str): Directory containing partial files from groupers.
+            output_dir (str): Directory for final reduced files.
+            reducer_mode (str, optional): Query type ('q2', 'q3', 'q4'). Defaults to 'q2'.
+        
+        Example:
+            >>> reducer = ReducerV2(
+            ...     queue_in='reducer_notifications_q2',
+            ...     queue_out='sorter_q2',
+            ...     rabbitmq_host='rabbitmq',
+            ...     input_dir='/app/temp/grouper_q2',
+            ...     output_dir='/app/temp/reduced_q2',
+            ...     reducer_mode='q2'
+            ... )
+        """
         super().__init__(queue_in, queue_out, rabbitmq_host)
         self.input_dir = input_dir
         self.output_dir = output_dir
@@ -24,14 +79,33 @@ class ReducerV2(SignalProcessingWorker):
 
         os.makedirs(self.output_dir, exist_ok=True)
 
-    # ======================================================
-    # CORE: Ejecutado al recibir señal NOTI
-    # ======================================================
-
     def _process_signal(self, request_id):
         """
-        Reúne todos los CSV parciales de cada réplica para un request_id,
-        los combina y genera los archivos reducidos en output_dir/<request_id>/.
+        Process notification signal by combining partial results from all replicas.
+        
+        Groups partial CSV files by prefix, applies query-specific reduction logic,
+        and writes final reduced files. Sends completion notification downstream.
+        
+        Args:
+            request_id (str): Request identifier.
+        
+        Example:
+            Input: Notification signal for req-123
+            
+            Reads from:
+            /app/temp/grouper_q2/req-123/
+                replica-1/2024-01_replica-1.csv
+                replica-1/2024-02_replica-1.csv
+                replica-2/2024-01_replica-2.csv
+            
+            Groups by prefix:
+            - 2024-01: [replica-1 file, replica-2 file]
+            - 2024-02: [replica-1 file]
+            
+            Writes to:
+            /app/temp/reduced_q2/req-123/
+                2024-01.csv
+                2024-02.csv
         """
         base_input = self.input_dir
         base_output = self.output_dir
@@ -53,18 +127,16 @@ class ReducerV2(SignalProcessingWorker):
 
         logging.info(f"[Reducer {self.reducer_mode.upper()}] Iniciando reducción para request_id={request_id} ({len(replicas)} réplicas detectadas)")
 
-        # Crear carpeta de salida específica del request
         output_request_dir = os.path.join(base_output, str(request_id))
         os.makedirs(output_request_dir, exist_ok=True)
 
-        # Agrupar archivos por prefijo común (antes del "_replica")
         groups = defaultdict(list)
 
         for replica_dir in replicas:
             for filename in os.listdir(replica_dir):
                 if not filename.endswith(".csv"):
                     continue
-                prefix = "_".join(filename.split("_")[:-1])  # ej: 2024-05 o 1 o 2024-H1_6
+                prefix = "_".join(filename.split("_")[:-1])
                 groups[prefix].append(os.path.join(replica_dir, filename))
 
         logging.info(f"[Reducer {self.reducer_mode.upper()}] Se encontraron {len(groups)} grupos para combinar.")
@@ -84,7 +156,6 @@ class ReducerV2(SignalProcessingWorker):
                 logging.error(f"[Reducer] Modo desconocido: {self.reducer_mode}")
                 return
 
-            # Guardar el resultado del grupo en la carpeta del request
             output_path = os.path.join(output_request_dir, f"{prefix}.csv")
 
             try:
@@ -100,16 +171,23 @@ class ReducerV2(SignalProcessingWorker):
         logging.info(f"[Reducer {self.reducer_mode.upper()}] Reducción completa para request_id={request_id}.")
         self._notify_completion(DATA_TYPE, request_id)
 
-
-        
-
-    # ======================================================
-    # Lógicas de reducción
-    # ======================================================
-
     def _reduce_q2(self, filepaths):
         """
-        item_id, quantity, subtotal → suma total por item_id.
+        Q2 reduction: sum quantity and subtotal by item_id.
+        
+        Args:
+            filepaths (list): List of partial CSV file paths.
+        
+        Returns:
+            list: List of tuples (item_id, total_quantity, total_subtotal).
+        
+        Example:
+            Input files:
+            - file1.csv: item1,10,50.0\nitem2,5,25.0
+            - file2.csv: item1,12,60.0\nitem3,8,40.0
+            
+            Output:
+            [(item1, 22, 110.0), (item2, 5, 25.0), (item3, 8, 40.0)]
         """
         combined = defaultdict(lambda: [0, 0.0])
         for fpath in filepaths:
@@ -129,9 +207,25 @@ class ReducerV2(SignalProcessingWorker):
 
     def _reduce_q3(self, filepaths):
         """
-        Merge de archivos parciales Q3:
-        Cada archivo contiene un único valor numérico (TPV parcial).
-        Se suman todos los valores y se devuelve un único total.
+        Q3 reduction: sum all partial TPV values with precision rounding.
+        
+        Each file contains a single numeric value (partial TPV). Sums all values
+        and rounds to 2 decimal places if needed to avoid floating-point errors.
+        
+        Args:
+            filepaths (list): List of partial CSV file paths.
+        
+        Returns:
+            list: Single-row list containing the total TPV [[total]].
+        
+        Example:
+            Input files:
+            - file1.csv: 1234.56
+            - file2.csv: 789.12
+            - file3.csv: 456.78
+            
+            Output:
+            [[2480.46]]
         """
         total = 0.0
 
@@ -147,20 +241,32 @@ class ReducerV2(SignalProcessingWorker):
                 logging.error(f"[Reducer Q3] Error leyendo {fpath}: {e}")
 
         logging.info(f"[Reducer Q3] Total combinado: {total}")
-        # Detectar si tiene más de 2 decimales y redondear en ese caso
         s = f"{total:.10f}".rstrip('0').rstrip('.')
         if '.' in s and len(s.split('.')[1]) > 2:
             total = int(total * 100 + 0.5) / 100.0
         logging.info(f"[Reducer Q3] Total redondeado: {total}")
 
-        # Devolvemos directamente el número total como lista de una sola fila
         return [[total]]
 
 
 
     def _reduce_q4(self, filepaths):
         """
-        store_id → user_id,count → suma total por user_id.
+        Q4 reduction: sum visit counts by user_id.
+        
+        Args:
+            filepaths (list): List of partial CSV file paths.
+        
+        Returns:
+            list: List of tuples (user_id, total_count).
+        
+        Example:
+            Input files:
+            - file1.csv: user1,5\nuser2,3
+            - file2.csv: user1,7\nuser3,2
+            
+            Output:
+            [(user1, 12), (user2, 3), (user3, 2)]
         """
         combined = defaultdict(int)
         for fpath in filepaths:
@@ -178,14 +284,27 @@ class ReducerV2(SignalProcessingWorker):
         return [(user_id, count) for user_id, count in combined.items()]
 
 
-# ======================================================
-# MAIN
-# ======================================================
-
 if __name__ == "__main__":
     import configparser
 
     def create_reducer_v2():
+        """
+        Factory function to create ReducerV2 from environment configuration.
+        
+        Environment Variables:
+            RABBITMQ_HOST: RabbitMQ server hostname (default: rabbitmq).
+            QUEUE_IN: Input queue for notification signals.
+            COMPLETION_QUEUE: Output queue for completion notifications.
+            REDUCER_MODE: Query type ('q2', 'q3', 'q4', default: 'q2').
+            INPUT_DIR: Directory with partial grouper files (default: /app/temp/grouper_{mode}).
+            OUTPUT_DIR: Directory for reduced files (default: /app/temp/reduced_{mode}).
+        
+        Returns:
+            ReducerV2: Configured reducer instance.
+        
+        Example:
+            >>> REDUCER_MODE=q2 QUEUE_IN=reducer_q2 python reducer.py
+        """
         config_path = os.path.join(os.path.dirname(__file__), "config.ini")
         config = configparser.ConfigParser()
         config.read(config_path)

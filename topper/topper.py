@@ -1,39 +1,120 @@
 import os
-import sys
-import signal
-import threading
 import configparser
 import csv
 import heapq
 import logging
-import time
-from middleware.coffeeMiddleware import CoffeeMessageMiddlewareQueue
 from shared import protocol
-from shared.logging_config import initialize_log
 from shared.worker import Worker
 
-# Load configuration
 config_path = os.path.join(os.path.dirname(__file__), 'config.ini')
 config = configparser.ConfigParser()
 config.read(config_path)
 
-# Allow environment variable override for BASE_TEMP_DIR
 BASE_TEMP_DIR = os.environ.get('BASE_TEMP_DIR', config['topper']['base_temp_dir'])
 os.makedirs(BASE_TEMP_DIR, exist_ok=True)
 
 class Topper(Worker):
+    """
+    Top-N selection worker for processing aggregated CSV files.
+    
+    Processes sorted CSV files from reducers to extract top N entries by value.
+    Supports multiple query modes (Q2: top items by quantity/subtotal, Q3: top stores by TPV,
+    Q4: top users by purchases). Uses per-request directories for isolation and atomic writes
+    for crash consistency.
+    
+    Architecture:
+        1. Receives completion notification from reducer
+        2. Reads all CSV files from request-specific input directory
+        3. Uses min-heaps to efficiently track top N entries per metric
+        4. Writes consolidated top N results atomically
+        5. Sends completion notification to next stage
+    
+    Attributes:
+        queue_in (str): Input notification queue name.
+        input_dir (str): Base input directory for CSV files.
+        output_file (str): Base output file path.
+        top_n (int): Number of top entries to select.
+        topper_mode (str): Query mode ('Q2', 'Q3', 'Q4').
+        completion_queue_name (str): Output notification queue.
+        base_output_dir (str): Base directory for per-request outputs.
+        output_dir (str): Request-specific output directory (set on message).
+        current_request_id (int): Active request identifier.
+    
+    Example:
+        ```python
+        # Environment setup
+        os.environ['QUEUE_IN'] = 'topper_q2_signal'
+        os.environ['INPUT_DIR'] = '/app/temp/reducer_q2'
+        os.environ['OUTPUT_FILE'] = '/app/output/q2_top3.csv'
+        os.environ['TOP_N'] = '3'
+        os.environ['TOPPER_MODE'] = 'Q2'
+        os.environ['COMPLETION_QUEUE'] = 'joiner_signal'
+        
+        # Create topper
+        topper = Topper(
+            'topper_q2_signal',
+            '/app/temp/reducer_q2',
+            '/app/output/q2_top3.csv',
+            'rabbitmq',
+            3,
+            'Q2',
+            'joiner_signal'
+        )
+        
+        # Start processing
+        topper.start()
+        
+        # Input: /app/temp/reducer_q2/req-123/202401.csv
+        #   item_id,quantity,subtotal
+        #   100,1500,45000.00
+        #   101,1200,38000.00
+        #   ...
+        
+        # Output: /app/temp/topper_q2/req-123/q2_top.csv
+        #   month_year,quantity_or_subtotal,item_id,quantity,subtotal
+        #   202401,quantity,100,1500,45000.00
+        #   202401,quantity,101,1200,38000.00
+        #   202401,quantity,98,1100,35000.00
+        #   202401,subtotal,100,1500,45000.00
+        #   202401,subtotal,102,900,42000.00
+        #   202401,subtotal,101,1200,38000.00
+        ```
+    """
 
     def __init__(self, queue_in, input_dir, output_file, rabbitmq_host, top_n, topper_mode, completion_queue):
+        """
+        Initialize Topper with query configuration.
+        
+        Args:
+            queue_in (str): Input notification queue name.
+            input_dir (str): Base input directory for CSV files.
+            output_file (str): Base output file path.
+            rabbitmq_host (str): RabbitMQ hostname.
+            top_n (int): Number of top entries to select.
+            topper_mode (str): Query mode ('Q2', 'Q3', 'Q4').
+            completion_queue (str): Output notification queue.
+        
+        Example:
+            ```python
+            topper = Topper(
+                'topper_q2_signal',
+                '/app/temp/reducer_q2',
+                '/app/output/q2_top3.csv',
+                'rabbitmq',
+                3,
+                'Q2',
+                'joiner_signal'
+            )
+            ```
+        """
         super().__init__(queue_in, completion_queue, rabbitmq_host)
         self.input_dir = input_dir
         self.top_n = top_n
         self.completion_queue_name = completion_queue
         self.query_id = queue_in
-        # Store base paths for request_id-based subdirectory creation
         self.base_output_dir = os.path.join(BASE_TEMP_DIR, self.query_id)
         self.base_output_file = output_file
         self.output_filename = os.path.basename(output_file)
-        # These will be set when request_id is received
         self.output_dir = None
         self.output_file = None
         self.topper_mode = topper_mode
@@ -41,8 +122,22 @@ class Topper(Worker):
         self.request_id_initialized = False
 
     def _initialize_request_paths(self, request_id):
-        """Initialize output paths with request_id subdirectory"""
-
+        """
+        Initialize per-request directory structure.
+        
+        Creates request-specific output directory for result isolation.
+        Ensures each request has independent output paths.
+        
+        Args:
+            request_id (int): Request identifier.
+        
+        Example:
+            ```python
+            topper._initialize_request_paths(123)
+            # Creates: /app/temp/topper_q2/123/
+            # Sets: topper.output_dir = '/app/temp/topper_q2/123'
+            ```
+        """
         if not hasattr(self, "_initialized_requests"):
             self._initialized_requests = set()
 
@@ -52,16 +147,12 @@ class Topper(Worker):
 
         self._initialized_requests.add(request_id)
 
-        
-        # Crear input específico del request
         request_input_dir = os.path.join(self.input_dir, str(request_id))
         if not os.path.exists(request_input_dir):
             logging.warning(f"[Topper] Input directory for request_id={request_id} not found: {request_input_dir}")
         else:
             logging.info(f"[Topper] Using input directory for request_id={request_id}: {request_input_dir}")
 
-
-        # Create request_id-based paths
         self.output_dir = os.path.join(self.base_output_dir, str(request_id))
         os.makedirs(self.output_dir, exist_ok=True)
         
@@ -71,10 +162,37 @@ class Topper(Worker):
         print(f"[Topper]   Output file: {self.output_file}")
 
     def _process_message(self, message, msg_type, data_type, request_id, position, payload, queue_name=None):
-        """Process completion signals to start CSV processing"""
+        """
+        Process completion notifications to start top-N selection.
+        
+        Routes to query-specific processing based on topper_mode.
+        Initializes request paths and dispatches to Q2/Q3/Q4 handlers.
+        
+        Args:
+            message (bytes): Raw message.
+            msg_type (str): Message type (expects MSG_TYPE_NOTI).
+            data_type (str): Data type (expects DATA_END).
+            request_id (int): Request identifier.
+            position (int): Message position.
+            payload (bytes): Message payload.
+            queue_name (str, optional): Source queue.
+        
+        Example:
+            ```python
+            # Reducer sends: NOTI|DATA_END|req_id=123|pos=0|payload=b''
+            topper._process_message(
+                message=b'...',
+                msg_type='NOTI',
+                data_type='DATA_END',
+                request_id=123,
+                position=0,
+                payload=b''
+            )
+            # Triggers: process_csv_files_Q2('/app/temp/reducer_q2/123')
+            ```
+        """
         self.current_request_id = request_id
 
-        # Initialize request-specific paths
         self._initialize_request_paths(request_id)
 
         request_input_dir = os.path.join(self.input_dir, str(request_id))
@@ -92,7 +210,29 @@ class Topper(Worker):
 
 
     def _get_csv_files(self, directory):
-        """Devuelve lista ordenada de archivos CSV en input_dir"""
+        """
+        Get sorted list of CSV files from directory.
+        
+        Lists all .csv files and sorts them numerically by filename stem.
+        Handles missing directories and invalid filenames gracefully.
+        
+        Args:
+            directory (str): Directory path to scan.
+        
+        Returns:
+            list[str]: Sorted list of CSV filenames.
+        
+        Example:
+            ```python
+            # Directory: /app/temp/reducer_q2/123/
+            #   202401.csv
+            #   202402.csv
+            #   202501.csv
+            
+            csv_files = topper._get_csv_files('/app/temp/reducer_q2/123')
+            # Returns: ['202401.csv', '202402.csv', '202501.csv']
+            ```
+        """
         if not os.path.exists(directory):
             print(f"[Topper] Input directory does not exist: {directory}")
             return []
@@ -108,7 +248,6 @@ class Topper(Worker):
             print(f"[Topper] No CSV files found in {directory}")
             return []
 
-        # Orden numérica de archivos
         def numeric_sort_key(filename):
             try:
                 return int(os.path.splitext(filename)[0])
@@ -121,8 +260,43 @@ class Topper(Worker):
 
     def _process_file(self, directory, csv_filename, columns):
         """
-        Procesa un CSV y devuelve las filas top N para cada columna en `columns`.
-        columns: lista de (index_col, etiqueta) → ej: [(1, "TOP_BY_COL1"), (2, "TOP_BY_COL2")]
+        Extract top N entries per column using min-heaps.
+        
+        Processes CSV file to find top N entries by value for specified columns.
+        Uses min-heap for efficient top-N tracking (O(N log k) space).
+        
+        Args:
+            directory (str): Directory containing CSV file.
+            csv_filename (str): CSV filename.
+            columns (list[tuple]): List of (column_index, label) tuples.
+        
+        Returns:
+            list[list]: Rows with [filename_stem, label, ...original_row].
+        
+        Example:
+            ```python
+            # Input: 202401.csv
+            #   item_id,quantity,subtotal
+            #   100,1500,45000.00
+            #   101,1200,38000.00
+            #   102,900,42000.00
+            
+            results = topper._process_file(
+                '/app/temp/reducer_q2/123',
+                '202401.csv',
+                [(1, 'quantity'), (2, 'subtotal')]
+            )
+            
+            # Returns (top_n=3):
+            # [
+            #   ['202401', 'quantity', '100', '1500', '45000.00'],
+            #   ['202401', 'quantity', '101', '1200', '38000.00'],
+            #   ['202401', 'quantity', '102', '900', '42000.00'],
+            #   ['202401', 'subtotal', '100', '1500', '45000.00'],
+            #   ['202401', 'subtotal', '102', '900', '42000.00'],
+            #   ['202401', 'subtotal', '101', '1200', '38000.00']
+            # ]
+            ```
         """
         filename_without_ext = os.path.splitext(csv_filename)[0]
         csv_file_path = os.path.join(directory, csv_filename)
@@ -161,7 +335,35 @@ class Topper(Worker):
         return results
 
     def _write_output(self, all_rows, header=None, output_path=None):
-        """Escribe las filas al archivo de salida usando atomic_write y manda signal si corresponde"""
+        """
+        Write top-N results atomically and send completion notification.
+        
+        Uses atomic_write for crash-consistent output. Creates output directory if needed.
+        Sends completion notification to next stage after successful write.
+        
+        Args:
+            all_rows (list[list]): Rows to write.
+            header (list[str], optional): CSV header row.
+            output_path (str, optional): Override output path.
+        
+        Example:
+            ```python
+            rows = [
+                ['202401', 'quantity', '100', '1500', '45000.00'],
+                ['202401', 'quantity', '101', '1200', '38000.00'],
+                ['202401', 'quantity', '102', '900', '42000.00']
+            ]
+            
+            topper._write_output(
+                rows,
+                ['month_year', 'quantity_or_subtotal', 'item_id', 'quantity', 'subtotal'],
+                '/app/temp/topper_q2/123/q2_top.csv'
+            )
+            
+            # Writes atomically to temp file, then renames
+            # Sends completion notification to next stage
+            ```
+        """
         if not all_rows:
             print("[Topper] No data to process")
             return
@@ -170,7 +372,6 @@ class Topper(Worker):
         output_dir = os.path.dirname(output_file)
         os.makedirs(output_dir, exist_ok=True)
 
-        # Define write function for atomic operation
         def write_func(temp_path):
             with open(temp_path, 'w', newline='', encoding='utf-8') as f:
                 csv_writer = csv.writer(f)
@@ -178,7 +379,6 @@ class Topper(Worker):
                     csv_writer.writerow(header)
                 csv_writer.writerows(all_rows)
         
-        # Use atomic_write to guarantee safe write
         Worker.atomic_write(output_file, write_func)
 
         print(f"[Topper] Successfully created output file: {output_file}")
@@ -189,6 +389,35 @@ class Topper(Worker):
 
 
     def process_csv_files_Q2(self, request_input_dir):
+        """
+        Process Q2: Top N items by quantity and subtotal per month.
+        
+        Extracts top N entries from each month's aggregated data.
+        Processes columns 1 (quantity) and 2 (subtotal) separately.
+        
+        Args:
+            request_input_dir (str): Request-specific input directory.
+        
+        Example:
+            ```python
+            # Input: /app/temp/reducer_q2/123/202401.csv
+            #   item_id,quantity,subtotal
+            #   100,1500,45000.00
+            #   101,1200,38000.00
+            #   102,900,42000.00
+            
+            topper.process_csv_files_Q2('/app/temp/reducer_q2/123')
+            
+            # Output: /app/temp/topper_q2/123/q2_top.csv
+            #   month_year,quantity_or_subtotal,item_id,quantity,subtotal
+            #   202401,quantity,100,1500,45000.00
+            #   202401,quantity,101,1200,38000.00
+            #   202401,quantity,102,900,42000.00
+            #   202401,subtotal,100,1500,45000.00
+            #   202401,subtotal,102,900,42000.00
+            #   202401,subtotal,101,1200,38000.00
+            ```
+        """
         csv_files = self._get_csv_files(request_input_dir)
         if not csv_files:
             return
@@ -203,6 +432,31 @@ class Topper(Worker):
         self._write_output(all_rows, ['month_year','quantity_or_subtotal','item_id','quantity','subtotal'], output_path)
 
     def process_csv_files_Q3(self, request_input_dir):
+        """
+        Process Q3: Collect store TPV per half-year.
+        
+        Reads single-value TPV files with naming format: year_half_store_id.csv.
+        Parses filename to extract year_half and store_id, reads TPV value.
+        
+        Args:
+            request_input_dir (str): Request-specific input directory.
+        
+        Example:
+            ```python
+            # Input files:
+            #   /app/temp/reducer_q3/123/2024-H1_6.csv → "125000.50"
+            #   /app/temp/reducer_q3/123/2024-H1_8.csv → "98000.75"
+            #   /app/temp/reducer_q3/123/2024-H2_6.csv → "142000.25"
+            
+            topper.process_csv_files_Q3('/app/temp/reducer_q3/123')
+            
+            # Output: /app/temp/topper_q3/123/q3_top.csv
+            #   year_half_created_at,store_id,tpv
+            #   2024-H1,6,125000.50
+            #   2024-H1,8,98000.75
+            #   2024-H2,6,142000.25
+            ```
+        """
         csv_files = self._get_csv_files(request_input_dir)
         if not csv_files:
             return
@@ -210,32 +464,27 @@ class Topper(Worker):
         all_rows = []
         for csv_filename in csv_files:
             print(f"[Topper-Q3] Processing file: {csv_filename}")
-            # Parse filename: format is like "2024-H1_6.csv"
-            filename_without_ext = os.path.splitext(csv_filename)[0]  # "2024-H1_6"
+            filename_without_ext = os.path.splitext(csv_filename)[0]
             
-            # Split by underscore to get year_half and store_id
             parts = filename_without_ext.split('_')
             if len(parts) < 2:
                 print(f"[Topper-Q3] Skipping file with invalid name format: {csv_filename}")
                 continue
                 
-            year_half = parts[0]  # "2024-H1"
-            store_id = parts[1]   # "6"
+            year_half = parts[0]
+            store_id = parts[1]
             
-            # Read the TPV value from the file
             csv_file_path = os.path.join(request_input_dir, csv_filename)
             try:
                 with open(csv_file_path, 'r', newline='', encoding='utf-8') as f:
                     tpv_str = f.read().strip()
                     if tpv_str:
-                        # Parse TPV as float and format to 2 decimal places
                         try:
                             tpv_float = float(tpv_str)
                             tpv = f"{tpv_float:.2f}"
                         except ValueError:
                             print(f"[Topper-Q3] Warning: Invalid TPV value '{tpv_str}' in file {csv_filename}, using as-is")
                             tpv = tpv_str
-                        # Create row: [year_half_created_at, store_id, tpv]
                         all_rows.append([year_half, store_id, tpv])
                         print(f"[Topper-Q3] Added row: {year_half}, {store_id}, {tpv}")
             except Exception as e:
@@ -245,6 +494,32 @@ class Topper(Worker):
         self._write_output(all_rows, ['year_half_created_at', 'store_id', 'tpv'], output_path)
 
     def process_csv_files_Q4(self, request_input_dir):
+        """
+        Process Q4: Top N users by purchase quantity per store.
+        
+        Extracts top N users by purchases_qty from each store's aggregated data.
+        Removes the 'quantity' label column from output.
+        
+        Args:
+            request_input_dir (str): Request-specific input directory.
+        
+        Example:
+            ```python
+            # Input: /app/temp/reducer_q4/123/store_6.csv
+            #   purchases_qty,user_id
+            #   45,user_100
+            #   38,user_101
+            #   32,user_102
+            
+            topper.process_csv_files_Q4('/app/temp/reducer_q4/123')
+            
+            # Output: /app/temp/topper_q4/123/q4_top.csv
+            #   store_id,purchases_qty,user_id
+            #   store_6,45,user_100
+            #   store_6,38,user_101
+            #   store_6,32,user_102
+            ```
+        """
         csv_files = self._get_csv_files(request_input_dir)
         if not csv_files:
             return
@@ -259,7 +534,18 @@ class Topper(Worker):
         self._write_output(all_rows, ['store_id', 'purchases_qty', 'user_id'], output_path)
 
     def _send_completion_signal(self):
-        """Send completion signal to the next stage if completion queue is configured"""
+        """
+        Send completion notification to next stage.
+        
+        Sends DATA_END notification with current request_id to completion queue.
+        Signals downstream workers that top-N results are ready.
+        
+        Example:
+            ```python
+            topper._send_completion_signal()
+            # Sends to joiner_signal: NOTI|DATA_END|req_id=123|pos=0|payload=b''
+            ```
+        """
         if self.out_queues:
             try:
                 logging.info(f"[Topper:{self.query_id}] Sending completion signal to {self.completion_queue_name} with request_id={self.current_request_id}")
@@ -271,7 +557,41 @@ class Topper(Worker):
 
 if __name__ == '__main__':
     def create_topper():
-        # Configure via environment variables
+        """
+        Factory function for creating a Topper instance.
+        
+        Loads configuration from environment variables.
+        Creates topper worker for top-N selection.
+        
+        Environment Variables:
+            QUEUE_IN: Input notification queue (default: 'topper_q4_signal')
+            INPUT_DIR: Input directory for CSV files (default: '/app/temp/transactions_filtered_Q4')
+            OUTPUT_FILE: Base output file path (default: '/app/output/q4_top3.csv')
+            TOP_N: Number of top entries (default: 3)
+            TOPPER_MODE: Query mode 'Q2'/'Q3'/'Q4' (default: 'Q2')
+            RABBITMQ_HOST: RabbitMQ hostname (default: 'rabbitmq')
+            COMPLETION_QUEUE: Output notification queue
+        
+        Returns:
+            Topper: Configured topper instance.
+        
+        Example:
+            ```python
+            # Environment setup
+            os.environ['QUEUE_IN'] = 'topper_q2_signal'
+            os.environ['INPUT_DIR'] = '/app/temp/reducer_q2'
+            os.environ['OUTPUT_FILE'] = '/app/output/q2_top3.csv'
+            os.environ['TOP_N'] = '3'
+            os.environ['TOPPER_MODE'] = 'Q2'
+            os.environ['COMPLETION_QUEUE'] = 'joiner_signal'
+            
+            # Create topper
+            topper = create_topper()
+            
+            # Start processing (called by run_worker_main)
+            topper.start()
+            ```
+        """
         queue_in = os.environ.get('QUEUE_IN', 'topper_q4_signal')
         input_dir = os.environ.get('INPUT_DIR', '/app/temp/transactions_filtered_Q4')
         output_file = os.environ.get('OUTPUT_FILE', '/app/output/q4_top3.csv')
@@ -282,6 +602,5 @@ if __name__ == '__main__':
 
         return Topper(queue_in, input_dir, output_file, rabbitmq_host, top_n, topper_mode, completion_queue)
     
-    # Use the Worker base class main entry point
     config_path = os.path.join(os.path.dirname(__file__), 'config.ini')
     Topper.run_worker_main(create_topper, config_path)

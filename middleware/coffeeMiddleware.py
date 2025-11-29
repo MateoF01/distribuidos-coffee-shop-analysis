@@ -13,7 +13,6 @@ from middleware.base import (
   MessageMiddlewareDeleteError
 )
 
-# Load config from config.ini
 config = configparser.ConfigParser()
 config.read("middleware/config.ini")
 
@@ -33,9 +32,27 @@ RABBITMQ_CREDENTIALS = {
   "heartbeat": int(config["RABBITMQ"].get("heartbeat", 300))
 }
 
-# Read all timeout configurations
 def read_timeout_config(section, key, default_value):
-  """Helper function to read timeout values with error handling"""
+  """
+  Read timeout configuration values with error handling and type conversion.
+  
+  Args:
+      section (str): Configuration file section name.
+      key (str): Configuration key within the section.
+      default_value (float): Default value if key not found or parsing fails.
+  
+  Returns:
+      float: Timeout value in seconds.
+  
+  Example:
+      >>> read_timeout_config("TIMEOUTS", "startup-timeout", 5.0)
+      DEBUG: Read TIMEOUTS.startup-timeout: 5.0 -> 5.0
+      5.0
+      
+      >>> read_timeout_config("TIMEOUTS", "missing-key", 10.0)
+      DEBUG: Read TIMEOUTS.missing-key: 10.0 -> 10.0
+      10.0
+  """
   try:
     value_str = config[section].get(key, str(default_value))
     value = float(value_str)
@@ -45,7 +62,6 @@ def read_timeout_config(section, key, default_value):
     print(f"DEBUG: Error reading {section}.{key}: {e}, using default {default_value}")
     return default_value
 
-# Timeout configurations
 TIMEOUTS = {
   "startup": read_timeout_config("TIMEOUTS", "startup-timeout", 5.0),
   "consumer_graceful_shutdown": read_timeout_config("TIMEOUTS", "consumer-graceful-shutdown", 5.0),
@@ -54,12 +70,27 @@ TIMEOUTS = {
   "data_events_time_limit": read_timeout_config("TIMEOUTS", "data-events-time-limit", 0.1)
 }
 
-# Legacy support for existing consumer config
 CONSUMER_CONFIG = {
   "startup_timeout": TIMEOUTS["startup"]
 }
 
 class ConnectionState(Enum):
+  """
+  Enumeration of possible connection states for RabbitMQ connections.
+  
+  States:
+      DISCONNECTED: No active connection to RabbitMQ.
+      CONNECTED: Connection established, ready for operations.
+      CONSUMING: Actively consuming messages from a queue.
+      DISCONNECTING: In the process of gracefully closing the connection.
+  
+  Example:
+      >>> state = ConnectionState.CONNECTED
+      >>> state.value
+      'connected'
+      >>> state == ConnectionState.CONNECTED
+      True
+  """
   DISCONNECTED = "disconnected"
   CONNECTED = "connected"
   CONSUMING = "consuming"
@@ -68,20 +99,31 @@ class ConnectionState(Enum):
 class CoffeeMessageMiddlewareQueue(MessageMiddlewareQueue):
 
   def __init__(self, host, queue_name):
+    """
+    Initialize a new queue connection with separate publisher and consumer channels.
+    
+    Args:
+        host (str): RabbitMQ server hostname or IP address.
+        queue_name (str): Name of the queue to connect to.
+    
+    Example:
+        >>> queue = CoffeeMessageMiddlewareQueue('localhost', 'my_queue')
+        >>> queue.queue_name
+        'my_queue'
+        >>> queue.host
+        'localhost'
+    """
     self.queue_name = queue_name
     self.host = host
     
-    # Thread-safe state management
     self._state_lock = threading.RLock()
     self._state = ConnectionState.DISCONNECTED
     
-    # Separate connections for publish and consume to avoid races
     self._publisher_connection = None
     self._publisher_channel = None
     self._consumer_connection = None
     self._consumer_channel = None
     
-    # Consumer thread management with proper synchronization
     self._consumer_thread = None
     self._consumer_stop_event = threading.Event()
     self._consumer_ready_event = threading.Event()
@@ -90,7 +132,26 @@ class CoffeeMessageMiddlewareQueue(MessageMiddlewareQueue):
     self._initialize_connections()
 
   def _initialize_connections(self):
-    """Initialize separate connections for publisher and consumer with retry logic"""
+    """
+    Initialize separate RabbitMQ connections for publishing and consuming with retry logic.
+    
+    Creates two independent connections:
+    - Publisher connection: Used for sending messages with publisher confirms enabled
+    - Consumer connection: Dedicated to consuming messages in a separate thread
+    
+    This separation prevents race conditions and improves thread safety. The method
+    retries up to 10 times with 3-second delays if RabbitMQ is not immediately available.
+    
+    Raises:
+        MessageMiddlewareDisconnectedError: If connection fails after all retries.
+    
+    Example:
+        >>> queue = CoffeeMessageMiddlewareQueue('rabbitmq', 'test_queue')
+        RabbitMQ not ready, retrying (1/10)...
+        [Connection succeeds on retry]
+        >>> queue._state == ConnectionState.CONNECTED
+        True
+    """
     import time
     credentials = pika.PlainCredentials(
       RABBITMQ_CREDENTIALS["username"], 
@@ -104,18 +165,13 @@ class CoffeeMessageMiddlewareQueue(MessageMiddlewareQueue):
     max_retries = 10
     for attempt in range(max_retries):
       try:
-        # Separate publisher connection (thread-safe for publishing only)
         self._publisher_connection = pika.BlockingConnection(params)
         self._publisher_channel = self._publisher_connection.channel()
-        # Enable publisher confirms for guaranteed delivery
         self._publisher_channel.confirm_delivery()
-        # self._publisher_channel.queue_declare(queue=self.queue_name, durable=True, arguments=QUEUE_ARGS)
         self._publisher_channel.queue_declare(queue=self.queue_name, durable=True)
 
-        # Separate consumer connection (dedicated to consuming only)
         self._consumer_connection = pika.BlockingConnection(params)
         self._consumer_channel = self._consumer_connection.channel()
-        # self._consumer_channel.queue_declare(queue=self.queue_name, durable=True, arguments=QUEUE_ARGS)
         self._consumer_channel.queue_declare(queue=self.queue_name, durable=True)
         with self._state_lock:
           self._state = ConnectionState.CONNECTED
@@ -132,7 +188,28 @@ class CoffeeMessageMiddlewareQueue(MessageMiddlewareQueue):
 
   @contextmanager
   def _state_transition(self, from_states, to_state):
-    """Thread-safe state transitions with rollback on error"""
+    """
+    Thread-safe state transition context manager with automatic rollback on error.
+    
+    Ensures that state transitions are atomic and thread-safe. If an exception occurs
+    during the transition, the state is automatically rolled back to its previous value.
+    
+    Args:
+        from_states (list): List of valid states to transition from.
+        to_state (ConnectionState): Target state to transition to.
+    
+    Yields:
+        ConnectionState: The old state before transition.
+    
+    Raises:
+        RuntimeError: If current state is not in from_states.
+    
+    Example:
+        >>> with queue._state_transition([ConnectionState.CONNECTED], 
+        ...                              ConnectionState.CONSUMING):
+        ...     queue._setup_consumer()
+        [If setup_consumer raises, state rolls back to CONNECTED]
+    """
     with self._state_lock:
       if self._state not in from_states:
         raise RuntimeError(f"Invalid state transition: {self._state} -> {to_state}")
@@ -145,16 +222,35 @@ class CoffeeMessageMiddlewareQueue(MessageMiddlewareQueue):
         raise
 
   def start_consuming(self, on_message_callback):
+    """
+    Start consuming messages from the queue in a background thread.
+    
+    Messages are processed by the provided callback function. The consumer runs in a
+    dedicated thread, allowing the main thread to continue execution. The method blocks
+    until the consumer thread is ready or times out.
+    
+    Args:
+        on_message_callback (callable): Function to call for each message.
+            Should accept one argument: the message body as bytes.
+    
+    Raises:
+        MessageMiddlewareDisconnectedError: If consumer is already running or fails to start.
+    
+    Example:
+        >>> def process_message(body):
+        ...     print(f"Got: {body.decode('utf-8')}")
+        >>> queue.start_consuming(process_message)
+        [Consumer starts in background thread]
+        >>> # Main thread continues execution
+    """
     with self._state_transition([ConnectionState.CONNECTED], ConnectionState.CONSUMING):
       if self._consumer_thread and self._consumer_thread.is_alive():
         raise MessageMiddlewareDisconnectedError("Consumer already running")
       
-      # Reset synchronization events
       self._consumer_stop_event.clear()
       self._consumer_ready_event.clear()
       self._consumer_finished_event.clear()
       
-      # Start consumer in dedicated thread
       self._consumer_thread = threading.Thread(
         target=self._consume_loop, 
         args=(on_message_callback,),
@@ -162,42 +258,50 @@ class CoffeeMessageMiddlewareQueue(MessageMiddlewareQueue):
       )
       self._consumer_thread.start()
       
-      # Wait for consumer to be ready with timeout
       if not self._consumer_ready_event.wait(timeout=CONSUMER_CONFIG["startup_timeout"]):
         self._force_stop_consumer()
         raise MessageMiddlewareDisconnectedError("Consumer failed to start within timeout")
 
   def _consume_loop(self, on_message_callback):
+    """
+    Main consumer loop running in a dedicated thread.
+    
+    Continuously processes messages from the queue until stopped. Handles message
+    acknowledgment and rejection based on callback success/failure. Includes proper
+    cleanup and error handling.
+    
+    Args:
+        on_message_callback (callable): User-provided message processing function.
+    
+    Example:
+        [Internal method called by start_consuming]
+        >>> queue._consume_loop(my_callback)
+        [Runs in background thread until stop_consuming is called]
+    """
     try:
       def callback(ch, method, properties, body):
         try:
           on_message_callback(body)
-          # Check if channel is still open before acknowledging
           if ch and not ch.is_closed:
             ch.basic_ack(delivery_tag=method.delivery_tag)
         except Exception as e:
-          # Try to reject message if channel is still open
           try:
             if ch and not ch.is_closed:
               ch.basic_reject(delivery_tag=method.delivery_tag, requeue=True)
           except:
-            pass  # Ignore rejection errors
+            pass
           raise MessageMiddlewareMessageError(str(e))
 
-      # Check if channel is still available before setting up
       if not self._consumer_channel or self._consumer_channel.is_closed:
         return
 
       self._consumer_channel.basic_qos(prefetch_count=1)
       self._consumer_channel.basic_consume(queue=self.queue_name, on_message_callback=callback)
       
-      # Signal that consumer is ready
       self._consumer_ready_event.set()
       
-      # Start consuming with stop event checking
       while not self._consumer_stop_event.is_set():
         try:
-          # Check if connection is still available before processing
           if not self._consumer_connection or self._consumer_connection.is_closed:
             break
           self._consumer_connection.process_data_events(time_limit=TIMEOUTS["data_events_time_limit"])
@@ -210,34 +314,47 @@ class CoffeeMessageMiddlewareQueue(MessageMiddlewareQueue):
       if not self._consumer_stop_event.is_set():
         print(f"Consumer loop error: {e}")
     finally:
-      # Cancel consuming if channel is still available
       try:
         if self._consumer_channel and not self._consumer_channel.is_closed:
           self._consumer_channel.stop_consuming()
       except:
-        pass  # Ignore cleanup errors
+        pass
       self._consumer_ready_event.clear()
       self._consumer_finished_event.set()
 
   def stop_consuming(self):
-    """Race-condition-free consumer shutdown"""
+    """
+    Stop consuming messages and gracefully shut down the consumer thread.
+    
+    Signals the consumer thread to stop, waits for graceful shutdown with timeouts,
+    and transitions state back to CONNECTED. The method is race-condition-free and
+    idempotent (safe to call multiple times).
+    
+    Raises:
+        MessageMiddlewareDisconnectedError: If error occurs during shutdown.
+    
+    Example:
+        >>> queue.start_consuming(my_callback)
+        >>> # ... messages being processed ...
+        >>> queue.stop_consuming()
+        [Consumer thread stops gracefully]
+        >>> queue._state == ConnectionState.CONNECTED
+        True
+    """
     with self._state_lock:
       if self._state != ConnectionState.CONSUMING:
-        return  # Already stopped or not consuming
+        return
       
       if not self._consumer_thread or not self._consumer_thread.is_alive():
         self._state = ConnectionState.CONNECTED
         return
     
     try:
-      # Signal consumer to stop
       self._consumer_stop_event.set()
       
-      # Wait for consumer thread to finish gracefully
       if not self._consumer_finished_event.wait(timeout=TIMEOUTS["consumer_graceful_shutdown"]):
         print("Warning: Consumer thread did not finish within timeout")
       
-      # Wait for thread to actually terminate
       if self._consumer_thread.is_alive():
         self._consumer_thread.join(timeout=TIMEOUTS["consumer_thread_join"])
       
@@ -250,7 +367,17 @@ class CoffeeMessageMiddlewareQueue(MessageMiddlewareQueue):
       raise MessageMiddlewareDisconnectedError(f"Error stopping consumer: {str(e)}")
 
   def _force_stop_consumer(self):
-    """Force stop consumer on startup failure"""
+    """
+    Force immediate consumer shutdown on startup failure.
+    
+    Used when the consumer fails to start within the timeout period. Does not
+    wait as long as stop_consuming() for graceful shutdown.
+    
+    Example:
+        [Internal method called by start_consuming on timeout]
+        >>> queue._force_stop_consumer()
+        [Consumer thread stopped immediately]
+    """
     self._consumer_stop_event.set()
     if self._consumer_thread and self._consumer_thread.is_alive():
       self._consumer_thread.join(timeout=TIMEOUTS["consumer_force_stop"])
@@ -259,7 +386,35 @@ class CoffeeMessageMiddlewareQueue(MessageMiddlewareQueue):
       self._state = ConnectionState.CONNECTED
 
   def send(self, message):
-    """Thread-safe publishing using dedicated publisher channel - sends raw bytes with confirmed delivery"""
+    """
+    Send a message to the queue with publisher confirms for guaranteed delivery.
+    
+    The message is sent using the dedicated publisher channel with confirm_delivery
+    enabled, ensuring the message is successfully stored by RabbitMQ before returning.
+    Messages are persisted to disk (delivery_mode=2).
+    
+    Args:
+        message (bytes|str): Message to send. Strings are automatically encoded to UTF-8.
+    
+    Raises:
+        MessageMiddlewareDisconnectedError: If not connected or channel unavailable.
+        MessageMiddlewareMessageError: If message cannot be routed or is rejected.
+    
+    Example:
+        Send bytes:
+        >>> queue.send(b'Hello, World!')
+        [Message sent and confirmed]
+        
+        Send string:
+        >>> queue.send('Processing task 42')
+        [String encoded to bytes and sent]
+        
+        Guaranteed delivery:
+        >>> try:
+        ...     queue.send(b'important_data')
+        ... except MessageMiddlewareMessageError:
+        ...     print("Message was not confirmed by broker")
+    """
     with self._state_lock:
       if self._state == ConnectionState.DISCONNECTED:
         raise MessageMiddlewareDisconnectedError("Not connected")
@@ -268,7 +423,6 @@ class CoffeeMessageMiddlewareQueue(MessageMiddlewareQueue):
         raise MessageMiddlewareDisconnectedError("Publisher channel not available")
     
     try:
-      # Convert message to bytes
       if isinstance(message, bytes):
         body = message
       elif isinstance(message, str):
@@ -276,8 +430,6 @@ class CoffeeMessageMiddlewareQueue(MessageMiddlewareQueue):
       else:
         body = str(message).encode('utf-8')
         
-      # basic_publish will now block until confirmation is received from RabbitMQ
-      # If the message cannot be routed or stored, it will raise an exception
       self._publisher_channel.basic_publish(
         exchange='',
         routing_key=self.queue_name,
@@ -298,11 +450,9 @@ class CoffeeMessageMiddlewareQueue(MessageMiddlewareQueue):
       ConnectionState.DISCONNECTING
     ):
       try:
-        # Stop consumer first if running
         if self._state == ConnectionState.CONSUMING:
           self.stop_consuming()
         
-        # Close connections safely
         self._cleanup_connections()
         
         self._state = ConnectionState.DISCONNECTED
@@ -312,8 +462,23 @@ class CoffeeMessageMiddlewareQueue(MessageMiddlewareQueue):
         raise MessageMiddlewareCloseError(str(e))
 
   def delete(self):
+    """
+    Delete the queue from RabbitMQ.
+    
+    The queue must not be actively consuming when deleted. If consuming, stop
+    the consumer first before calling delete.
+    
+    Raises:
+        MessageMiddlewareDeleteError: If queue is consuming, disconnected, or deletion fails.
+    
+    Example:
+        >>> queue.delete()
+        MessageMiddlewareDeleteError: Cannot delete queue while consuming...
+        >>> queue.stop_consuming()
+        >>> queue.delete()
+        [Queue deleted from RabbitMQ]
+    """
     with self._state_lock:
-      # Ensure we're not consuming before deleting
       if self._state == ConnectionState.CONSUMING:
         raise MessageMiddlewareDeleteError("Cannot delete queue while consuming. Stop consuming first.")
       
@@ -321,7 +486,6 @@ class CoffeeMessageMiddlewareQueue(MessageMiddlewareQueue):
         raise MessageMiddlewareDeleteError("Cannot delete queue: not connected")
     
     try:
-      # Use publisher channel for deletion (safer than consumer channel)
       if self._publisher_channel and not self._publisher_channel.is_closed:
         self._publisher_channel.queue_delete(queue=self.queue_name)
       else:
@@ -330,8 +494,17 @@ class CoffeeMessageMiddlewareQueue(MessageMiddlewareQueue):
       raise MessageMiddlewareDeleteError(str(e))
 
   def _cleanup_connections(self):
-    """Safe connection cleanup - only after consumer is stopped"""
-    # Ensure consumer is stopped first
+    """
+    Safely close and cleanup all RabbitMQ connections.
+    
+    Ensures consumer thread is stopped before nullifying connection references
+    to prevent race conditions. Ignores errors during individual connection closures.
+    
+    Example:
+        [Internal method called by close()]
+        >>> queue._cleanup_connections()
+        [All connections closed and references cleared]
+    """
     if self._consumer_thread and self._consumer_thread.is_alive():
       self._consumer_stop_event.set()
       self._consumer_thread.join(timeout=TIMEOUTS["consumer_thread_join"])
@@ -341,7 +514,6 @@ class CoffeeMessageMiddlewareQueue(MessageMiddlewareQueue):
       self._consumer_connection
     ]
     
-    # Only nullify after ensuring consumer thread is stopped
     self._publisher_channel = None
     self._consumer_channel = None
     self._publisher_connection = None
@@ -352,28 +524,83 @@ class CoffeeMessageMiddlewareQueue(MessageMiddlewareQueue):
         try:
           conn.close()
         except:
-          pass  # Ignore cleanup errors
+          pass
 
 
 class CoffeeMessageMiddlewareExchange(MessageMiddlewareExchange):
+  """
+  Thread-safe RabbitMQ exchange implementation for publish/subscribe messaging.
+  
+  This class provides reliable exchange-based messaging with:
+  - Support for fanout and topic exchange types
+  - Exclusive consumer queues (auto-deleted on disconnect)
+  - Separate connections for publishing and consuming
+  - Thread-safe state management
+  - Publisher confirms for guaranteed delivery
+  - Routing key support for topic exchanges
+  
+  Exchanges enable one-to-many message distribution patterns where a single
+  published message is delivered to multiple consumers.
+  
+  Attributes:
+      exchange_name (str): Name of the RabbitMQ exchange.
+      host (str): RabbitMQ server hostname.
+      exchange_type (str): Type of exchange ('fanout' or 'topic').
+      route_keys (list): Routing keys for topic exchanges.
+  
+  Example:
+      Fanout exchange (broadcast to all consumers):
+      >>> exchange = CoffeeMessageMiddlewareExchange(
+      ...     'rabbitmq', 'notifications', route_keys=None
+      ... )
+      >>> exchange.send(b'System alert!')
+      >>> # All consumers receive the message
+      >>> 
+      >>> def on_notification(body):
+      ...     print(f"Alert: {body.decode('utf-8')}")
+      >>> exchange.start_consuming(on_notification)
+      
+      Topic exchange (selective routing):
+      >>> exchange = CoffeeMessageMiddlewareExchange(
+      ...     'rabbitmq', 'events', route_keys=['user.login', 'user.logout']
+      ... )
+      >>> exchange.start_consuming(on_user_event)
+  """
   def __init__(self, host, exchange_name, route_keys):
+    """
+    Initialize a new exchange connection.
+    
+    Args:
+        host (str): RabbitMQ server hostname or IP address.
+        exchange_name (str): Name of the exchange to connect to.
+        route_keys (list): List of routing keys for binding (topic exchanges).
+            Empty or None for fanout exchanges.
+    
+    Example:
+        Fanout exchange:
+        >>> exchange = CoffeeMessageMiddlewareExchange('localhost', 'broadcasts', None)
+        >>> exchange.exchange_type
+        'fanout'
+        
+        Topic exchange:
+        >>> exchange = CoffeeMessageMiddlewareExchange(
+        ...     'localhost', 'events', ['error.*', 'warning.*']
+        ... )
+    """
     self.host = host
     self.exchange_name = exchange_name
     self.route_keys = route_keys or []
     self.exchange_type = config.get("EXCHANGE", "exchange-type", fallback="fanout")
     
-    # Thread-safe state management
     self._state_lock = threading.RLock()
     self._state = ConnectionState.DISCONNECTED
     
-    # Separate connections for publish and consume to avoid races
     self._publisher_connection = None
     self._publisher_channel = None
     self._consumer_connection = None
     self._consumer_channel = None
-    self._queue_name = None  # Exclusive queue for consuming
+    self._queue_name = None
     
-    # Consumer thread management with proper synchronization
     self._consumer_thread = None
     self._consumer_stop_event = threading.Event()
     self._consumer_ready_event = threading.Event()
@@ -382,7 +609,20 @@ class CoffeeMessageMiddlewareExchange(MessageMiddlewareExchange):
     self._initialize_connections()
 
   def _initialize_connections(self):
-    """Initialize separate connections for publisher and consumer"""
+    """
+    Initialize separate RabbitMQ connections and create exclusive consumer queue.
+    
+    Creates publisher and consumer connections, declares the exchange, and creates
+    an exclusive queue for consuming messages. The queue is bound to the exchange
+    using configured routing keys.
+    
+    Raises:
+        MessageMiddlewareDisconnectedError: If connection or setup fails.
+    
+    Example:
+        >>> exchange = CoffeeMessageMiddlewareExchange('rabbitmq', 'test_exchange', [])
+        [Connections initialized, exclusive queue created and bound]
+    """
     try:
       credentials = pika.PlainCredentials(
         RABBITMQ_CREDENTIALS["username"], 
@@ -394,23 +634,19 @@ class CoffeeMessageMiddlewareExchange(MessageMiddlewareExchange):
           heartbeat=RABBITMQ_CREDENTIALS["heartbeat"]
       )
       
-      # Separate publisher connection
       self._publisher_connection = pika.BlockingConnection(params)
       self._publisher_channel = self._publisher_connection.channel()
-      # Enable publisher confirms for guaranteed delivery
       self._publisher_channel.confirm_delivery()
       self._publisher_channel.exchange_declare(exchange=self.exchange_name, exchange_type=self.exchange_type)
       
-      # Separate consumer connection with exclusive queue
       self._consumer_connection = pika.BlockingConnection(params)
       self._consumer_channel = self._consumer_connection.channel()
       self._consumer_channel.exchange_declare(exchange=self.exchange_name, exchange_type=self.exchange_type)
       
-      # Create exclusive queue for consuming
       result = self._consumer_channel.queue_declare(queue='', exclusive=True, arguments=EXCHANGE_QUEUE_ARGS)
       self._queue_name = result.method.queue
       
-      # Bind queue to exchange
+
       if self.exchange_type == 'fanout':
         self._consumer_channel.queue_bind(
           exchange=self.exchange_name,
@@ -432,7 +668,28 @@ class CoffeeMessageMiddlewareExchange(MessageMiddlewareExchange):
 
   @contextmanager
   def _state_transition(self, from_states, to_state):
-    """Thread-safe state transitions with rollback on error"""
+    """
+    Thread-safe state transition context manager with automatic rollback on error.
+    
+    Ensures that state transitions are atomic and thread-safe. If an exception occurs
+    during the transition, the state is automatically rolled back to its previous value.
+    
+    Args:
+        from_states (list): List of valid states to transition from.
+        to_state (ConnectionState): Target state to transition to.
+    
+    Yields:
+        ConnectionState: The old state before transition.
+    
+    Raises:
+        RuntimeError: If current state is not in from_states.
+    
+    Example:
+        >>> with exchange._state_transition([ConnectionState.CONNECTED], 
+        ...                                 ConnectionState.CONSUMING):
+        ...     exchange._setup_consumer()
+        [If setup_consumer raises, state rolls back to CONNECTED]
+    """
     with self._state_lock:
       if self._state not in from_states:
         raise RuntimeError(f"Invalid state transition: {self._state} -> {to_state}")
@@ -445,17 +702,33 @@ class CoffeeMessageMiddlewareExchange(MessageMiddlewareExchange):
         raise
 
   def start_consuming(self, on_message_callback):
-    """Race-condition-free consumer startup"""
+    """
+    Start consuming messages from the exchange in a background thread.
+    
+    Messages published to the exchange are delivered to this consumer's exclusive queue.
+    The consumer runs in a dedicated thread, allowing the main thread to continue execution.
+    
+    Args:
+        on_message_callback (callable): Function to call for each message.
+            Should accept one argument: the message body as bytes.
+    
+    Raises:
+        MessageMiddlewareDisconnectedError: If consumer is already running or fails to start.
+    
+    Example:
+        >>> def on_broadcast(body):
+        ...     print(f"Received: {body.decode('utf-8')}")
+        >>> exchange.start_consuming(on_broadcast)
+        [Consumer starts in background thread]
+    """
     with self._state_transition([ConnectionState.CONNECTED], ConnectionState.CONSUMING):
       if self._consumer_thread and self._consumer_thread.is_alive():
         raise MessageMiddlewareDisconnectedError("Consumer already running")
       
-      # Reset synchronization events
       self._consumer_stop_event.clear()
       self._consumer_ready_event.clear()
       self._consumer_finished_event.clear()
       
-      # Start consumer in dedicated thread
       self._consumer_thread = threading.Thread(
         target=self._consume_loop, 
         args=(on_message_callback,),
@@ -463,43 +736,49 @@ class CoffeeMessageMiddlewareExchange(MessageMiddlewareExchange):
       )
       self._consumer_thread.start()
       
-      # Wait for consumer to be ready with timeout
       if not self._consumer_ready_event.wait(timeout=TIMEOUTS["startup"]):
         self._force_stop_consumer()
         raise MessageMiddlewareDisconnectedError("Consumer failed to start within timeout")
 
   def _consume_loop(self, on_message_callback):
-    """Dedicated consumer loop with proper error handling"""
+    """
+    Main consumer loop running in a dedicated thread for the exchange.
+    
+    Continuously processes messages from the exclusive queue until stopped. Handles
+    message acknowledgment and rejection based on callback success/failure.
+    
+    Args:
+        on_message_callback (callable): User-provided message processing function.
+    
+    Example:
+        [Internal method called by start_consuming]
+        >>> exchange._consume_loop(my_callback)
+        [Runs in background thread until stop_consuming is called]
+    """
     try:
       def callback(ch, method, properties, body):
         try:
           on_message_callback(body)
-          # Check if channel is still open before acknowledging
           if ch and not ch.is_closed:
             ch.basic_ack(delivery_tag=method.delivery_tag)
         except Exception as e:
-          # Try to reject message if channel is still open
           try:
             if ch and not ch.is_closed:
               ch.basic_reject(delivery_tag=method.delivery_tag, requeue=True)
           except:
-            pass  # Ignore rejection errors
+            pass
           raise MessageMiddlewareMessageError(str(e))
 
-      # Check if channel is still available before setting up
       if not self._consumer_channel or self._consumer_channel.is_closed:
         return
 
       self._consumer_channel.basic_qos(prefetch_count=1)
       self._consumer_channel.basic_consume(queue=self._queue_name, on_message_callback=callback)
       
-      # Signal that consumer is ready
       self._consumer_ready_event.set()
       
-      # Start consuming with stop event checking
       while not self._consumer_stop_event.is_set():
         try:
-          # Check if connection is still available before processing
           if not self._consumer_connection or self._consumer_connection.is_closed:
             break
           self._consumer_connection.process_data_events(time_limit=TIMEOUTS["data_events_time_limit"])
@@ -512,34 +791,45 @@ class CoffeeMessageMiddlewareExchange(MessageMiddlewareExchange):
       if not self._consumer_stop_event.is_set():
         print(f"Consumer loop error: {e}")
     finally:
-      # Cancel consuming if channel is still available
       try:
         if self._consumer_channel and not self._consumer_channel.is_closed:
           self._consumer_channel.stop_consuming()
       except:
-        pass  # Ignore cleanup errors
+        pass
       self._consumer_ready_event.clear()
       self._consumer_finished_event.set()
 
   def stop_consuming(self):
-    """Race-condition-free consumer shutdown"""
+    """
+    Stop consuming messages and gracefully shut down the consumer thread.
+    
+    Signals the consumer thread to stop, waits for graceful shutdown with timeouts,
+    and transitions state back to CONNECTED. The method is race-condition-free and
+    idempotent (safe to call multiple times).
+    
+    Raises:
+        MessageMiddlewareDisconnectedError: If error occurs during shutdown.
+    
+    Example:
+        >>> exchange.start_consuming(callback)
+        >>> # ... messages being processed ...
+        >>> exchange.stop_consuming()
+        [Consumer thread stops gracefully]
+    """
     with self._state_lock:
       if self._state != ConnectionState.CONSUMING:
-        return  # Already stopped or not consuming
+        return
       
       if not self._consumer_thread or not self._consumer_thread.is_alive():
         self._state = ConnectionState.CONNECTED
         return
     
     try:
-      # Signal consumer to stop
       self._consumer_stop_event.set()
       
-      # Wait for consumer thread to finish gracefully
       if not self._consumer_finished_event.wait(timeout=TIMEOUTS["consumer_graceful_shutdown"]):
         print("Warning: Consumer thread did not finish within timeout")
       
-      # Wait for thread to actually terminate
       if self._consumer_thread.is_alive():
         self._consumer_thread.join(timeout=TIMEOUTS["consumer_thread_join"])
       
@@ -552,7 +842,17 @@ class CoffeeMessageMiddlewareExchange(MessageMiddlewareExchange):
       raise MessageMiddlewareDisconnectedError(f"Error stopping consumer: {str(e)}")
 
   def _force_stop_consumer(self):
-    """Force stop consumer on startup failure"""
+    """
+    Force immediate consumer shutdown on startup failure.
+    
+    Used when the consumer fails to start within the timeout period. Does not
+    wait as long as stop_consuming() for graceful shutdown.
+    
+    Example:
+        [Internal method called by start_consuming on timeout]
+        >>> exchange._force_stop_consumer()
+        [Consumer thread stopped immediately]
+    """
     self._consumer_stop_event.set()
     if self._consumer_thread and self._consumer_thread.is_alive():
       self._consumer_thread.join(timeout=TIMEOUTS["consumer_force_stop"])
@@ -561,7 +861,28 @@ class CoffeeMessageMiddlewareExchange(MessageMiddlewareExchange):
       self._state = ConnectionState.CONNECTED
 
   def send(self, message):
-    """Thread-safe publishing using dedicated publisher channel with confirmed delivery"""
+    """
+    Publish a message to the exchange with publisher confirms.
+    
+    The message is broadcast to all consumers bound to the exchange (fanout) or
+    routed based on routing key (topic). Publisher confirms ensure reliable delivery.
+    
+    Args:
+        message (bytes|str): Message to send.
+    
+    Raises:
+        MessageMiddlewareDisconnectedError: If not connected.
+        MessageMiddlewareMessageError: If message cannot be routed or is rejected.
+    
+    Example:
+        Fanout broadcast:
+        >>> exchange.send(b'Hello all consumers!')
+        [Message sent to all bound queues]
+        
+        Topic routing:
+        >>> exchange.send(b'Error occurred')
+        [Message routed based on routing key]
+    """
     with self._state_lock:
       if self._state == ConnectionState.DISCONNECTED:
         raise MessageMiddlewareDisconnectedError("Not connected")
@@ -570,7 +891,6 @@ class CoffeeMessageMiddlewareExchange(MessageMiddlewareExchange):
         raise MessageMiddlewareDisconnectedError("Publisher channel not available")
     
     try:
-      # Convert message to bytes
       if isinstance(message, bytes):
         body = message
       elif isinstance(message, str):
@@ -578,11 +898,8 @@ class CoffeeMessageMiddlewareExchange(MessageMiddlewareExchange):
       else:
         body = str(message).encode('utf-8')
         
-      # For fanout exchanges, routing key should be empty
       routing_key = '' if self.exchange_type == 'fanout' else (self.route_keys[0] if self.route_keys else '')
       
-      # basic_publish will now block until confirmation is received from RabbitMQ
-      # If the message cannot be routed or stored, it will raise an exception
       self._publisher_channel.basic_publish(
         exchange=self.exchange_name,
         routing_key=routing_key,
@@ -597,17 +914,29 @@ class CoffeeMessageMiddlewareExchange(MessageMiddlewareExchange):
       raise MessageMiddlewareMessageError(str(e))
 
   def close(self):
-    """Graceful connection closure"""
+    """
+    Gracefully close all connections and stop consuming.
+    
+    Ensures proper shutdown by stopping the consumer thread first (if running),
+    then closing publisher and consumer connections. Safe to call multiple times.
+    
+    Raises:
+        MessageMiddlewareCloseError: If error occurs during closure.
+    
+    Example:
+        >>> exchange.start_consuming(callback)
+        >>> # ... processing messages ...
+        >>> exchange.close()
+        [Consumer stopped, connections closed]
+    """
     with self._state_transition(
       [ConnectionState.CONNECTED, ConnectionState.CONSUMING], 
       ConnectionState.DISCONNECTING
     ):
       try:
-        # Stop consumer first if running
         if self._state == ConnectionState.CONSUMING:
           self.stop_consuming()
         
-        # Close connections safely
         self._cleanup_connections()
         
         self._state = ConnectionState.DISCONNECTED
@@ -617,9 +946,21 @@ class CoffeeMessageMiddlewareExchange(MessageMiddlewareExchange):
         raise MessageMiddlewareCloseError(str(e))
 
   def delete(self):
-    """Race-condition-free exchange deletion"""
+    """
+    Delete the exchange from RabbitMQ.
+    
+    The exchange must not be actively consuming when deleted. Stop the consumer
+    first before calling delete.
+    
+    Raises:
+        MessageMiddlewareDeleteError: If exchange is consuming, disconnected, or deletion fails.
+    
+    Example:
+        >>> exchange.stop_consuming()
+        >>> exchange.delete()
+        [Exchange deleted from RabbitMQ]
+    """
     with self._state_lock:
-      # Ensure we're not consuming before deleting
       if self._state == ConnectionState.CONSUMING:
         raise MessageMiddlewareDeleteError("Cannot delete exchange while consuming. Stop consuming first.")
       
@@ -627,7 +968,6 @@ class CoffeeMessageMiddlewareExchange(MessageMiddlewareExchange):
         raise MessageMiddlewareDeleteError("Cannot delete exchange: not connected")
     
     try:
-      # Use publisher channel for deletion (safer than consumer channel)
       if self._publisher_channel and not self._publisher_channel.is_closed:
         self._publisher_channel.exchange_delete(exchange=self.exchange_name)
       else:
@@ -636,8 +976,17 @@ class CoffeeMessageMiddlewareExchange(MessageMiddlewareExchange):
       raise MessageMiddlewareDeleteError(str(e))
 
   def _cleanup_connections(self):
-    """Safe connection cleanup - only after consumer is stopped"""
-    # Ensure consumer is stopped first
+    """
+    Safely close and cleanup all RabbitMQ connections and the exclusive queue.
+    
+    Ensures consumer thread is stopped before nullifying connection references.
+    Ignores errors during individual connection closures.
+    
+    Example:
+        [Internal method called by close()]
+        >>> exchange._cleanup_connections()
+        [All connections closed and references cleared]
+    """
     if self._consumer_thread and self._consumer_thread.is_alive():
       self._consumer_stop_event.set()
       self._consumer_thread.join(timeout=TIMEOUTS["consumer_thread_join"])
@@ -647,7 +996,6 @@ class CoffeeMessageMiddlewareExchange(MessageMiddlewareExchange):
       self._consumer_connection
     ]
     
-    # Only nullify after ensuring consumer thread is stopped
     self._publisher_channel = None
     self._consumer_channel = None
     self._publisher_connection = None
@@ -659,4 +1007,4 @@ class CoffeeMessageMiddlewareExchange(MessageMiddlewareExchange):
         try:
           conn.close()
         except:
-          pass  # Ignore cleanup errors
+          pass

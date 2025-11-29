@@ -9,12 +9,55 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 
 class WSMClient:
     """
-    Cliente para el Worker State Manager con soporte de múltiples nodos.
-
-    - Recibe una lista de nodos (host, port).
-    - Pregunta a cada uno si es líder con `{"action": "is_leader"}`.
-    - Se conecta sólo al líder.
-    - Si la conexión se cae o el servidor deja de ser líder, vuelve a buscar.
+    High-availability client for Worker State Manager with automatic leader discovery.
+    
+    Connects to WSM cluster with multiple nodes. Automatically discovers current LEADER,
+    handles failover on connection loss or leader changes. Provides transparent retry
+    logic for all operations.
+    
+    Architecture:
+        - Multi-node support: List of (host, port) for all WSM nodes
+        - Leader discovery: Queries all nodes with is_leader action
+        - Automatic failover: Reconnects on connection loss or NOT_LEADER response
+        - Transparent retry: All operations retry until successful
+    
+    Attributes:
+        worker_type (str): Worker type identifier.
+        replica_id (str): Replica identifier.
+        probe_interval (float): Seconds between leader discovery attempts.
+        nodes (list): List of (host, port) tuples for WSM nodes.
+        sock (socket): Current connection to LEADER.
+        current_node (tuple): Current LEADER (host, port).
+    
+    Example:
+        ```python
+        # Single node (for testing)
+        client = WSMClient(
+            worker_type='cleaner',
+            replica_id='cleaner-1',
+            host='wsm',
+            port=9000
+        )
+        
+        # Multi-node cluster (production)
+        client = WSMClient(
+            worker_type='cleaner',
+            replica_id='cleaner-1',
+            nodes=[
+                ('wsm', 9000),
+                ('wsm_2', 9000),
+                ('wsm_3', 9000)
+            ],
+            probe_interval=1.0
+        )
+        
+        # Operations automatically handle failover
+        client.update_state('PROCESSING', request_id=123, position=1)
+        # If LEADER fails, client discovers new LEADER and retries
+        
+        is_dup = client.is_position_processed(123, 1)
+        # Returns True (position already processed)
+        ```
     """
 
     def __init__(
@@ -27,13 +70,28 @@ class WSMClient:
         probe_interval: float = 1.0,
     ):
         """
+        Initialize WSM client with automatic leader discovery.
+        
         Args:
-            worker_type: tipo de worker (cleaner, grouper, etc.)
-            replica_id: identificación de la réplica
-            host, port: se mantienen para compatibilidad; si `nodes` es None,
-                        se usa [(host, port)] como única entrada.
-            nodes: lista de (host, port) de todos los WSM de este grupo.
-            probe_interval: tiempo (segundos) entre intentos de descubrimiento de líder.
+            worker_type: Worker type identifier.
+            replica_id: Replica identifier.
+            host: Default host (used if nodes=None).
+            port: Default port (used if nodes=None).
+            nodes: List of (host, port) for all WSM nodes.
+            probe_interval: Seconds between leader discovery attempts.
+        
+        Example:
+            ```python
+            # Single node
+            client = WSMClient('cleaner', 'cleaner-1', 'wsm', 9000)
+            
+            # Multi-node cluster
+            client = WSMClient(
+                'cleaner',
+                'cleaner-1',
+                nodes=[('wsm', 9000), ('wsm_2', 9000), ('wsm_3', 9000)]
+            )
+            ```
         """
         self.worker_type = worker_type
         self.replica_id = replica_id
@@ -52,13 +110,24 @@ class WSMClient:
         self._connect_to_leader()
         self._register()
 
-    # ======================================================
-    # DESCUBRIMIENTO DE LÍDER
-    # ======================================================
     def _find_leader_once(self) -> Optional[Tuple[str, int]]:
         """
-        Hace un barrido por todos los nodos y devuelve el primero que responda
-        is_leader = YES. Si ninguno lo es o no responde, devuelve None.
+        Probe all nodes once to find current LEADER.
+        
+        Sends is_leader query to each node with short timeout.
+        Returns first node that responds with "YES".
+        
+        Returns:
+            tuple or None: (host, port) of LEADER, or None if not found.
+        
+        Example:
+            ```python
+            # Nodes: wsm (BACKUP), wsm_2 (LEADER), wsm_3 (BACKUP)
+            leader = client._find_leader_once()
+            # Queries wsm → responds "NO"
+            # Queries wsm_2 → responds "YES"
+            # Returns: ('wsm_2', 9000)
+            ```
         """
         probe_msg = json.dumps({"action": "is_leader"}).encode("utf-8")
 
@@ -82,7 +151,19 @@ class WSMClient:
 
     def _connect_to_leader(self):
         """
-        Loop bloqueante hasta encontrar un líder accesible y conectar.
+        Block until LEADER found and connected.
+        
+        Repeatedly calls _find_leader_once with probe_interval delay.
+        Establishes TCP connection to discovered LEADER.
+        
+        Example:
+            ```python
+            # All nodes down → loops until one becomes LEADER
+            client._connect_to_leader()
+            
+            # LEADER found → establishes connection
+            # Sets client.sock and client.current_node
+            ```
         """
         while True:
             leader = self._find_leader_once()
@@ -104,7 +185,17 @@ class WSMClient:
 
     def _reset_connection(self):
         """
-        Cierra el socket actual y limpia estado local de conexión.
+        Close current connection and reset state.
+        
+        Called on connection failure or NOT_LEADER response.
+        Clears sock and current_node for reconnection.
+        
+        Example:
+            ```python
+            # Connection lost
+            client._reset_connection()
+            # Next _safe_request will trigger _connect_to_leader
+            ```
         """
         if self.sock is not None:
             try:
@@ -114,14 +205,40 @@ class WSMClient:
         self.sock = None
         self.current_node = None
 
-    # ======================================================
-    # ENVÍO SEGURO (REINTENTOS + REELECCIÓN)
-    # ======================================================
     def _safe_request(self, msg: dict):
         """
-        Envía un mensaje al WSM líder actual.
-        - Si la conexión se cae → busca un nuevo líder y reintenta.
-        - Si el servidor responde "NOT_LEADER" → fuerza redescubrimiento de líder.
+        Send request with automatic retry and failover.
+        
+        Handles:
+        - Connection loss → reconnect to new LEADER and retry
+        - NOT_LEADER response → discover new LEADER and retry
+        - Network errors → discover new LEADER and retry
+        
+        Args:
+            msg (dict): Request message.
+        
+        Returns:
+            Any: Response payload.
+        
+        Example:
+            ```python
+            # Normal operation
+            response = client._safe_request({
+                'action': 'update_state',
+                'worker_type': 'cleaner',
+                'replica_id': 'cleaner-1',
+                'state': 'PROCESSING',
+                'request_id': 123,
+                'position': 1
+            })
+            # Returns: 'OK'
+            
+            # LEADER fails during request
+            # - Connection error caught
+            # - Discovers new LEADER
+            # - Retries same request
+            # - Returns: 'OK' from new LEADER
+            ```
         """
         payload = json.dumps(msg).encode("utf-8")
 
@@ -154,14 +271,16 @@ class WSMClient:
             except Exception as e:
                 logging.warning(f"[WSMClient] Error de conexión con el líder ({e}), buscando nuevo líder...")
                 self._reset_connection()
-                # el loop continúa, se reconecta a un líder y reintenta
 
-    # ======================================================
-    # API DE ALTO NIVEL (COMPATIBLE CON LA VERSIÓN ANTERIOR)
-    # ======================================================
     def _register(self):
         """
-        Registra la réplica en el WSM (no es crítico si falla; update_state crea estado).
+        Register replica with WSM (optional, state created on first update).
+        
+        Example:
+            ```python
+            client._register()
+            # Sends: {"action": "register", "worker_type": "cleaner", "replica_id": "cleaner-1"}
+            ```
         """
         msg = {
             "action": "register",
@@ -175,6 +294,24 @@ class WSMClient:
             logging.warning(f"[WSMClient] Error registrando worker ({e}), se continuará igual.")
 
     def update_state(self, state, request_id=None, position=None):
+        """
+        Update replica state in WSM.
+        
+        Args:
+            state (str): New state ('WAITING', 'PROCESSING', 'END').
+            request_id (int, optional): Request identifier.
+            position (int, optional): Message position.
+        
+        Returns:
+            str: 'OK'
+        
+        Example:
+            ```python
+            client.update_state('PROCESSING', request_id=123, position=1)
+            client.update_state('WAITING', request_id=123, position=1)
+            # Position 1 recorded as processed
+            ```
+        """
         msg = {
             "action": "update_state",
             "worker_type": self.worker_type,
@@ -186,6 +323,27 @@ class WSMClient:
         return self._safe_request(msg)
 
     def can_send_end(self, request_id, position):
+        """
+        Check if END signal can be sent for continuous stream.
+        
+        Args:
+            request_id (int): Request identifier.
+            position (int): Proposed END position.
+        
+        Returns:
+            bool: True if stream complete up to position-1.
+        
+        Example:
+            ```python
+            # Positions processed: {1, 2, 3, 4, 5}
+            can_send = client.can_send_end(123, 6)
+            # Returns: True
+            
+            # Gap at position 3
+            can_send = client.can_send_end(123, 6)
+            # Returns: False
+            ```
+        """
         msg = {
             "action": "can_send_end",
             "worker_type": self.worker_type,
@@ -195,6 +353,26 @@ class WSMClient:
         return self._safe_request(msg) == "OK"
 
     def can_send_last_end(self, request_id):
+        """
+        Check if last END can be sent (all workers finished).
+        
+        Args:
+            request_id (int): Request identifier.
+        
+        Returns:
+            bool: True if all workers reached END.
+        
+        Example:
+            ```python
+            # Last replica to reach END
+            can_send = client.can_send_last_end(123)
+            # Returns: True (send final notification)
+            
+            # Other replicas still processing
+            can_send = client.can_send_last_end(123)
+            # Returns: False (wait for others)
+            ```
+        """
         msg = {
             "action": "can_send_last_end",
             "replica_id": self.replica_id,
@@ -204,6 +382,28 @@ class WSMClient:
         return self._safe_request(msg) == "OK"
 
     def is_position_processed(self, request_id, position):
+        """
+        Check if position already processed (duplicate detection).
+        
+        Args:
+            request_id (int): Request identifier.
+            position (int): Position to check.
+        
+        Returns:
+            bool: True if already processed.
+        
+        Example:
+            ```python
+            # After crash recovery
+            is_dup = client.is_position_processed(123, 1)
+            if is_dup:
+                # Skip processing, already done
+                pass
+            else:
+                # Process message
+                process_message(msg)
+            ```
+        """
         msg = {
             "action": "is_position_processed",
             "worker_type": self.worker_type,

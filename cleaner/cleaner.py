@@ -10,7 +10,74 @@ from wsm_config import WSM_NODES
 
 
 class Cleaner(StreamProcessingWorker):
+    """
+    Data cleaning worker that filters and transforms CSV rows.
+    
+    This worker processes incoming CSV data by:
+    - Selecting specific columns from the input
+    - Filtering out rows with empty required fields
+    - Converting data types (e.g., user_id to integer)
+    - Coordinating with Worker State Manager (WSM) for fault tolerance
+    - Handling duplicate messages via position tracking
+    
+    The Cleaner integrates with WSM to ensure exactly-once processing semantics
+    and coordinated END signal propagation across distributed replicas.
+    
+    Attributes:
+        columns_have (list): Column names present in input data.
+        columns_want (list): Column names to keep in output.
+        keep_indices (list): Indices of columns to extract.
+        keep_when_empty (list): Indices of columns that can be empty.
+        wsm_client (WSMClient): Client for worker state coordination.
+    
+    Example:
+        Basic usage:
+        >>> cleaner = Cleaner(
+        ...     queue_in='raw_data',
+        ...     queue_out='clean_data',
+        ...     columns_have=['id', 'name', 'age', 'city'],
+        ...     columns_want=['id', 'name', 'age'],
+        ...     rabbitmq_host='rabbitmq',
+        ...     keep_when_empty=['city']
+        ... )
+        >>> cleaner.run()
+        
+        With WSM coordination:
+        >>> cleaner = Cleaner(
+        ...     queue_in='transactions',
+        ...     queue_out='clean_transactions',
+        ...     columns_have=['txn_id', 'user_id', 'amount'],
+        ...     columns_want=['user_id', 'amount'],
+        ...     rabbitmq_host='rabbitmq',
+        ...     wsm_nodes=['wsm1:9000', 'wsm2:9000']
+        ... )
+    """
     def __init__(self, queue_in, queue_out, columns_have, columns_want, rabbitmq_host, keep_when_empty=None, backoff_start=0.1, backoff_max=3.0, wsm_nodes = None):
+        """
+        Initialize the Cleaner worker with column filtering configuration.
+        
+        Args:
+            queue_in (str): Input RabbitMQ queue name.
+            queue_out (str|list): Output queue name(s).
+            columns_have (list): List of column names in the input data.
+            columns_want (list): List of column names to keep in output.
+            rabbitmq_host (str): RabbitMQ server hostname.
+            keep_when_empty (list, optional): Column names that can be empty.
+                Rows with empty values in other columns will be filtered out.
+            backoff_start (float, optional): Initial backoff delay in seconds. Default: 0.1.
+            backoff_max (float, optional): Maximum backoff delay in seconds. Default: 3.0.
+            wsm_nodes (list, optional): List of WSM node addresses for coordination.
+        
+        Example:
+            >>> cleaner = Cleaner(
+            ...     queue_in='input',
+            ...     queue_out='output',
+            ...     columns_have=['id', 'name', 'email', 'city'],
+            ...     columns_want=['id', 'email'],
+            ...     rabbitmq_host='rabbitmq',
+            ...     keep_when_empty=['city']
+            ... )
+        """
         super().__init__(queue_in, queue_out, rabbitmq_host)
         self.columns_have = columns_have
         self.columns_want = columns_want
@@ -19,7 +86,6 @@ class Cleaner(StreamProcessingWorker):
         self.backoff_start = backoff_start
         self.backoff_max = backoff_max
 
-        # 🔗 Conexión con el Worker State Manager
         replica_id = socket.gethostname()
         wsm_host = os.environ.get("WSM_HOST", "wsm")
         wsm_port = int(os.environ.get("WSM_PORT", "9000"))
@@ -33,22 +99,43 @@ class Cleaner(StreamProcessingWorker):
 
         logging.info(f"[Cleaner:{replica_id}] Inicializado - input: {queue_in}, output: {queue_out}")
 
-    # ------------------------------------------------------------
-    # 🔁 Lógica de procesamiento normal (DATA)
-    # ------------------------------------------------------------
     def _process_message(self, message, msg_type, data_type, request_id, position, payload, queue_name=None):
-        """Procesa mensajes de datos (no END)."""
+        """
+        Process data messages by cleaning and filtering CSV rows.
+        
+        Coordinates with WSM to detect duplicates and track processing state.
+        Only processes messages that haven't been processed before. Updates
+        state to PROCESSING during execution and WAITING after completion.
+        
+        Args:
+            message (bytes): Raw message from RabbitMQ.
+            msg_type (int): Message type identifier.
+            data_type (str): Type of data being processed.
+            request_id (str): Unique request identifier.
+            position (int): Message position in the stream.
+            payload (bytes): Message payload containing CSV rows.
+            queue_name (str, optional): Source queue name.
+        
+        Example:
+            [Internal method called by StreamProcessingWorker]
+            >>> # Message format: "id|name|age\nid2|name2|age2"
+            >>> cleaner._process_message(
+            ...     message=raw_msg,
+            ...     msg_type=1,
+            ...     data_type='users',
+            ...     request_id='req-123',
+            ...     position=5,
+            ...     payload=b'1|John|30\n2|Jane|25'
+            ... )
+            [Processes rows, sends cleaned data to output queues]
+        """
 
         logging.info(f"INICIO procesado mensaje ({request_id}:{position})")
 
-
-        #VALIDO QUE LA POSICION HAYA SIDO PROCESADA ANTERIORMENTE, SI LO DESCARTO EL MENSAJE
         if self.wsm_client.is_position_processed(request_id, position):
             logging.info(f"🔁 Mensaje duplicado detectado ({request_id}:{position}), descartando...")
             return
 
-
-        # 1️⃣ Marcar inicio de procesamiento
         self.wsm_client.update_state("PROCESSING", request_id, position)
 
         rows = payload.decode("utf-8").split("\n")
@@ -60,27 +147,51 @@ class Cleaner(StreamProcessingWorker):
             for q in self.out_queues:
                 q.send(new_msg)
 
-
-        #SI MUERE ACA!!!! TENEMOS PROBLEMAS
-
-        # 2️⃣ Marcar fin de procesamiento
         self.wsm_client.update_state("WAITING", request_id, position)
         logging.info(f"FIN procesado mensaje ({request_id}:{position})")
 
-    # ------------------------------------------------------------
-    # 🧩 Lógica de END sincronizado (sobrescribe el padre)
-    # ------------------------------------------------------------
     def _handle_end_signal(self, message, msg_type, data_type, request_id, position, queue_name=None):
         """
-        Extiende el manejo base del END.
-        Primero sincroniza con el WSM, y luego llama a la implementación del padre,
-        que reenvía el END automáticamente a las colas de salida.
+        Handle END signal with WSM coordination using exponential backoff.
+        
+        Extends the base END handling by first synchronizing with the Worker State
+        Manager to ensure all replicas have processed their messages before forwarding
+        the END signal. Uses exponential backoff to poll WSM for permission.
+        
+        The method:
+        1. Registers END state with WSM
+        2. Polls WSM with exponential backoff until permission granted
+        3. Calls parent's END handling (forwards to output queues)
+        4. Returns to WAITING state
+        
+        Args:
+            message (bytes): Raw END message.
+            msg_type (int): Message type identifier.
+            data_type (str): Type of data being processed.
+            request_id (str): Unique request identifier.
+            position (int): END signal position.
+            queue_name (str, optional): Source queue name.
+        
+        Raises:
+            TimeoutError: If WSM permission not granted within backoff_max timeout.
+        
+        Example:
+            [Internal method called by StreamProcessingWorker]
+            >>> cleaner._handle_end_signal(
+            ...     message=end_msg,
+            ...     msg_type=2,
+            ...     data_type='users',
+            ...     request_id='req-123',
+            ...     position=100
+            ... )
+            [Cleaner] Recibido END para request req-123. Consultando WSM...
+            [Cleaner] Esperando permiso para reenviar END de req-123... (backoff=0.100s)
+            [Cleaner] ✅ Permiso otorgado para enviar END de req-123
+            [END forwarded to output queues]
         """
-        # Registrar estado END en el WSM
         self.wsm_client.update_state("END", request_id, position)
         logging.info(f"[Cleaner] Recibido END para request {request_id}. Consultando WSM...")
 
-        # Esperar permiso del WSM para enviar END con exponential backoff
         backoff = self.backoff_start
         total_wait = 0.0
         
@@ -97,17 +208,34 @@ class Cleaner(StreamProcessingWorker):
 
         logging.info(f"[Cleaner] ✅ Permiso otorgado para enviar END de {request_id}")
 
-        # Llamar al manejo normal del END (reenvío a colas de salida)
         super()._handle_end_signal(message, msg_type, data_type, request_id, position, queue_name)
 
-        # Volver a estado de espera
         self.wsm_client.update_state("WAITING", request_id, position)
 
-    # ------------------------------------------------------------
-    # 🧽 Limpieza de datos
-    # ------------------------------------------------------------
     def _process_rows(self, rows, queue_name=None):
-        """Filtra y limpia las filas del dataset."""
+        """
+        Filter and clean multiple CSV rows.
+        
+        Processes each row by filtering columns, validating data, and removing
+        rows that don't meet the criteria (empty required fields).
+        
+        Args:
+            rows (list): List of CSV row strings.
+            queue_name (str, optional): Source queue name (unused).
+        
+        Returns:
+            list: List of cleaned row strings that passed validation.
+        
+        Example:
+            >>> rows = [
+            ...     'id|name|age|city',
+            ...     '1|John|30|NYC',
+            ...     '2||25|LA',  # Missing name
+            ...     '3|Jane|28|'
+            ... ]
+            >>> cleaner._process_rows(rows)
+            ['1|John|30', '3|Jane|28']
+        """
         filtered_rows = []
         for row in rows:
             if row.strip():
@@ -117,6 +245,38 @@ class Cleaner(StreamProcessingWorker):
         return filtered_rows
 
     def _filter_row(self, row):
+        """
+        Filter and transform a single CSV row.
+        
+        Performs the following operations:
+        1. Split row by delimiter ('|')
+        2. Select only the configured columns
+        3. Convert user_id to integer if present
+        4. Filter out rows with empty required fields
+        
+        Args:
+            row (str): CSV row string with '|' delimiter.
+        
+        Returns:
+            str: Cleaned row string, or None if row should be filtered out.
+        
+        Example:
+            Column selection:
+            >>> cleaner.columns_have = ['id', 'name', 'age', 'city']
+            >>> cleaner.columns_want = ['id', 'age']
+            >>> cleaner._filter_row('1|John|30|NYC')
+            '1|30'
+            
+            Empty field filtering:
+            >>> cleaner.keep_when_empty = []  # No empty fields allowed
+            >>> cleaner._filter_row('1||30|NYC')  # Missing name
+            None
+            
+            User ID conversion:
+            >>> cleaner.columns_want = ['user_id', 'amount']
+            >>> cleaner._filter_row('123.0|50.00')
+            '123|50.00'
+        """
         items = row.split('|')
 
         if len(items) < max(self.keep_indices) + 1:
@@ -129,7 +289,6 @@ class Cleaner(StreamProcessingWorker):
             logging.error(f"Index error processing row: {row} - {e}")
             return None
 
-        # Convertir user_id a int si corresponde
         if 'user_id' in self.columns_want:
             user_id_idx = self.columns_want.index('user_id')
             if selected[user_id_idx] != '':
@@ -138,18 +297,39 @@ class Cleaner(StreamProcessingWorker):
                 except Exception as e:
                     logging.warning(f"No se pudo convertir user_id '{selected[user_id_idx]}' a int: {e}")
 
-        # Eliminar filas vacías si no están en keep_when_empty
         if any(selected[i] == '' and i not in self.keep_when_empty for i in range(len(selected))):
             return None
 
         return '|'.join(selected)
 
 
-# ------------------------------------------------------------
-# 🚀 Entry point del worker
-# ------------------------------------------------------------
 if __name__ == '__main__':
     def create_cleaner():
+        """
+        Factory function to create a Cleaner instance from environment variables and config.
+        
+        Reads configuration from:
+        - Environment variables: QUEUE_IN, QUEUE_OUT, DATA_TYPE, RABBITMQ_HOST
+        - config.ini file: Column mappings, keep_when_empty rules, backoff settings
+        - wsm_config.py: WSM node addresses per data type
+        
+        Returns:
+            Cleaner: Configured Cleaner instance ready to run.
+        
+        Raises:
+            ValueError: If DATA_TYPE is not found in config.ini.
+        
+        Example:
+            Environment setup:
+            $ export QUEUE_IN=raw_transactions
+            $ export QUEUE_OUT=clean_transactions
+            $ export DATA_TYPE=transactions
+            $ export RABBITMQ_HOST=rabbitmq
+            
+            Running:
+            >>> cleaner = create_cleaner()
+            >>> cleaner.run()
+        """
         queue_in = os.environ.get('QUEUE_IN')
         queue_out = os.environ.get('QUEUE_OUT')
         data_type = os.environ.get('DATA_TYPE')
@@ -167,7 +347,6 @@ if __name__ == '__main__':
         keep_when_empty_str = config[data_type].get('keep_when_empty', '').strip()
         keep_when_empty = [col.strip() for col in keep_when_empty_str.split(',')] if keep_when_empty_str else None
         
-        # Load backoff configuration from DEFAULT section
         backoff_start = float(config['DEFAULT'].get('BACKOFF_START', 0.1))
         backoff_max = float(config['DEFAULT'].get('BACKOFF_MAX', 3.0))
 

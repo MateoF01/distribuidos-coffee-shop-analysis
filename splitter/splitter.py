@@ -12,27 +12,79 @@ from wsm_config import WSM_NODES
 
 class SplitterQ1(StreamProcessingWorker):
     """
-    Worker Splitter para Q1:
-    - Lee filas desde una cola (replicable).
-    - Genera archivos chunk por request_id.
-    - Notifica a sorter_v2 cuando TODAS las réplicas finalizaron (vía WSM).
+    Replicated stream splitter with sorted chunk generation.
+    
+    Reads transaction rows from queue, splits data into sorted chunks, and uses
+    WSM for replica coordination. Ensures exactly-once downstream notification
+    when all replicas complete processing.
+    
+    Architecture:
+        - Input: Transaction rows from replicated queue
+        - Processing: Extract transaction_id and amount, sort into chunks
+        - Chunks: Incrementally sorted files per replica
+        - Coordination: WSM tracks replica progress and END signals
+        - Output: Notification to sorter when all replicas finish
+    
+    Attributes:
+        replica_id (str): Unique replica identifier (typically hostname).
+        chunk_size (int): Maximum rows per chunk file.
+        base_temp_root (str): Base directory for temporary chunk files.
+        buffers (dict): Per-request buffering state.
+        wsm_client (WSMClient): Client for replica coordination.
+        backoff_start (float): Initial backoff seconds.
+        backoff_max (float): Maximum backoff seconds.
+    
+    Example:
+        Input messages (3 replicas receive same data):
+        - MSG 1: guid1|100.50|...
+        - MSG 2: guid2|200.75|...
+        - END signal
+        
+        Each replica creates:
+        /app/temp/splitter_q1/req-123/replica-1/
+            chunk_0.csv: guid1,100.50\nguid2,200.75 (sorted)
+        
+        WSM coordination:
+        - Each replica marks END in WSM
+        - Only one replica sends notification when all reach END
+        - Downstream sorter receives single notification
     """
 
     def __init__(self, queue_in, queue_out, rabbitmq_host, chunk_size, replica_id, backoff_start=0.1, backoff_max=3.0, wsm_nodes = None):
+        """
+        Initialize splitter with chunk configuration and WSM coordination.
+        
+        Args:
+            queue_in (str): Input queue name.
+            queue_out (str): Output queue for notifications.
+            rabbitmq_host (str): RabbitMQ server hostname.
+            chunk_size (int): Maximum rows per chunk file.
+            replica_id (str): Unique replica identifier.
+            backoff_start (float, optional): Initial backoff seconds. Defaults to 0.1.
+            backoff_max (float, optional): Maximum backoff seconds. Defaults to 3.0.
+            wsm_nodes (list, optional): WSM node endpoints.
+        
+        Example:
+            >>> splitter = SplitterQ1(
+            ...     queue_in='transactions_cleaned_q1',
+            ...     queue_out='sorter_notifications_q1',
+            ...     rabbitmq_host='rabbitmq',
+            ...     chunk_size=10000,
+            ...     replica_id='splitter-q1-1',
+            ...     wsm_nodes=['wsm:9000', 'wsm:9001', 'wsm:9002']
+            ... )
+        """
         super().__init__(queue_in, queue_out, rabbitmq_host)
         self.replica_id = replica_id
         self.chunk_size = int(chunk_size)
         self.backoff_start = backoff_start
         self.backoff_max = backoff_max
 
-        # base de temporales (puede venir por env, tiene default)
         self.base_temp_root = os.environ.get(
             'BASE_TEMP_DIR',
             os.path.join(os.path.dirname(__file__), 'temp')
         )
 
-        # estado por request
-        # buffers[request_id] -> {"rows": [...], "count": int, "dir": str, "chunk_idx": int}
         self.buffers = defaultdict(lambda: {
             "rows": [],
             "count": 0,
@@ -40,7 +92,6 @@ class SplitterQ1(StreamProcessingWorker):
             "chunk_idx": 0
         })
 
-        # WSM
         wsm_host = os.environ.get("WSM_HOST", "wsm")
         wsm_port = int(os.environ.get("WSM_PORT", "9000"))
         self.wsm_client = WSMClient(
@@ -53,13 +104,19 @@ class SplitterQ1(StreamProcessingWorker):
 
         logging.info(f"[SplitterQ1:{self.replica_id}] init - in={queue_in}, out={queue_out}, chunk_size={self.chunk_size}")
 
-    # ------------------------------------------------------------
-    # Rutas por request
-    # ------------------------------------------------------------
     def _ensure_request_dir(self, request_id):
         """
-        Crea una carpeta por request_id y por réplica:
-        BASE_TEMP_DIR/splitter_q1/<request_id>/<replica_id>/
+        Create per-request, per-replica directory structure.
+        
+        Args:
+            request_id (str): Request identifier.
+        
+        Returns:
+            str: Directory path for this request and replica.
+        
+        Example:
+            >>> splitter._ensure_request_dir('req-123')
+            '/app/temp/splitter_q1/req-123/splitter-q1-1/'
         """
         buf = self.buffers[request_id]
         if buf["dir"]:
@@ -71,41 +128,45 @@ class SplitterQ1(StreamProcessingWorker):
         logging.info(f"[SplitterQ1:{self.replica_id}] dir ready for request {request_id}: {req_dir}")
         return req_dir
 
-    # ------------------------------------------------------------
-    # Escritura de chunks
-    # ------------------------------------------------------------
     def _write_chunk(self, request_id, new_rows=None):
         """
-        Carga el último chunk existente (si hay),
-        le agrega las filas nuevas, las ordena y lo reescribe.
-        Si el tamaño supera chunk_size, crea un nuevo chunk.
-        Utiliza atomic_write para garantizar tolerancia a fallos.
+        Incrementally write and sort chunk files with atomic writes.
+        
+        Loads existing chunk, appends new rows, sorts, and rewrites. Splits into
+        new chunk if size exceeds chunk_size. Uses atomic writes for crash recovery.
+        
+        Args:
+            request_id (str): Request identifier.
+            new_rows (list, optional): New rows to append.
+        
+        Example:
+            Current chunk_0.csv: 800 rows
+            new_rows: 300 rows
+            chunk_size: 1000
+            
+            Result:
+            - chunk_0.csv: 1000 sorted rows
+            - chunk_1.csv: 100 sorted rows
         """
         buf = self.buffers[request_id]
         req_dir = self._ensure_request_dir(request_id)
 
-        # determinar último chunk existente
         chunk_idx = buf["chunk_idx"]
         filename = f"chunk_{chunk_idx}.csv"
         path = os.path.join(req_dir, filename)
 
-        # leer filas previas si el archivo ya existe
         existing_rows = []
         if os.path.exists(path):
             with open(path, "r", encoding="utf-8") as f:
                 existing_rows = [ln.strip() for ln in f if ln.strip()]
 
-        # agregar las nuevas
         if new_rows:
             existing_rows.extend(new_rows)
 
-        # si supera el tamaño, guardar chunk actual y abrir nuevo
         if len(existing_rows) > self.chunk_size:
-            # cortar las primeras chunk_size filas y mantener resto para el próximo chunk
             to_write = existing_rows[:self.chunk_size]
             remaining = existing_rows[self.chunk_size:]
 
-            # ordenar y escribir chunk actual (con atomic_write)
             to_write.sort(key=lambda ln: ln.split(",")[0])
             
             def write_chunk_func(temp_path):
@@ -115,12 +176,10 @@ class SplitterQ1(StreamProcessingWorker):
             
             StreamProcessingWorker.atomic_write(path, write_chunk_func)
 
-            # preparar nuevo archivo
             buf["chunk_idx"] += 1
             new_filename = f"chunk_{buf['chunk_idx']}.csv"
             new_path = os.path.join(req_dir, new_filename)
 
-            # escribir el resto (ordenado también con atomic_write)
             remaining.sort(key=lambda ln: ln.split(",")[0])
             
             def write_remaining_func(temp_path):
@@ -131,7 +190,6 @@ class SplitterQ1(StreamProcessingWorker):
             StreamProcessingWorker.atomic_write(new_path, write_remaining_func)
 
         else:
-            # ordenar y reescribir el mismo archivo (con atomic_write)
             existing_rows.sort(key=lambda ln: ln.split(",")[0])
             
             def write_current_func(temp_path):
@@ -141,45 +199,58 @@ class SplitterQ1(StreamProcessingWorker):
             
             StreamProcessingWorker.atomic_write(path, write_current_func)
 
-
     def _append_row(self, request_id, row_text):
         """
-        Cada mensaje se escribe directo al último chunk (reordenando).
+        Append single row to current chunk.
+        
+        Args:
+            request_id (str): Request identifier.
+            row_text (str): CSV row text.
         """
         self._write_chunk(request_id, [row_text])
 
-
-    # ------------------------------------------------------------
-    # Ciclo de mensajes
-    # ------------------------------------------------------------
     def _process_message(self, message, msg_type, data_type, request_id, position, payload, queue_name=None):
-
-        # inicializo dir al primer mensaje del request
+        """
+        Process message with WSM duplicate detection and state tracking.
+        
+        Args:
+            message (bytes): Raw message.
+            msg_type (int): Message type.
+            data_type (int): Data type.
+            request_id (str): Request identifier.
+            position (int): Position number.
+            payload (bytes): Message payload.
+            queue_name (str, optional): Source queue name.
+        
+        Example:
+            Position 5 arrives twice (replica failure/retry):
+            - First: Processes and updates WSM
+            - Second: Detected as duplicate, discarded
+        """
         self._ensure_request_dir(request_id)
 
-
-        #VALIDO QUE LA POSICION HAYA SIDO PROCESADA ANTERIORMENTE, SI YA FUE PROCESADA LO DESCARTO EL MENSAJE
         if self.wsm_client.is_position_processed(request_id, position):
             logging.info(f"🔁 Mensaje duplicado detectado ({request_id}:{position}), descartando...")
             return
 
-
-        # estado WSM
         self.wsm_client.update_state("PROCESSING", request_id, position)        
 
-        # proceso (esto invocará _process_rows / _handle_end_signal)
         super()._process_message(message, msg_type, data_type, request_id, position, payload, queue_name)
 
-        # listo por ahora
         self.wsm_client.update_state("WAITING", request_id, position)
 
-    # ------------------------------------------------------------
-    # Filas de datos
-    # ------------------------------------------------------------
     def _process_rows(self, rows, queue_name=None):
         """
-        Recibe filas decodificadas (texto), extrae solo los primeros dos campos (guid, amount)
-        y los guarda separados por coma en los chunks.
+        Process data rows: extract transaction_id and amount, format as CSV.
+        
+        Args:
+            rows (list): List of row strings (pipe-delimited).
+            queue_name (str, optional): Source queue name.
+        
+        Example:
+            Input row: "guid1|100.50|2024-01|..."
+            Extracted: "guid1,100.50"
+            Written to: chunk_0.csv (sorted)
         """
         request_id = self.current_request_id  # viene desde la superclase
         self._ensure_request_dir(request_id)
@@ -189,47 +260,52 @@ class SplitterQ1(StreamProcessingWorker):
             if not row:
                 continue
 
-            # dividir por '|'
             parts = row.split('|')
 
             if len(parts) < 2:
-                continue  # si no tiene al menos dos campos, lo ignoramos
+                continue
 
             guid = parts[0].strip()
             amount = parts[1].strip()
 
-            # construir línea CSV con coma
             formatted = f"{guid},{amount}"
 
             self._append_row(request_id, formatted)
 
-
-
-    # ------------------------------------------------------------
-    # END + sincronización con WSM
-    # ------------------------------------------------------------
     def _handle_end_signal(self, message, msg_type, data_type, request_id, position, queue_name=None):
         """
-        - Flushea el último chunk del request.
-        - Marca END en WSM.
-        - Espera hasta que WSM diga que se puede enviar END downstream.
-        - Envía notificación al sorter_v2 (COMPLETION_QUEUE).
+        Handle END signal with WSM coordination for exactly-once notification.
+        
+        Flushes final chunk, marks END in WSM, waits for all replicas to reach END,
+        then sends single notification downstream.
+        
+        Args:
+            message (bytes): Raw message.
+            msg_type (int): Message type.
+            data_type (int): Data type.
+            request_id (str): Request identifier.
+            position (int): Position number.
+            queue_name (str, optional): Source queue name.
+        
+        Example:
+            3 replicas processing request req-123:
+            - Replica 1: Reaches END, marks in WSM, waits
+            - Replica 2: Reaches END, marks in WSM, waits
+            - Replica 3: Reaches END, marks in WSM
+            - WSM authorizes one replica to send notification
+            - Single notification sent to sorter
         """
-
-        if(data_type == 6): #si es el mensaje de final de data lo salteo para que no se repitan dos ends de la misma request
+        if(data_type == 6):
             logging.info(f"[Splitter:{self.replica_id}] Ignorando END END para request {request_id}. ")
             return
 
-        # flush final de lo pendiente
         self._write_chunk(request_id)
 
-        # marcamos END local
         self.wsm_client.update_state("END", request_id, position)
         print(f"[{self.replica_id}] END")
 
         logging.info(f"[SplitterQ1:{self.replica_id}] END recibido para request {request_id}. Esperando permiso WSM...")
 
-        # esperar permiso global del WSM con exponential backoff
         backoff = self.backoff_start
         total_wait = 0.0
         
@@ -246,26 +322,37 @@ class SplitterQ1(StreamProcessingWorker):
 
         logging.info(f"[SplitterQ1:{self.replica_id}] ✅ WSM autorizó END para request {request_id}. Notificando sorter_v2...")
 
-        # enviamos notificación downstream (cola del sorter_v2)
         if self.out_queues:
             payload = f"split_done;replica={self.replica_id}".encode("utf-8")
             noti = protocol.create_notification_message(data_type, payload, request_id)
             for q in self.out_queues:
                 q.send(noti)
 
-        # dejamos al worker en WAITING
         self.wsm_client.update_state("WAITING", request_id, position)
 
-        # limpiamos buffers del request (opcional, si no se reusa)
         if request_id in self.buffers:
             del self.buffers[request_id]
 
 
-# ====================
-# Main
-# ====================
 if __name__ == '__main__':
     def create_splitter():
+        """
+        Factory function to create SplitterQ1 from environment configuration.
+        
+        Environment Variables:
+            RABBITMQ_HOST: RabbitMQ hostname (default: rabbitmq).
+            QUEUE_IN: Input queue name (required).
+            COMPLETION_QUEUE: Output queue for notifications (required).
+            CHUNK_SIZE: Rows per chunk (default: 10000).
+            BASE_TEMP_DIR: Base directory for chunks (optional).
+            WSM_HOST: WSM server hostname (default: wsm).
+            WSM_PORT: WSM server port (default: 9000).
+            BACKOFF_START: Initial backoff seconds (from config, default: 0.1).
+            BACKOFF_MAX: Maximum backoff seconds (from config, default: 3.0).
+        
+        Returns:
+            SplitterQ1: Configured splitter instance.
+        """
         config_path = os.path.join(os.path.dirname(__file__), 'config.ini')
         config = configparser.ConfigParser()
         config.read(config_path)
@@ -276,11 +363,10 @@ if __name__ == '__main__':
         replica_id = socket.gethostname()
         chunk_size = int(os.environ.get('CHUNK_SIZE', 10000))
         
-        # Load backoff configuration from DEFAULT section
         backoff_start = float(config['DEFAULT'].get('BACKOFF_START', 0.1))
         backoff_max = float(config['DEFAULT'].get('BACKOFF_MAX', 3.0))
         
-        key = 'q1' #Solo hay un tipo en el splliter
+        key = 'q1'
         wsm_nodes = WSM_NODES[key]
         print("WSM NODES: ", wsm_nodes)
 
