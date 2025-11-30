@@ -384,8 +384,6 @@ class WorkerStateManager:
             else:
                 self.worker_states[worker_type][replica_id] = {"state": state, "request_id": request_id}
 
-            print("PREVIUS STATE: ", previous_state)
-
             if (request_id
                 and position is not None
                 and state == "WAITING"
@@ -520,7 +518,6 @@ class WorkerStateManager:
             # Returns: True
             ```
         """
-        print(f"RECIBO CONSULTA DE POSICION [WORKER TYPE]: {worker_type} [REQUEST_ID]: {request_id}, [POSITION]: {position}")
         with self.lock:
             pos_set = self._load_positions(worker_type, request_id)
             processed = position in pos_set
@@ -719,7 +716,6 @@ class WSMServer:
             self.manager.register_worker(worker_type, replica_id)
             return "OK"
         elif action == "update_state":
-            print("Recibo update state: ", msg)
             self.manager.update_state(worker_type, replica_id, msg.get("state"), msg.get("request_id"), msg.get("position"))
             return "OK"
         elif action == "can_send_end":
