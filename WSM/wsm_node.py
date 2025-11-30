@@ -7,138 +7,38 @@ import logging
 
 from wsm_server import WSMServer
 
+
 class WSMNode:
     """
     WSM node with Bully leader election for high availability.
-    
-    Manages leader election among WSM replicas using Bully algorithm. Handles control plane
-    (election messages) separately from data plane (WSMServer). Supports hot failover with
-    state recovery from persistent storage.
-    
-    Architecture:
-        - Control plane: Leader election on control_port (base + id)
-        - Data plane: WSMServer on standard port for client requests
-        - Bully algorithm: Higher ID nodes become leader after election
-        - Heartbeat: BACKUP monitors LEADER, triggers election on failure
-    
-    Election Protocol:
-        1. Node detects LEADER failure (no heartbeat)
-        2. Sends ELECTION to all higher ID nodes
-        3. If no OK received → becomes LEADER and broadcasts COORDINATOR
-        4. If OK received → waits for COORDINATOR from winner
-    
-    Attributes:
-        id (int): Node identifier (determines election priority).
-        control_port (int): Control plane port (base + id).
-        wsm_name (str): Base hostname for WSM nodes.
-        peers (list): List of peer nodes with host/port.
-        leader_id (int): Current LEADER node ID.
-        role (str): Current role ('LEADER', 'BACKUP', 'UNKNOWN').
-        running (bool): Node running flag.
-        ok_received (bool): Flag for ELECTION response.
-        wsm_server (WSMServer): Data plane server instance.
-        leader_lock (threading.Lock): Election synchronization.
-    
-    Example:
-        ```python
-        # Environment:
-        # WSM_ID=1, WSM_CONTROL_BASE_PORT=8000, WSM_NAME=wsm, WSM_REPLICAS=3
-        
-        # Node 1 (wsm:8001)
-        node1 = WSMNode()
-        node1.start()  # Becomes LEADER initially
-        
-        # Node 2 (wsm_2:8002) starts
-        node2 = WSMNode()
-        node2.start()  # Detects node1 as LEADER, becomes BACKUP
-        
-        # Node 1 crashes
-        # Node 2 detects failure via heartbeat, starts election
-        # Node 3 (wsm_3:8003) receives ELECTION from node2
-        # Node 3 has higher ID → sends OK and starts own election
-        # Node 3 becomes LEADER, broadcasts COORDINATOR
-        # Node 2 receives COORDINATOR, becomes BACKUP
-        ```
-    """
-    """
-    WSM node with Bully leader election for high availability.
-    
-    Manages leader election among WSM replicas using Bully algorithm. Handles control plane
-    (election messages) separately from data plane (WSMServer). Supports hot failover with
-    state recovery from persistent storage.
-    
-    Architecture:
-        - Control plane: Leader election on control_port (base + id)
-        - Data plane: WSMServer on standard port for client requests
-        - Bully algorithm: Higher ID nodes become leader after election
-        - Heartbeat: BACKUP monitors LEADER, triggers election on failure
-    
-    Election Protocol:
-        1. Node detects LEADER failure (no heartbeat)
-        2. Sends ELECTION to all higher ID nodes
-        3. If no OK received → becomes LEADER and broadcasts COORDINATOR
-        4. If OK received → waits for COORDINATOR from winner
-    
-    Attributes:
-        id (int): Node identifier (determines election priority).
-        control_port (int): Control plane port (base + id).
-        wsm_name (str): Base hostname for WSM nodes.
-        peers (list): List of peer nodes with host/port.
-        leader_id (int): Current LEADER node ID.
-        role (str): Current role ('LEADER', 'BACKUP', 'UNKNOWN').
-        running (bool): Node running flag.
-        ok_received (bool): Flag for ELECTION response.
-        wsm_server (WSMServer): Data plane server instance.
-        leader_lock (threading.Lock): Election synchronization.
-    
-    Example:
-        ```python
-        # Environment:
-        # WSM_ID=1, WSM_CONTROL_BASE_PORT=8000, WSM_NAME=wsm, WSM_REPLICAS=3
-        
-        # Node 1 (wsm:8001)
-        node1 = WSMNode()
-        node1.start()  # Becomes LEADER initially
-        
-        # Node 2 (wsm_2:8002) starts
-        node2 = WSMNode()
-        node2.start()  # Detects node1 as LEADER, becomes BACKUP
-        
-        # Node 1 crashes
-        # Node 2 detects failure via heartbeat, starts election
-        # Node 3 (wsm_3:8003) receives ELECTION from node2
-        # Node 3 has higher ID → sends OK and starts own election
-        # Node 3 becomes LEADER, broadcasts COORDINATOR
-        # Node 2 receives COORDINATOR, becomes BACKUP
-        ```
+
+    Uses UDP for the control plane (leader election + heartbeats) and keeps the
+    data plane (WSMServer) on a separate TCP port for client requests.
+
+    Design goals:
+        - Robust startup: no elections or heartbeats until all nodes are READY
+        - Lightweight UDP control-plane with Bully algorithm
+        - Clear separation between control-plane and data-plane
+
+    Control Plane (UDP):
+        - READY / READY_ACK: startup synchronization (strict all-nodes-ready)
+        - WHO_IS_LEADER / LEADER_INFO: leader discovery
+        - ELECTION / OK / COORDINATOR: Bully algorithm messages
+        - HEARTBEAT / HEARTBEAT_OK: leader liveness monitoring
+
+    Data Plane (TCP):
+        - WSMServer handles worker state management for clients
     """
 
     def __init__(self):
         """
         Initialize WSM node with configuration from environment.
-        
+
         Environment Variables:
             WSM_ID: Node identifier (1, 2, 3, ...).
-            WSM_CONTROL_BASE_PORT: Base port for control plane.
+            WSM_CONTROL_BASE_PORT: Base port for control plane (UDP).
             WSM_NAME: Base hostname (node 1: wsm, node 2: wsm_2, ...).
             WSM_REPLICAS: Total number of WSM nodes.
-        
-        Example:
-            ```python
-            # Environment:
-            # WSM_ID=2
-            # WSM_CONTROL_BASE_PORT=8000
-            # WSM_NAME=wsm
-            # WSM_REPLICAS=3
-            
-            node = WSMNode()
-            # node.id = 2
-            # node.control_port = 8002
-            # node.peers = [
-            #   {'id': 1, 'host': 'wsm', 'port': 8001},
-            #   {'id': 3, 'host': 'wsm_3', 'port': 8003}
-            # ]
-            ```
         """
         logging.basicConfig(level=logging.INFO, format=f"[WSM NODE %(levelname)s] %(message)s")
 
@@ -149,144 +49,257 @@ class WSMNode:
         self.wsm_name = os.getenv("WSM_NAME")
         total = int(os.getenv("WSM_REPLICAS", "3"))
 
+        # Peers configuration (other WSM nodes)
         self.peers = []
         for i in range(1, total + 1):
             if i != self.id:
                 host = self.wsm_name if i == 1 else f"{self.wsm_name}_{i}"
                 self.peers.append({"id": i, "host": host, "port": base + i})
 
+        # Leader & role state
         self.leader_id = None
-        self.role = "UNKNOWN"
-        self.running = True
+        self.role = "BACKUP"
         self.ok_received = False
 
         self.wsm_server = None
-
         self.leader_lock = threading.Lock()
 
+        # Heartbeat tracking
+        self.last_heartbeat_ok = time.time()
+
+        # Strict READY synchronization
+        self.ready = False
+        self.ready_peers = set()
+        self.total_nodes = total
+
+        # Single UDP socket for control plane (send + receive)
+        self.udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.udp.bind(("0.0.0.0", self.control_port))
+        self.udp.settimeout(0.2)
+
+    # ======================================================================
+    # STARTUP
+    # ======================================================================
     def start(self):
         """
-        Start WSM node with leader discovery and server initialization.
-        
+        Start WSM node with robust UDP control plane and Bully election.
+
         Sequence:
-        1. Start control plane listener (election messages)
-        2. Try to find existing LEADER
-        3. If no LEADER found → become LEADER
-        4. Start WSMServer for data plane
-        5. Start heartbeat loop (BACKUP only)
-        6. Block main thread
-        
-        Example:
-            ```python
-            # First node starting (no existing LEADER)
-            node1 = WSMNode()
-            node1.start()
-            # Becomes LEADER, starts WSMServer(role='LEADER')
-            
-            # Second node starting (LEADER exists)
-            node2 = WSMNode()
-            node2.start()
-            # Detects node1 as LEADER
-            # Becomes BACKUP, starts WSMServer(role='BACKUP')
-            # Starts heartbeat monitoring node1
-            ```
+        1. Start UDP control-plane listener
+        2. Run strict READY handshake (all nodes must be READY)
+        3. Try to discover existing leader
+        4. If no leader found → run Bully election (start_election)
+        5. Start WSMServer (data plane)
+        6. Start heartbeat loop (BACKUP only)
+        7. Block main thread
         """
+        # 1) Control-plane listener (receives all UDP messages)
         threading.Thread(target=self.control_listener, daemon=True).start()
 
-        if self.try_find_leader():
-            logging.info(f"📘 Ya hay líder: {self.leader_id}")
-            self.role = "BACKUP"
-        else:
-            logging.info("👑 No existe líder → me proclamo líder")
-            self.become_leader(initial=True)
+        # 2) Strict READY handshake before any election/heartbeat
+        self.bootstrap_ready_phase()
 
+        # 3) Leader discovery
+        if self.try_find_leader():
+            logging.info(f"📘 Existing leader found: {self.leader_id}")
+            self.role = "BACKUP"
+            self.last_heartbeat_ok = time.time()
+        else:
+            logging.info("👑 No leader present → starting Bully election")
+            # Important: use Bully election instead of self-becoming leader
+            self.start_election()
+
+        # 4) Start data plane
         self.wsm_server = WSMServer(role=self.role)
         threading.Thread(target=self.wsm_server.start, daemon=True).start()
+        logging.info(f"🚀 WSMServer started as role: {self.role}")
 
-        logging.info(f"🚀 WSMServer iniciado como rol: {self.role}")
-
+        # 5) Start heartbeat monitoring (BACKUP nodes only)
         threading.Thread(target=self.heartbeat_loop, daemon=True).start()
 
+        # 6) Block forever
         threading.Event().wait()
 
+    # ======================================================================
+    # READY HANDSHAKE
+    # ======================================================================
+    def bootstrap_ready_phase(self):
+        """
+        Phase 0: Strict READY synchronization.
+
+        No election or heartbeat is processed until:
+            - This node has received READY or READY_ACK from all peers.
+
+        Mechanism:
+            - Periodically broadcast READY to all peers.
+            - Peers respond with READY_ACK.
+            - Both READY and READY_ACK mark a peer as "ready".
+            - Once ready_peers == peers, we flip self.ready = True.
+        """
+        logging.info("🧑‍✈️ Waiting for all nodes to become READY...")
+
+        msg = {"type": "READY", "from": self.id}
+
+        while len(self.ready_peers) < len(self.peers):
+            # Broadcast READY to all peers
+            self.broadcast(msg)
+            time.sleep(0.3)
+
+        self.ready = True
+        logging.info("✅ All nodes are READY. Control plane can start.")
+
+    # ======================================================================
+    # CONTROL LISTENER (UDP)
+    # ======================================================================
+    def control_listener(self):
+        """
+        UDP control-plane listener.
+
+        Receives all control messages and dispatches them to handle_msg.
+        """
+        while True:
+            try:
+                data, addr = self.udp.recvfrom(4096)
+                msg = json.loads(data.decode())
+                threading.Thread(target=self.handle_msg, args=(msg, addr), daemon=True).start()
+            except socket.timeout:
+                continue
+
+    def handle_msg(self, msg, addr):
+        """
+        Handle incoming control-plane message based on type.
+
+        Message types:
+            - READY / READY_ACK: startup handshake
+            - WHO_IS_LEADER / LEADER_INFO
+            - ELECTION / OK / COORDINATOR
+            - HEARTBEAT / HEARTBEAT_OK
+        """
+        t = msg.get("type")
+
+        # ------------------------------------------------------------------
+        # READY handshake (always processed)
+        # ------------------------------------------------------------------
+        if t == "READY":
+            sender = msg["from"]
+            self.ready_peers.add(sender)
+
+            # Send READY_ACK back so sender also marks this node as ready
+            ack = {"type": "READY_ACK", "from": self.id}
+            self.udp.sendto(json.dumps(ack).encode(), addr)
+            return
+
+        if t == "READY_ACK":
+            sender = msg["from"]
+            self.ready_peers.add(sender)
+            return
+
+        # Until READY phase is completed, ignore all other messages
+        if not self.ready:
+            return
+
+        # ------------------------------------------------------------------
+        # WHO_IS_LEADER / LEADER_INFO
+        # ------------------------------------------------------------------
+        if t == "WHO_IS_LEADER":
+            if self.leader_id is not None:
+                resp = {
+                    "type": "LEADER_INFO",
+                    "leader_id": self.leader_id
+                }
+                self.udp.sendto(json.dumps(resp).encode(), addr)
+            return
+
+        if t == "LEADER_INFO":
+            # Response to our leader discovery
+            self.leader_id = msg["leader_id"]
+            return
+
+        # ------------------------------------------------------------------
+        # ELECTION / OK / COORDINATOR
+        # ------------------------------------------------------------------
+        if t == "ELECTION":
+            sender = msg["from"]
+
+            # Always respond OK to the sender (we are alive)
+            ok = {"type": "OK", "from": self.id}
+            self.udp.sendto(json.dumps(ok).encode(), addr)
+
+            # If we have a higher ID, we start our own election
+            if self.id > sender:
+                self.start_election()
+            return
+
+        if t == "OK":
+            # Some higher node is alive and will take over the election
+            self.ok_received = True
+            return
+
+        if t == "COORDINATOR":
+            # New leader announcement
+            self.leader_id = msg["leader_id"]
+            self.role = "BACKUP"
+            self.last_heartbeat_ok = time.time()
+            if self.wsm_server:
+                self.wsm_server.role = "BACKUP"
+            logging.info(f"📘 New leader: {self.leader_id}")
+            return
+
+        # ------------------------------------------------------------------
+        # HEARTBEAT / HEARTBEAT_OK
+        # ------------------------------------------------------------------
+        if t == "HEARTBEAT":
+            # Leader replies with HEARTBEAT_OK to the backup
+            resp = {"type": "HEARTBEAT_OK", "from": self.id}
+            self.udp.sendto(json.dumps(resp).encode(), addr)
+            return
+
+        if t == "HEARTBEAT_OK":
+            # Backup records that the leader is alive
+            self.last_heartbeat_ok = time.time()
+            return
+
+    # ======================================================================
+    # LEADER DISCOVERY
+    # ======================================================================
     def try_find_leader(self):
         """
         Query peers to discover existing LEADER.
-        
-        Sends WHO_IS_LEADER to all peers with short timeout.
-        Returns on first LEADER_INFO response.
-        
-        Returns:
-            bool: True if LEADER found, False otherwise.
-        
-        Example:
-            ```python
-            # Node 3 starting, queries peers
-            found = node3.try_find_leader()
-            
-            # If node 1 is LEADER:
-            # - Sends WHO_IS_LEADER to node 1 and node 2
-            # - Node 1 responds: {"type": "LEADER_INFO", "leader_id": 1}
-            # - Returns True, sets node3.leader_id = 1
-            
-            # If no LEADER:
-            # - All peers timeout or respond without LEADER_INFO
-            # - Returns False
-            ```
+
+        Sends WHO_IS_LEADER to all peers for a short period, and returns
+        True if any LEADER_INFO response is received (leader_id is set).
         """
         msg = {"type": "WHO_IS_LEADER", "from": self.id}
+        payload = json.dumps(msg).encode()
 
-        for p in self.peers:
-            try:
-                with socket.create_connection((p["host"], p["port"]), timeout=0.4) as s:
-                    s.sendall(json.dumps(msg).encode())
-                    data = s.recv(2048)
+        deadline = time.time() + 1.5  # total discovery window
 
-                if not data:
-                    continue
+        while time.time() < deadline and self.leader_id is None:
+            for p in self.peers:
+                try:
+                    self.udp.sendto(payload, (p["host"], p["port"]))
+                except:
+                    pass
+            time.sleep(0.2)
 
-                resp = json.loads(data.decode())
-                if resp.get("type") == "LEADER_INFO":
-                    self.leader_id = resp["leader_id"]
-                    return True
+        return self.leader_id is not None
 
-            except:
-                pass
-
-        return False
-
+    # ======================================================================
+    # BECOME LEADER
+    # ======================================================================
     def become_leader(self, initial=False):
         """
         Promote this node to LEADER role.
-        
-        Updates role, promotes WSMServer if exists, broadcasts COORDINATOR to peers
-        (unless initial startup). Thread-safe with leader_lock.
-        
-        Args:
-            initial (bool): True if initial startup (skip broadcast).
-        
-        Example:
-            ```python
-            # After winning election
-            node2.become_leader(initial=False)
-            # - Sets node2.leader_id = 2, role = 'LEADER'
-            # - Promotes wsm_server to LEADER (reloads state)
-            # - Broadcasts: {"type": "COORDINATOR", "leader_id": 2}
-            
-            # During initial startup (no peers yet)
-            node1.become_leader(initial=True)
-            # - Sets node1.leader_id = 1, role = 'LEADER'
-            # - No broadcast (no peers to notify)
-            ```
-        """
 
+        If not initial, broadcasts COORDINATOR to peers.
+        """
         with self.leader_lock:
             if self.role == "LEADER":
                 return
 
             self.leader_id = self.id
             self.role = "LEADER"
-            logging.info("👑 Ahora soy el líder")
+            logging.info("👑 This node is now the LEADER")
 
             if self.wsm_server:
                 self.wsm_server.promote_to_leader()
@@ -294,205 +307,94 @@ class WSMNode:
             if not initial:
                 self.broadcast({"type": "COORDINATOR", "leader_id": self.id})
 
-    def control_listener(self):
-        """
-        Listen for control plane messages (election protocol).
-        
-        Binds to control_port, accepts connections, dispatches to handle_msg.
-        Runs in background thread.
-        
-        Example:
-            ```python
-            # Node 2 control_listener receives:
-            # {"type": "ELECTION", "from": 1}
-            # Spawns handle_msg in new thread
-            ```
-        """
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.bind(("0.0.0.0", self.control_port))
-        sock.listen(32)
-
-        while True:
-            conn, _ = sock.accept()
-            data = conn.recv(4096)
-            if data:
-                self.handle_msg(json.loads(data.decode()), conn)
-            conn.close()
-
-    def handle_msg(self, msg, conn):
-        """
-        Handle control plane message based on type.
-        
-        Message Types:
-            - WHO_IS_LEADER: Query for current LEADER
-            - ELECTION: Bully election message
-            - OK: Response to ELECTION
-            - COORDINATOR: New LEADER announcement
-        
-        Args:
-            msg (dict): Parsed message.
-            conn (socket): Connection for response.
-        
-        Example:
-            ```python
-            # WHO_IS_LEADER query
-            handle_msg({"type": "WHO_IS_LEADER", "from": 3}, conn)
-            # Response: {"type": "LEADER_INFO", "leader_id": 1}
-            
-            # ELECTION from lower ID
-            handle_msg({"type": "ELECTION", "from": 1}, conn)
-            # - Sends OK to node 1
-            # - Starts own election (higher ID)
-            
-            # COORDINATOR announcement
-            handle_msg({"type": "COORDINATOR", "leader_id": 3}, conn)
-            # - Sets leader_id = 3
-            # - Sets role = 'BACKUP'
-            # - Updates wsm_server.role = 'BACKUP'
-            ```
-        """
-        t = msg.get("type")
-
-        if t == "WHO_IS_LEADER":
-            if self.leader_id:
-                conn.sendall(json.dumps({
-                    "type": "LEADER_INFO",
-                    "leader_id": self.leader_id
-                }).encode())
-            return
-
-        if t == "ELECTION":
-            sender = msg["from"]
-            self.send_to(sender, {"type": "OK", "from": self.id})
-            if self.id > sender:
-                self.start_election()
-
-        if t == "OK":
-            self.ok_received = True
-
-        if t == "COORDINATOR":
-            self.leader_id = msg["leader_id"]
-            self.role = "BACKUP"
-            if self.wsm_server:
-                self.wsm_server.role = "BACKUP"
-            logging.info(f"📘 Nuevo líder: {self.leader_id}")
-
+    # ======================================================================
+    # BULLY ELECTION
+    # ======================================================================
     def start_election(self):
         """
-        Start Bully election by contacting higher ID nodes.
-        
+        Start Bully election by contacting higher ID nodes via UDP.
+
         Algorithm:
         1. Send ELECTION to all nodes with ID > self.id
-        2. Wait 1 second for OK responses
+        2. Wait 1 second for OK responses (handled in handle_msg)
         3. If no OK received → become LEADER
         4. If OK received → wait for COORDINATOR from winner
-        
-        Example:
-            ```python
-            # Node 2 starts election (nodes: 1, 2, 3)
-            node2.start_election()
-            
-            # Sends ELECTION to node 3
-            # Node 3 responds OK and starts own election
-            # Node 2 waits for COORDINATOR
-            # Node 3 wins (highest ID), broadcasts COORDINATOR
-            # Node 2 receives COORDINATOR, becomes BACKUP
-            
-            # Node 3 starts election (highest ID)
-            node3.start_election()
-            # No higher nodes to contact
-            # No OK received after timeout
-            # Becomes LEADER immediately
-            ```
         """
         with self.leader_lock:
-            logging.info("🏳️ Iniciando elección Bully")
+            logging.info("🏳️ Starting Bully election")
 
             self.ok_received = False
             higher = [p for p in self.peers if p["id"] > self.id]
 
-            for p in higher:
-                self.send_to(p["id"], {"type": "ELECTION", "from": self.id})
+            msg = {"type": "ELECTION", "from": self.id}
+            payload = json.dumps(msg).encode()
 
-        time.sleep(1)
+            for p in higher:
+                try:
+                    self.udp.sendto(payload, (p["host"], p["port"]))
+                except:
+                    pass
+
+        time.sleep(1.0)
 
         if not self.ok_received:
+            # No higher node answered → we are the new leader
             self.become_leader()
 
+    # ======================================================================
+    # HEARTBEAT
+    # ======================================================================
     def heartbeat_loop(self):
         """
-        Monitor LEADER health (BACKUP nodes only).
-        
-        Sends periodic heartbeat to LEADER. On failure, triggers election.
-        Runs continuously in background thread.
-        
-        Example:
-            ```python
-            # Node 2 (BACKUP) monitoring node 1 (LEADER)
-            # Every 1 second:
-            #   - Sends HEARTBEAT to node 1
-            #   - If response → continue
-            #   - If timeout → start_election()
-            
-            # Node 1 crashes
-            # Node 2 detects failure on next heartbeat
-            # Triggers election, becomes LEADER (if highest remaining)
-            ```
+        Monitor LEADER health (BACKUP nodes only) using UDP heartbeats.
+
+        Every second:
+            - BACKUP sends HEARTBEAT to LEADER
+            - LEADER responds with HEARTBEAT_OK
+            - If no HEARTBEAT_OK is observed for some timeout → election
         """
+        HEARTBEAT_INTERVAL = 1.0
+        HEARTBEAT_TIMEOUT = 3.0  # seconds without HEARTBEAT_OK → suspect
+
         while True:
-            time.sleep(1)
+            time.sleep(HEARTBEAT_INTERVAL)
 
-            if self.role == "BACKUP" and self.leader_id:
-                alive = self.send_to(self.leader_id, {"type": "HEARTBEAT"})
-                if not alive:
-                    logging.info("⚠️ El líder no responde → iniciando elección")
-                    self.start_election()
+            if self.role != "BACKUP" or not self.leader_id:
+                continue
 
-    def send_to(self, peer_id, msg):
-        """
-        Send message to specific peer with timeout.
-        
-        Args:
-            peer_id (int): Target peer ID.
-            msg (dict): Message to send.
-        
-        Returns:
-            bool: True if sent successfully, False on failure.
-        
-        Example:
-            ```python
-            success = node2.send_to(3, {"type": "ELECTION", "from": 2})
-            # Connects to node 3, sends message
-            # Returns: True if successful, False if timeout/error
-            ```
-        """
-        p = next((x for x in self.peers if x["id"] == peer_id), None)
-        if not p:
-            return False
+            leader_peer = next((p for p in self.peers if p["id"] == self.leader_id), None)
+            if not leader_peer:
+                continue
 
-        try:
-            with socket.create_connection((p["host"], p["port"]), timeout=0.3) as s:
-                s.sendall(json.dumps(msg).encode())
-            return True
-        except:
-            return False
+            msg = {"type": "HEARTBEAT", "from": self.id}
+            payload = json.dumps(msg).encode()
 
+            try:
+                self.udp.sendto(payload, (leader_peer["host"], leader_peer["port"]))
+            except:
+                pass
+
+            # If too much time has passed without HEARTBEAT_OK, trigger election
+            if time.time() - self.last_heartbeat_ok > HEARTBEAT_TIMEOUT:
+                logging.info("⚠️ Leader is not responding → starting election")
+                self.start_election()
+
+    # ======================================================================
+    # BROADCAST UTILITY
+    # ======================================================================
     def broadcast(self, msg):
         """
-        Send message to all peers.
-        
+        Send a UDP message to all peers.
+
         Args:
             msg (dict): Message to broadcast.
-        
-        Example:
-            ```python
-            # Node 3 becomes LEADER
-            node3.broadcast({"type": "COORDINATOR", "leader_id": 3})
-            # Sends to node 1 and node 2
-            ```
         """
+        payload = json.dumps(msg).encode()
         for p in self.peers:
-            self.send_to(p["id"], msg)
+            try:
+                self.udp.sendto(payload, (p["host"], p["port"]))
+            except:
+                pass
 
 
 if __name__ == "__main__":

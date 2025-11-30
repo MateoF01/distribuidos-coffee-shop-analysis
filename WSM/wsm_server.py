@@ -659,8 +659,6 @@ class WSMServer:
                 data = conn.recv(4096)
 
                 if not data:
-                    # El cliente cerró la conexión
-                    logging.info(f"[WSM] Cliente {addr} cerró la conexión")
                     return
 
                 try:
