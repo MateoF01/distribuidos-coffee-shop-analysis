@@ -710,6 +710,8 @@ class WSMServer:
         worker_type = msg.get("worker_type")
         replica_id = msg.get("replica_id")
 
+        print("Recibo mensaje: ", msg)
+
         if action != "is_leader" and self.role != "LEADER":
             return "NOT_LEADER"
         if action == "register":
