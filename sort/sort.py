@@ -354,7 +354,8 @@ class Sorter(FileProcessingWorker):
         """
         try:
             if not os.path.exists(self.input_file):
-                print(f"Input file {self.input_file} does not exist")
+                print(f"Input file {self.input_file} does not exist (empty stream). Sending completion signal.")
+                self._send_completion_signal()
                 return
             
             current_chunk = []

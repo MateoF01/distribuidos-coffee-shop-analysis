@@ -420,6 +420,8 @@ class Topper(Worker):
         """
         csv_files = self._get_csv_files(request_input_dir)
         if not csv_files:
+            logging.info(f"[Topper-Q2] No CSV files found for request {self.current_request_id} (empty stream). Sending completion signal.")
+            self._send_completion_signal()
             return
 
         all_rows = []
@@ -459,6 +461,8 @@ class Topper(Worker):
         """
         csv_files = self._get_csv_files(request_input_dir)
         if not csv_files:
+            logging.info(f"[Topper-Q3] No CSV files found for request {self.current_request_id} (empty stream). Sending completion signal.")
+            self._send_completion_signal()
             return
 
         all_rows = []
@@ -522,6 +526,8 @@ class Topper(Worker):
         """
         csv_files = self._get_csv_files(request_input_dir)
         if not csv_files:
+            logging.info(f"[Topper-Q4] No CSV files found for request {self.current_request_id} (empty stream). Sending completion signal.")
+            self._send_completion_signal()
             return
 
         all_rows = []

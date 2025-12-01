@@ -96,7 +96,8 @@ class SorterV2(SignalProcessingWorker):
         chunk_files = sorted(glob(pattern))
 
         if not chunk_files:
-            logging.error(f"[SorterV2] ❌ No hay chunks para request {request_id} en {splitter_root}")
+            logging.info(f"[SorterV2] ⚠️ No hay chunks para request {request_id} en {splitter_root} (stream vacío). Enviando notificación.")
+            self._notify_completion(protocol.DATA_TRANSACTIONS, request_id)
             return
 
         output_dir = os.path.join("/app/output", str(request_id))
