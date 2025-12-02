@@ -1,5 +1,7 @@
 import os
+import signal
 import socket
+import random
 import time
 import configparser
 import csv
@@ -140,6 +142,44 @@ class Joiner_v2(Worker):
         self._csv_initialized_per_request = {}
         self._rows_written_per_request = {}
 
+        # Crash eligibility check
+        self.crash_eligible = True
+        target_replica = os.environ.get("CRASH_REPLICA_ID")
+        if target_replica:
+            self.crash_eligible = False
+            try:
+                my_hostname = socket.gethostname()
+                my_ip = socket.gethostbyname(my_hostname)
+                
+                # Construct potential hostnames for the target replica
+                # Default project name is directory name: distribuidos-coffee-shop-analysis
+                project_name = "distribuidos-coffee-shop-analysis"
+                service_name = f"joiner_v2_{self.query_type}" # e.g. joiner_v2_q2
+                
+                candidates = [
+                    f"{project_name}-{service_name}-{target_replica}",
+                    f"{project_name}_{service_name}_{target_replica}",
+                    f"{service_name}-{target_replica}",
+                    f"{service_name}_{target_replica}"
+                ]
+                
+                for candidate in candidates:
+                    try:
+                        target_ip = socket.gethostbyname(candidate)
+                        if target_ip == my_ip:
+                            self.crash_eligible = True
+                            logging.info(f"Crash enabled: My IP ({my_ip}) matches target {candidate} ({target_ip})")
+                            break
+                    except socket.error:
+                        continue
+                
+                if not self.crash_eligible:
+                    logging.info(f"Crash disabled: My IP ({my_ip}) did not match any target candidates for replica {target_replica}")
+                    
+            except Exception as e:
+                logging.warning(f"Could not verify replica ID for crash target: {e}")
+                self.crash_eligible = False
+
     def _initialize_request_paths(self, request_id):
         """
         Initialize per-request output and temp directories with isolated paths.
@@ -222,6 +262,12 @@ class Joiner_v2(Worker):
             ... )
             # Saves to temp/stores_cleaned_q4/replica-1.csv
         """
+
+        crash_prob = float(os.environ.get("CRASH_PROBABILITY", "0.0"))
+        if self.crash_eligible and crash_prob > 0 and random.random() < crash_prob:
+            logging.critical(f"Simulating CRASH (prob={crash_prob}) on message from {queue_name} for req={request_id}")
+            os._exit(1)
+
         self._initialize_request_paths(request_id)
 
         outputs = self._outputs_by_request[request_id]
