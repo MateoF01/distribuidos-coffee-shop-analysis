@@ -69,6 +69,10 @@ services:
       SERVER_ADDRESS: gateway:5000
       BATCH_MAX_AMOUNT: 5000
       REQUESTS_PER_CLIENT: 1
+      # Exponential backoff reconnection parameters
+      CLIENT_INITIAL_BACKOFF: 1.0
+      CLIENT_MAX_BACKOFF: 60.0
+      CLIENT_BACKOFF_MULTIPLIER: 2.0
     volumes:
     - ./data:/app/.data
     - ./client/results:/app/client/results
