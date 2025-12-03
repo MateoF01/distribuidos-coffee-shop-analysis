@@ -145,18 +145,26 @@ class Joiner_v2(Worker):
         Initialize per-request output and temp directories with isolated paths.
         
         Creates request-specific directory structure for output files and temporary
-        join data. Only initializes once per request_id.
+        join data. Each request gets its own isolated directory tree containing:
+        - Output CSV files at the root of the request directory
+        - A temp/ subdirectory with per-queue subdirectories for intermediate data
+        
+        Structure: output/<request_id>/<filename>
+                   output/<request_id>/temp/<queue_name>/<worker_id>.csv
+        
+        Only initializes once per request_id (idempotent).
         
         Args:
             request_id (str): Request identifier.
         
         Example:
-            >>> joiner._initialize_request_paths('req-123')
-            # Creates:
-            # output/q4/req-123/results.csv
-            # output/q4/req-123/temp/stores_cleaned_q4/
-            # output/q4/req-123/temp/users_cleaned/
-            # output/q4/req-123/temp/resultados_groupby_q4/
+            >>> joiner._initialize_request_paths('1')
+            # Creates structure:
+            # output/1/q4.csv                                   (output file)
+            # output/1/temp/                                    (temp directory)
+            # output/1/temp/stores_cleaned_q4/                  (queue temp dir)
+            # output/1/temp/users_cleaned_q4/                   (queue temp dir)
+            # output/1/temp/resultados_groupby_q4/              (queue temp dir)
         """
         with self._lock:
             # Skip if already initialized for this request
@@ -220,7 +228,7 @@ class Joiner_v2(Worker):
             ...     payload=b'STORE001,Coffee Shop A\\nSTORE002,Coffee Shop B',
             ...     queue_name='stores_cleaned_q4'
             ... )
-            # Saves to temp/stores_cleaned_q4/replica-1.csv
+            # Saves to output/req-123/temp/stores_cleaned_q4/worker-hostname.csv
         """
         self._initialize_request_paths(request_id)
 
@@ -289,7 +297,8 @@ class Joiner_v2(Worker):
             # Triggers join processing, writes output, sends sort notification
         """
         if data_type == protocol.DATA_END:
-            logging.info(f"[Joiner:{self.query_type}] Handling DATA_END signal from {queue_name} for request_id={request_id}")
+            if position == 1:
+                self._handle_data_end_signal(request_id, position, queue_name)
             return
 
         self._initialize_request_paths(request_id)
@@ -769,6 +778,112 @@ class Joiner_v2(Worker):
 
         self._send_sort_request(request_id, outputs)
         logging.info(f"Q3 join complete. {len(processed_rows)} rows written across {len(outputs)} output(s).")
+
+    def _handle_data_end_signal(self, request_id, position, queue_name):
+        """
+        Handle DATA_END signal with WSM-coordinated synchronization across all replicas and queues.
+        
+        Similar to regular END signal handling, but for cleanup coordination. Uses WSM to ensure
+        all replicas from all input queues have received DATA_END before performing cleanup and
+        forwarding the cleanup notification downstream.
+        
+        Args:
+            request_id (str): Request identifier.
+            position (int): Message position.
+            queue_name (str): Source queue name.
+        
+        Example:
+            >>> # Replica 1 of stores_cleaned receives DATA_END
+            >>> joiner._handle_data_end_signal('req-123', 1, 'stores_cleaned_q4')
+            # Updates WSM, waits for other replicas/queues
+            
+            >>> # Last replica of last queue receives DATA_END
+            >>> joiner._handle_data_end_signal('req-123', 1, 'resultados_groupby_q4')
+            # All queues done, cleans up files, forwards notification
+        """
+        logging.info(f"[Joiner:{self.query_type}] Received DATA_END from {queue_name} for request_id={request_id}")
+        
+        wsm_client = self.dict_wsm_clients[queue_name]
+        
+        enviar_last_data_end = wsm_client.can_send_last_data_end(request_id)
+        
+        if enviar_last_data_end:
+            logging.info(f"[Joiner:{self.query_type}] ✅ All queues received DATA_END for request_id={request_id}, performing cleanup")
+            
+            wsm_client.cleanup_request(request_id)
+            
+            self._cleanup_request_files(request_id)
+            
+            cleanup_message = protocol.create_notification_message(protocol.DATA_END, b"", request_id)
+            for q in self.out_queues:
+                q.send(cleanup_message)
+            
+            logging.info(f"[Joiner:{self.query_type}] Sent DATA_END notification for request_id={request_id}")
+        else:
+            logging.info(f"[Joiner:{self.query_type}] Not last queue to finish DATA_END for request_id={request_id}, waiting for others")
+        
+        wsm_client.update_state("WAITING", request_id, position)
+
+    def _cleanup_request_files(self, request_id):
+        """
+        Clean up all files and in-memory state for a completed or aborted request.
+        
+        Removes the entire request directory tree containing:
+        - Output CSV files (e.g., q1.csv, q2_a.csv, q2_b.csv)
+        - Temporary join files (temp/ subdirectory with all queue directories)
+        - All in-memory tracking dictionaries
+        
+        This function is idempotent and thread-safe. Called during:
+        - Normal request completion (after sending final results)
+        - Abnormal termination (DATA_END signal from gateway)
+        
+        Args:
+            request_id (str): Request identifier to clean up.
+        
+        Example:
+            >>> joiner._cleanup_request_files('1')
+            # Removes entire directory tree:
+            #   output/1/q4.csv
+            #   output/1/temp/stores_cleaned_q4/worker-1.csv
+            #   output/1/temp/users_cleaned_q4/worker-1.csv
+            #   output/1/temp/resultados_groupby_q4/worker-1.csv
+            # Clears tracking dicts: _outputs_by_request, _temp_dir_by_request, etc.
+        """
+        import shutil
+        
+        with self._lock:
+            if request_id in self._outputs_by_request:
+                outputs = self._outputs_by_request[request_id]
+                if outputs:
+                    first_output_file = outputs[0][1]
+                    request_dir = os.path.dirname(first_output_file)
+                    
+                    if os.path.exists(request_dir):
+                        try:
+                            shutil.rmtree(request_dir)
+                            logging.info(f"[Joiner:{self.query_type}] shutil.rmtree completed for {request_dir}")
+                            
+                            if os.path.exists(request_dir):
+                                logging.warning(f"[Joiner:{self.query_type}] Directory still exists after rmtree: {request_dir}")
+                                try:
+                                    os.rmdir(request_dir)
+                                    logging.info(f"[Joiner:{self.query_type}] Removed empty directory for request_id={request_id} at {request_dir}")
+                                except OSError as e:
+                                    logging.error(f"[Joiner:{self.query_type}] Could not remove directory {request_dir}: {e}")
+                            else:
+                                logging.info(f"[Joiner:{self.query_type}] Directory successfully removed: {request_dir}")
+                        except Exception as e:
+                            logging.error(f"[Joiner:{self.query_type}] Error removing directory for request_id={request_id} at {request_dir}: {e}")
+                    else:
+                        logging.info(f"[Joiner:{self.query_type}] Directory already removed for request_id={request_id} at {request_dir}")
+            
+            # Clean up all tracking dictionaries (safe even if keys don't exist)
+            self._outputs_by_request.pop(request_id, None)
+            self._temp_dir_by_request.pop(request_id, None)
+            self._csv_initialized_per_request.pop(request_id, None)
+            self._rows_written_per_request.pop(request_id, None)
+            
+            logging.debug(f"[Joiner:{self.query_type}] Cleared in-memory state for request_id={request_id}")
 
     def _log_startup_info(self):
         """
