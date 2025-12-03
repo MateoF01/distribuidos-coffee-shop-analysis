@@ -148,7 +148,7 @@ class Cleaner(StreamProcessingWorker):
             for q in self.out_queues:
                 q.send(new_msg)
 
-        # Simulate crash after processing
+        # TEST-CASE:
         # Se encolo en la salida pero no le avise al WSM
         # Se duplica el mensaje, pero el Coordinator lo detecta
         self.simulate_crash(queue_name, request_id)
