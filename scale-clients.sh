@@ -110,6 +110,9 @@ for i in $(seq 1 $NUM_CLIENTS); do
         -e SERVER_ADDRESS=gateway:5000 \
         -e BATCH_MAX_AMOUNT=$BATCH_MAX_AMOUNT \
         -e REQUESTS_PER_CLIENT=$REQUESTS_PER_CLIENT \
+        -e CLIENT_INITIAL_BACKOFF=1.0 \
+        -e CLIENT_MAX_BACKOFF=60.0 \
+        -e CLIENT_BACKOFF_MULTIPLIER=2.0 \
         -v "$(pwd)/data:/app/.data" \
         -v "$(pwd)/client/results:/app/client/results" \
         "$CLIENT_IMAGE" 2>&1)

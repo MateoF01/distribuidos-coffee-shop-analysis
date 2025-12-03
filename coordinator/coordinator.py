@@ -230,6 +230,51 @@ class Coordinator(Worker):
       logging.error(f"Error persisting assigned position for request_id={request_id}, new_position={new_position}: {e}")
       raise
 
+  def _cleanup_request_state(self, request_id):
+    """
+    Clean up all persistent state files for a completed request.
+    
+    Removes both the input positions file and assigned position file for the
+    given request_id, freeing disk space and preventing stale data accumulation.
+    
+    Args:
+        request_id (str): Unique request identifier to clean up.
+    
+    Example:
+        >>> coordinator._cleanup_request_state('req-123')
+        [COORDINATOR CLEANUP] Removed positions file for request_id=req-123
+        [COORDINATOR CLEANUP] Removed assigned file for request_id=req-123
+        [COORDINATOR CLEANUP] Removed in-memory state for request_id=req-123
+    """
+    with self.lock:
+      # Remove input positions file
+      positions_file = os.path.join(self.positions_dir, f'{request_id}.txt')
+      if os.path.exists(positions_file):
+        try:
+          os.remove(positions_file)
+          logging.info(f"[COORDINATOR CLEANUP] Removed positions file for request_id={request_id}")
+        except Exception as e:
+          logging.warning(f"[COORDINATOR CLEANUP] Failed to remove positions file for request_id={request_id}: {e}")
+      
+      # Remove assigned positions file
+      assigned_file = os.path.join(self.assigned_dir, f'{request_id}.txt')
+      if os.path.exists(assigned_file):
+        try:
+          os.remove(assigned_file)
+          logging.info(f"[COORDINATOR CLEANUP] Removed assigned file for request_id={request_id}")
+        except Exception as e:
+          logging.warning(f"[COORDINATOR CLEANUP] Failed to remove assigned file for request_id={request_id}: {e}")
+      
+      # Remove in-memory state
+      if request_id in self.messages_by_request_id_counter:
+        del self.messages_by_request_id_counter[request_id]
+      if request_id in self.end_messages_received:
+        del self.end_messages_received[request_id]
+      if request_id in self.data_messages_count:
+        del self.data_messages_count[request_id]
+      
+      logging.info(f"[COORDINATOR CLEANUP] Cleaned up all state for request_id={request_id}")
+
   def _process_message(self, message, msg_type, data_type, request_id, position, payload, queue_name=None):
     """
     Process data messages by assigning new sequential positions.
@@ -296,6 +341,9 @@ class Coordinator(Worker):
     that END signals also receive sequential positions and duplicate END
     signals are properly detected and discarded.
     
+    Special handling for DATA_END: Cleans up all persistent state for the request
+    before forwarding the signal.
+    
     Args:
         message (bytes): Raw END message.
         msg_type (int): Message type identifier.
@@ -315,6 +363,13 @@ class Coordinator(Worker):
         Persisted assigned position: request_id=req-123, new_position=100
         Forwarded message (msg_type: 2, data_type: users, request_id: req-123, position: 100)
     """
+    # Special handling for DATA_END: cleanup request state and forward
+    if data_type == protocol.DATA_END:
+      logging.info(f"[COORDINATOR] Received DATA_END for request_id={request_id}, cleaning up state")
+      self._cleanup_request_state(request_id)
+      self._forward_message(msg_type, data_type, request_id, position, b'')
+      return
+    
     self._load_assigned_position_for_request(request_id)
     
     if not self._check_and_persist_input_position(request_id, position):
