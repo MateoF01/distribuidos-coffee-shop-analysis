@@ -78,7 +78,8 @@ class Cleaner(StreamProcessingWorker):
             ...     keep_when_empty=['city']
             ... )
         """
-        super().__init__(queue_in, queue_out, rabbitmq_host)
+        service_name = f"cleaner_{os.environ.get('DATA_TYPE', '')}"
+        super().__init__(queue_in, queue_out, rabbitmq_host, service_name=service_name)
         self.columns_have = columns_have
         self.columns_want = columns_want
         self.keep_indices = [self.columns_have.index(col) for col in self.columns_want]
@@ -146,6 +147,11 @@ class Cleaner(StreamProcessingWorker):
             new_msg = protocol.pack_message(msg_type, data_type, new_payload, request_id, position)
             for q in self.out_queues:
                 q.send(new_msg)
+
+        # Simulate crash after processing
+        # Se encolo en la salida pero no le avise al WSM
+        # Se duplica el mensaje, pero el Coordinator lo detecta
+        self.simulate_crash(queue_name, request_id)
 
         self.wsm_client.update_state("WAITING", request_id, position)
         logging.info(f"FIN procesado mensaje ({request_id}:{position})")
