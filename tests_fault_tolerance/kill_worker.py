@@ -139,7 +139,7 @@ def list_workers():
                 
     return sorted(workers)
 
-def generate_crash_config(selected_workers):
+def generate_crash_config(selected_workers, wait_count="5"):
     """
     Generate docker-compose.override.yml with crash settings for selected workers.
     """
@@ -183,7 +183,8 @@ def generate_crash_config(selected_workers):
             services_config[service_name] = {
                 "environment": {
                     "CRASH_PROBABILITY": "1.0",
-                    "CRASH_REPLICA_ID": replica_id
+                    "CRASH_REPLICA_ID": replica_id,
+                    "CRASH_WAIT_COUNT": wait_count
                 }
             }
         else:
@@ -249,7 +250,9 @@ def main():
                 print(f"Invalid selection: {idx + 1}")
         
         if selected:
-            generate_crash_config(selected)
+            crash_wait_input = input("Enter messages to wait before crash (default 5): ").strip()
+            crash_wait_count = crash_wait_input if crash_wait_input else "5"
+            generate_crash_config(selected, crash_wait_count)
             
     except ValueError:
         print("Invalid input.")

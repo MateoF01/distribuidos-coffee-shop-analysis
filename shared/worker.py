@@ -105,6 +105,7 @@ class Worker(ABC):
 
         # Crash eligibility check
         self.crash_eligible = True
+        self.processed_count = 0
         target_replica = os.environ.get("CRASH_REPLICA_ID")
         if target_replica:
             self.crash_eligible = False
@@ -148,10 +149,18 @@ class Worker(ABC):
         """
         Check if this worker should crash based on probability.
         """
+        self.processed_count += 1
         crash_prob = float(os.environ.get("CRASH_PROBABILITY", "0.0"))
-        if self.crash_eligible and crash_prob > 0 and random.random() < crash_prob:
-            logging.critical(f"Simulating CRASH (prob={crash_prob}) on message from {queue_name} for req={request_id}")
-            os._exit(1)
+        wait_count = int(os.environ.get("CRASH_WAIT_COUNT", "5"))
+        
+        if self.crash_eligible and crash_prob > 0:
+            if self.processed_count <= wait_count:
+                logging.info(f"Crash pending: Processed {self.processed_count}/{wait_count} messages before crash eligibility.")
+                return
+
+            if random.random() < crash_prob:
+                logging.critical(f"Simulating CRASH (prob={crash_prob}) on message from {queue_name} for req={request_id}")
+                os._exit(1)
     
     def _initialize_output_queues(self, queue_out):
         """
