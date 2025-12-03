@@ -34,7 +34,7 @@ end tell
 EOF
 
 # --- Ventana 2 ---
-write_cmd "docker logs -f distribuidos-coffee-shop-analysis-cleaner_transactions-2"
+write_cmd "docker logs -f coffee-shop-22-cleaner_transactions-2"
 
 # --- Ventana 3 ---
 write_cmd "docker kill wsm_transactions"

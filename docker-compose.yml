@@ -1110,8 +1110,6 @@ services:
       QUERY_TYPE: q2
       WSM_HOST: wsm_q2
       WSM_PORT: 9050
-      CRASH_PROBABILITY: ${CRASH_PROBABILITY:-0.0}
-      CRASH_REPLICA_ID: ${CRASH_REPLICA_ID}
     volumes:
     - ./output:/app/output
     networks:

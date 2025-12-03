@@ -114,7 +114,7 @@ class Worker(ABC):
                 
                 if service_name:
                     # Robust IP matching
-                    project_name = "distribuidos-coffee-shop-analysis"
+                    project_name = "coffee-shop-22"
                     candidates = [
                         f"{project_name}-{service_name}-{target_replica}",
                         f"{project_name}_{service_name}_{target_replica}",
@@ -129,11 +129,9 @@ class Worker(ABC):
                                 self.crash_eligible = True
                                 logging.info(f"Crash enabled: My IP ({my_ip}) matches target {candidate} ({target_ip})")
                                 break
-                        except socket.error:
+                        except (socket.error, UnicodeError, ValueError):
                             continue
-                    
-                    if not self.crash_eligible:
-                         logging.info(f"Crash disabled: My IP ({my_ip}) did not match any target candidates for replica {target_replica}")
+                        
                 else:
                     # Fallback to hostname suffix check (less robust with short container IDs)
                     if my_hostname.endswith(f"-{target_replica}") or my_hostname.endswith(f"_{target_replica}"):
