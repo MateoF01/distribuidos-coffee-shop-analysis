@@ -41,7 +41,7 @@ services:
       GATEWAY_PORT: 5000
       QUEUE_IN: results
       REQUESTS_PER_CLIENT: 1
-      GATEWAY_MAX_PROCESSES: 2
+      GATEWAY_MAX_PROCESSES: 1
     volumes:
     - ./output_gateway:/app/output_gateway
     networks:
@@ -69,7 +69,7 @@ services:
       SERVER_ADDRESS: gateway:5000
       BATCH_MAX_AMOUNT: 5000
       REQUESTS_PER_CLIENT: 1
-      INITIAL_CLIENT_COUNT: 2
+      INITIAL_CLIENT_COUNT: 1
     volumes:
     - ./data:/app/.data
     - ./client/results:/app/client/results
@@ -112,6 +112,7 @@ services:
       WSM_ID: 1
     volumes:
     - ./output_wsm/worker_states_transactions:/app/output
+    - /var/run/docker.sock:/var/run/docker.sock
     networks:
     - coffee-net
     container_name: wsm_transactions
@@ -171,6 +172,7 @@ services:
       WSM_ID: 1
     volumes:
     - ./output_wsm/worker_states_transaction_items:/app/output
+    - /var/run/docker.sock:/var/run/docker.sock
     networks:
     - coffee-net
     container_name: wsm_transaction_items
@@ -230,6 +232,7 @@ services:
       WSM_ID: 1
     volumes:
     - ./output_wsm/worker_states_users:/app/output
+    - /var/run/docker.sock:/var/run/docker.sock
     networks:
     - coffee-net
     container_name: wsm_users
@@ -289,6 +292,7 @@ services:
       WSM_ID: 1
     volumes:
     - ./output_wsm/worker_states_stores:/app/output
+    - /var/run/docker.sock:/var/run/docker.sock
     networks:
     - coffee-net
     container_name: wsm_stores
@@ -348,6 +352,7 @@ services:
       WSM_ID: 1
     volumes:
     - ./output_wsm/worker_states_menu_items:/app/output
+    - /var/run/docker.sock:/var/run/docker.sock
     networks:
     - coffee-net
     container_name: wsm_menu_items
@@ -407,6 +412,7 @@ services:
       WSM_ID: 1
     volumes:
     - ./output_wsm/worker_states_transactions_q4:/app/output
+    - /var/run/docker.sock:/var/run/docker.sock
     networks:
     - coffee-net
     container_name: wsm_transactions_q4
@@ -467,6 +473,7 @@ services:
       WSM_ID: 1
     volumes:
     - ./output_wsm/worker_states_temporal_filter_transactions:/app/output
+    - /var/run/docker.sock:/var/run/docker.sock
     networks:
     - coffee-net
     container_name: wsm_temporal_filter_transactions
@@ -565,6 +572,7 @@ services:
       WSM_ID: 1
     volumes:
     - ./output_wsm/worker_states_temporal_filter_transaction_items:/app/output
+    - /var/run/docker.sock:/var/run/docker.sock
     networks:
     - coffee-net
     container_name: wsm_temporal_filter_transaction_items
@@ -626,6 +634,7 @@ services:
       WSM_ID: 1
     volumes:
     - ./output_wsm/worker_states_amount_filter_transactions:/app/output
+    - /var/run/docker.sock:/var/run/docker.sock
     networks:
     - coffee-net
     container_name: wsm_amount_filter_transactions
@@ -687,6 +696,7 @@ services:
       WSM_ID: 1
     volumes:
     - ./output_wsm/worker_states_grouper_q2:/app/output
+    - /var/run/docker.sock:/var/run/docker.sock
     networks:
     - coffee-net
     container_name: wsm_grouper_q2
@@ -803,6 +813,7 @@ services:
       WSM_ID: 1
     volumes:
     - ./output_wsm/worker_states_grouper_q3:/app/output
+    - /var/run/docker.sock:/var/run/docker.sock
     networks:
     - coffee-net
     container_name: wsm_grouper_q3
@@ -1384,6 +1395,7 @@ services:
       WSM_ID: 2
     volumes:
     - ./output_wsm/worker_states_transactions:/app/output
+    - /var/run/docker.sock:/var/run/docker.sock
     networks:
     - coffee-net
     container_name: wsm_transactions_2
@@ -1403,6 +1415,7 @@ services:
       WSM_ID: 3
     volumes:
     - ./output_wsm/worker_states_transactions:/app/output
+    - /var/run/docker.sock:/var/run/docker.sock
     networks:
     - coffee-net
     container_name: wsm_transactions_3
@@ -1422,6 +1435,7 @@ services:
       WSM_ID: 2
     volumes:
     - ./output_wsm/worker_states_transaction_items:/app/output
+    - /var/run/docker.sock:/var/run/docker.sock
     networks:
     - coffee-net
     container_name: wsm_transaction_items_2
@@ -1441,6 +1455,7 @@ services:
       WSM_ID: 3
     volumes:
     - ./output_wsm/worker_states_transaction_items:/app/output
+    - /var/run/docker.sock:/var/run/docker.sock
     networks:
     - coffee-net
     container_name: wsm_transaction_items_3
@@ -1460,6 +1475,7 @@ services:
       WSM_ID: 2
     volumes:
     - ./output_wsm/worker_states_users:/app/output
+    - /var/run/docker.sock:/var/run/docker.sock
     networks:
     - coffee-net
     container_name: wsm_users_2
@@ -1479,6 +1495,7 @@ services:
       WSM_ID: 3
     volumes:
     - ./output_wsm/worker_states_users:/app/output
+    - /var/run/docker.sock:/var/run/docker.sock
     networks:
     - coffee-net
     container_name: wsm_users_3
@@ -1498,6 +1515,7 @@ services:
       WSM_ID: 2
     volumes:
     - ./output_wsm/worker_states_stores:/app/output
+    - /var/run/docker.sock:/var/run/docker.sock
     networks:
     - coffee-net
     container_name: wsm_stores_2
@@ -1517,6 +1535,7 @@ services:
       WSM_ID: 3
     volumes:
     - ./output_wsm/worker_states_stores:/app/output
+    - /var/run/docker.sock:/var/run/docker.sock
     networks:
     - coffee-net
     container_name: wsm_stores_3
@@ -1536,6 +1555,7 @@ services:
       WSM_ID: 2
     volumes:
     - ./output_wsm/worker_states_menu_items:/app/output
+    - /var/run/docker.sock:/var/run/docker.sock
     networks:
     - coffee-net
     container_name: wsm_menu_items_2
@@ -1555,6 +1575,7 @@ services:
       WSM_ID: 3
     volumes:
     - ./output_wsm/worker_states_menu_items:/app/output
+    - /var/run/docker.sock:/var/run/docker.sock
     networks:
     - coffee-net
     container_name: wsm_menu_items_3
@@ -1574,6 +1595,7 @@ services:
       WSM_ID: 2
     volumes:
     - ./output_wsm/worker_states_transactions_q4:/app/output
+    - /var/run/docker.sock:/var/run/docker.sock
     networks:
     - coffee-net
     container_name: wsm_transactions_q4_2
@@ -1593,6 +1615,7 @@ services:
       WSM_ID: 3
     volumes:
     - ./output_wsm/worker_states_transactions_q4:/app/output
+    - /var/run/docker.sock:/var/run/docker.sock
     networks:
     - coffee-net
     container_name: wsm_transactions_q4_3
@@ -1612,6 +1635,7 @@ services:
       WSM_ID: 2
     volumes:
     - ./output_wsm/worker_states_temporal_filter_transactions:/app/output
+    - /var/run/docker.sock:/var/run/docker.sock
     networks:
     - coffee-net
     container_name: wsm_temporal_filter_transactions_2
@@ -1631,6 +1655,7 @@ services:
       WSM_ID: 3
     volumes:
     - ./output_wsm/worker_states_temporal_filter_transactions:/app/output
+    - /var/run/docker.sock:/var/run/docker.sock
     networks:
     - coffee-net
     container_name: wsm_temporal_filter_transactions_3
@@ -1650,6 +1675,7 @@ services:
       WSM_ID: 2
     volumes:
     - ./output_wsm/worker_states_temporal_filter_transaction_items:/app/output
+    - /var/run/docker.sock:/var/run/docker.sock
     networks:
     - coffee-net
     container_name: wsm_temporal_filter_transaction_items_2
@@ -1669,6 +1695,7 @@ services:
       WSM_ID: 3
     volumes:
     - ./output_wsm/worker_states_temporal_filter_transaction_items:/app/output
+    - /var/run/docker.sock:/var/run/docker.sock
     networks:
     - coffee-net
     container_name: wsm_temporal_filter_transaction_items_3
@@ -1688,6 +1715,7 @@ services:
       WSM_ID: 2
     volumes:
     - ./output_wsm/worker_states_amount_filter_transactions:/app/output
+    - /var/run/docker.sock:/var/run/docker.sock
     networks:
     - coffee-net
     container_name: wsm_amount_filter_transactions_2
@@ -1707,6 +1735,7 @@ services:
       WSM_ID: 3
     volumes:
     - ./output_wsm/worker_states_amount_filter_transactions:/app/output
+    - /var/run/docker.sock:/var/run/docker.sock
     networks:
     - coffee-net
     container_name: wsm_amount_filter_transactions_3
@@ -1726,6 +1755,7 @@ services:
       WSM_ID: 2
     volumes:
     - ./output_wsm/worker_states_grouper_q2:/app/output
+    - /var/run/docker.sock:/var/run/docker.sock
     networks:
     - coffee-net
     container_name: wsm_grouper_q2_2
@@ -1745,6 +1775,7 @@ services:
       WSM_ID: 3
     volumes:
     - ./output_wsm/worker_states_grouper_q2:/app/output
+    - /var/run/docker.sock:/var/run/docker.sock
     networks:
     - coffee-net
     container_name: wsm_grouper_q2_3
@@ -1764,6 +1795,7 @@ services:
       WSM_ID: 2
     volumes:
     - ./output_wsm/worker_states_grouper_q3:/app/output
+    - /var/run/docker.sock:/var/run/docker.sock
     networks:
     - coffee-net
     container_name: wsm_grouper_q3_2
@@ -1783,6 +1815,7 @@ services:
       WSM_ID: 3
     volumes:
     - ./output_wsm/worker_states_grouper_q3:/app/output
+    - /var/run/docker.sock:/var/run/docker.sock
     networks:
     - coffee-net
     container_name: wsm_grouper_q3_3

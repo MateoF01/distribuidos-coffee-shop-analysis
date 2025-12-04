@@ -4,6 +4,8 @@ import threading
 import json
 import os
 import logging
+import time
+import docker
 
 HOST = os.environ.get("HOST", "0.0.0.0")
 PORT = int(os.environ.get("PORT", "9000"))
@@ -91,8 +93,21 @@ class WorkerStateManager:
         self.ends_by_requests = {}
         self.lock = threading.Lock()
         self._load_state()
+        self._load_state()
         logging.info(f"[WSM] Archivo de estado: {self.state_file}")
         logging.info(f"[WSM] Directorio base de salida: {self.output_base_dir}")
+
+        # Heartbeat & Restart logic
+        self.last_heartbeat = {}  # {replica_id: timestamp}
+        self.docker_client = None
+        try:
+            self.docker_client = docker.from_env()
+            logging.info("[WSM] Docker client initialized successfully")
+        except Exception as e:
+            logging.error(f"[WSM] Failed to initialize Docker client: {e}")
+
+        # Start background thread to check for dead workers
+        threading.Thread(target=self.check_dead_workers, daemon=True).start()
 
         # Crash eligibility check (ported from Worker)
         self.crash_eligible = True
@@ -598,6 +613,64 @@ class WorkerStateManager:
             logging.debug(f"[WSM] is_position_processed({worker_type}, {request_id}, {position}) = {processed}")
             return processed
 
+    def handle_heartbeat(self, worker_type, replica_id):
+        """
+        Update last heartbeat timestamp for a worker replica.
+        """
+        with self.lock:
+            self.last_heartbeat[replica_id] = time.time()
+            # Ensure worker is registered if we receive a heartbeat
+            self.worker_states.setdefault(worker_type, {})
+            if replica_id not in self.worker_states[worker_type]:
+                 self.register_worker(worker_type, replica_id)
+
+    def check_dead_workers(self):
+        """
+        Periodically check for workers that haven't sent a heartbeat.
+        """
+        HEARTBEAT_TIMEOUT = 10.0  # seconds
+        CHECK_INTERVAL = 3.0
+
+        logging.info("[WSM] Starting dead worker check loop...")
+        while True:
+            time.sleep(CHECK_INTERVAL)
+            try:
+                current_time = time.time()
+                dead_workers = []
+
+                with self.lock:
+                    for replica_id, last_time in self.last_heartbeat.items():
+                        if current_time - last_time > HEARTBEAT_TIMEOUT:
+                            dead_workers.append(replica_id)
+                
+                for replica_id in dead_workers:
+                    logging.warning(f"[WSM] Worker {replica_id} detected DEAD (timeout). Restarting...")
+                    self.restart_worker(replica_id)
+                    # Remove from tracking until it comes back
+                    with self.lock:
+                        self.last_heartbeat.pop(replica_id, None)
+
+            except Exception as e:
+                logging.error(f"[WSM] Error in check_dead_workers loop: {e}")
+
+    def restart_worker(self, replica_id):
+        """
+        Restart a worker container using Docker API.
+        """
+        if not self.docker_client:
+            logging.error("[WSM] Cannot restart worker: Docker client not initialized")
+            return
+
+        try:
+            container = self.docker_client.containers.get(replica_id)
+            container.restart()
+            logging.info(f"[WSM] Successfully restarted container: {replica_id}")
+        except docker.errors.NotFound:
+            logging.error(f"[WSM] Container not found for restart: {replica_id}")
+        except Exception as e:
+            logging.error(f"[WSM] Failed to restart container {replica_id}: {e}")
+
+
 class WSMServer:
     """
     TCP server for Worker State Manager with leader election support.
@@ -797,6 +870,9 @@ class WSMServer:
         elif action == "can_send_end":
             can_send = self.manager.can_send_end(worker_type, msg.get("request_id"), msg.get("position"))
             return "OK" if can_send else "WAIT"
+        elif action == "heartbeat":
+            self.manager.handle_heartbeat(worker_type, replica_id)
+            return "OK"
         elif action == "can_send_last_end":
             can_send = self.manager.can_send_last_end(worker_type, replica_id, msg.get("request_id"))
             return "OK" if can_send else "WAIT"

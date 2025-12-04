@@ -7,7 +7,8 @@ COPY WSM /app/WSM
 COPY shared /app/shared
 
 # (Opcional) Instalar logging o debug tools si lo necesitás
-# RUN pip install --no-cache-dir some-library
+# (Opcional) Instalar logging o debug tools si lo necesitás
+RUN pip install --no-cache-dir docker
 
 # Configuramos el PYTHONPATH para permitir import desde la raíz
 ENV PYTHONPATH=/app

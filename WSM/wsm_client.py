@@ -2,6 +2,7 @@ import socket
 import json
 import logging
 import time
+import threading
 from typing import List, Tuple, Optional
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -109,6 +110,9 @@ class WSMClient:
         # Conectar y registrar la réplica
         self._connect_to_leader()
         self._register()
+
+        # Start heartbeat loop
+        threading.Thread(target=self._heartbeat_loop, daemon=True).start()
 
     def _find_leader_once(self) -> Optional[Tuple[str, int]]:
         """
@@ -406,3 +410,27 @@ class WSMClient:
             "position": position
         }
         return self._safe_request(msg) is True
+
+    def _heartbeat_loop(self):
+        """
+        Periodically send heartbeat to WSM leader.
+        """
+        HEARTBEAT_INTERVAL = 3.0
+        while True:
+            try:
+                self.send_heartbeat()
+            except Exception as e:
+                logging.debug(f"[WSMClient] Error sending heartbeat: {e}")
+            time.sleep(HEARTBEAT_INTERVAL)
+
+    def send_heartbeat(self):
+        """
+        Send heartbeat signal to WSM.
+        """
+        msg = {
+            "action": "heartbeat",
+            "worker_type": self.worker_type,
+            "replica_id": self.replica_id
+        }
+        # Use _safe_request to handle leader failover automatically
+        self._safe_request(msg)

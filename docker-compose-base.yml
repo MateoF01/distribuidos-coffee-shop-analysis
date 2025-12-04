@@ -111,9 +111,10 @@ services:
       WSM_CONTROL_BASE_PORT: 9100
       WSM_NAME: wsm_transactions
     volumes:
-      - ./output_wsm/worker_states_transactions:/app/output
+    - ./output_wsm/worker_states_transactions:/app/output
+    - /var/run/docker.sock:/var/run/docker.sock
     networks:
-      - coffee-net
+    - coffee-net
   
   coordinator_cleaner_transactions:
     build:
@@ -171,6 +172,7 @@ services:
       WSM_NAME: wsm_transaction_items
     volumes:
       - ./output_wsm/worker_states_transaction_items:/app/output
+      - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - coffee-net
   coordinator_cleaner_transaction_items:
@@ -229,6 +231,7 @@ services:
       WSM_NAME: wsm_users
     volumes:
       - ./output_wsm/worker_states_users:/app/output
+      - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - coffee-net
   coordinator_cleaner_users:
@@ -287,6 +290,7 @@ services:
       WSM_NAME: wsm_stores
     volumes:
       - ./output_wsm/worker_states_stores:/app/output
+      - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - coffee-net
   coordinator_cleaner_stores:
@@ -345,6 +349,7 @@ services:
       WSM_NAME: wsm_menu_items
     volumes:
       - ./output_wsm/worker_states_menu_items:/app/output
+      - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - coffee-net
   coordinator_cleaner_menu_items:
@@ -403,6 +408,7 @@ services:
       WSM_NAME: wsm_transactions_q4
     volumes:
       - ./output_wsm/worker_states_transactions_q4:/app/output
+      - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - coffee-net
   coordinator_cleaner_transactions_q4:
@@ -462,6 +468,7 @@ services:
       WSM_NAME: wsm_temporal_filter_transactions
     volumes:
       - ./output_wsm/worker_states_temporal_filter_transactions:/app/output
+      - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - coffee-net
   coordinator_temporal_filter_transactions_q1:
@@ -559,6 +566,7 @@ services:
       WSM_NAME: wsm_temporal_filter_transaction_items
     volumes:
       - ./output_wsm/worker_states_temporal_filter_transaction_items:/app/output
+      - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - coffee-net
   coordinator_temporal_filter_transaction_items:
@@ -619,6 +627,7 @@ services:
       WSM_NAME: wsm_amount_filter_transactions
     volumes:
       - ./output_wsm/worker_states_amount_filter_transactions:/app/output
+      - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - coffee-net
   coordinator_amount_filter_transactions:
@@ -679,6 +688,7 @@ services:
       WSM_NAME: wsm_grouper_q2
     volumes:
       - ./output_wsm/worker_states_grouper_q2:/app/output
+      - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - coffee-net
   reducer_q2:
@@ -794,6 +804,7 @@ services:
       WSM_NAME: wsm_grouper_q3
     volumes:
       - ./output_wsm/worker_states_grouper_q3:/app/output
+      - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - coffee-net
   reducer_q3:
