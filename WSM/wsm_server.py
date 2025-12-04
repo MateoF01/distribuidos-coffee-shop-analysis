@@ -451,7 +451,6 @@ class WorkerStateManager:
 
             if state == "PROCESSING":
                 # TEST-CASE: crash si el estado es PROCESSING
-                logging.debug("JAJAJAJAJAJAJAJAJAJAJAJAJAJAJAJAJAJA")
                 self.simulate_crash(worker_type, request_id)
 
             if state == "WAITING":
