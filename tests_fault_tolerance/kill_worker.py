@@ -106,7 +106,7 @@ def list_workers():
     
     for service in services:
         # Filter out non-worker services
-        if service in ['rabbitmq']:
+        if service in ['rabbitmq', 'client']:
             continue
             
         # Special handling for client service to use INITIAL_CLIENT_COUNT
