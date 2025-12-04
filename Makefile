@@ -17,6 +17,10 @@ REDUCER_Q2_REPLICAS ?= 2
 REDUCER_Q3_REPLICAS ?= 2
 REDUCER_Q4_REPLICAS ?= 2
 
+TOPPER_Q2_REPLICAS ?= 2
+TOPPER_Q3_REPLICAS ?= 2
+TOPPER_Q4_REPLICAS ?= 2
+
 TEMPORAL_FILTER_TRANSACTIONS_REPLICAS ?= 2
 TEMPORAL_FILTER_TRANSACTION_ITEMS_REPLICAS ?= 2
 AMOUNT_FILTER_TRANSACTIONS_REPLICAS ?= 2
@@ -61,6 +65,9 @@ help:
 	@echo "  amount_filter_transactions: $(AMOUNT_FILTER_TRANSACTIONS)"
 	@echo "  splitter_q1: $(SPLITTER_Q1_REPLICAS)"
 	@echo "  sorter_q1_v2: $(SORTER_Q1_V2_REPLICAS)"
+	@echo "  topper_q2: $(TOPPER_Q2_REPLICAS)"
+	@echo "  topper_q3: $(TOPPER_Q3_REPLICAS)"
+	@echo "  topper_q4: $(TOPPER_Q4_REPLICAS)"
 	@echo ""
 	@echo "Examples:"
 	@echo "  make up  # Start with defaults"
@@ -100,6 +107,9 @@ up: build
 		--scale joiner_v2_q2=$(JOINER_V2_Q2_REPLICAS) \
 		--scale joiner_v2_q3=$(JOINER_V2_Q3_REPLICAS) \
 		--scale joiner_v2_q4=$(JOINER_V2_Q4_REPLICAS) \
+		--scale topper_q2=$(TOPPER_Q2_REPLICAS) \
+		--scale topper_q3=$(TOPPER_Q3_REPLICAS) \
+		--scale topper_q4=$(TOPPER_Q4_REPLICAS) \
 
 
 
@@ -237,6 +247,9 @@ show-replicas:
 	@echo "  joiner_v2_q2: $(JOINER_V2_Q2_REPLICAS)"
 	@echo "  joiner_v2_q3: $(JOINER_V2_Q3_REPLICAS)"
 	@echo "  joiner_v2_q4: $(JOINER_V2_Q4_REPLICAS)"
+	@echo "  topper_q2: $(TOPPER_Q2_REPLICAS)"
+	@echo "  topper_q3: $(TOPPER_Q3_REPLICAS)"
+	@echo "  topper_q4: $(TOPPER_Q4_REPLICAS)"
 	@echo "  client: $(CLIENT_REPLICAS)"
 	@echo ""
 	@echo "Running containers:"
