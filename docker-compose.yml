@@ -41,7 +41,7 @@ services:
       GATEWAY_PORT: 5000
       QUEUE_IN: results
       REQUESTS_PER_CLIENT: 1
-      GATEWAY_MAX_PROCESSES: 5
+      GATEWAY_MAX_PROCESSES: 2
     volumes:
     - ./output_gateway:/app/output_gateway
     networks:

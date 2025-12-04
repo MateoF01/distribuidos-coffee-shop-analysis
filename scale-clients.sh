@@ -27,10 +27,10 @@ NETWORK="${PROJECT_NAME}_coffee-net"
 # Check if network exists
 if ! docker network ls --format '{{.Name}}' | grep -q "^${NETWORK}$"; then
     # Try alternative network name
-    NETWORK="distribuidos-coffee-shop-analysis_coffee-net"
+    NETWORK="coffee-shop-22_coffee-net"
     if ! docker network ls --format '{{.Name}}' | grep -q "^${NETWORK}$"; then
         echo "❌ Network not found. Make sure the system is running with 'make up'"
-        echo "   Looking for: ${PROJECT_NAME}_coffee-net or distribuidos-coffee-shop-analysis_coffee-net"
+        echo "   Looking for: ${PROJECT_NAME}_coffee-net or coffee-shop-22_coffee-net"
         exit 1
     fi
 fi
@@ -38,8 +38,8 @@ fi
 # Find the client image - try multiple naming patterns
 CLIENT_IMAGE=""
 POSSIBLE_IMAGES=(
-    "distribuidos-coffee-shop-analysis-client:latest"
-    "distribuidos-coffee-shop-analysis_client:latest"
+    "coffee-shop-22-client:latest"
+    "coffee-shop-22_client:latest"
     "${PROJECT_NAME}-client:latest"
     "${PROJECT_NAME}_client:latest"
 )

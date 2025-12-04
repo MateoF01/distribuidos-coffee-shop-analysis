@@ -4,6 +4,8 @@ import sys
 import threading
 import logging
 import tempfile
+import socket
+import random
 from abc import ABC, abstractmethod
 from middleware.coffeeMiddleware import CoffeeMessageMiddlewareQueue
 from shared import protocol
@@ -66,39 +68,17 @@ class Worker(ABC):
         MyWorker started - multiple input queues: ['queue_a', 'queue_b'], output queues: ['joined_output']
     """
     
-    def __init__(self, queue_in, queue_out, rabbitmq_host, multiple_input_queues=None, **kwargs):
+    def __init__(self, queue_in, queue_out, rabbitmq_host, multiple_input_queues=None, service_name=None, **kwargs):
         """
         Initialize the worker with queue configuration and setup connections.
         
         Args:
             queue_in (str): Single input queue name, or None if using multiple_input_queues.
-            queue_out (str|list): Output queue name(s). Can be:
-                - Single queue name: 'output_queue'
-                - Comma-separated string: 'queue1,queue2,queue3'
-                - List of queue names: ['queue1', 'queue2']
+            queue_out (str|list): Output queue name(s).
             rabbitmq_host (str): RabbitMQ server hostname or IP address.
-            multiple_input_queues (list, optional): List of input queue names for workers
-                that consume from multiple sources (e.g., joiners).
-            **kwargs: Additional worker-specific parameters stored in worker_kwargs.
-        
-        Example:
-            Single input/output:
-            >>> worker = MyWorker('input_q', 'output_q', 'rabbitmq')
-            >>> worker.queue_in
-            'input_q'
-            >>> [q.queue_name for q in worker.out_queues]
-            ['output_q']
-            
-            Multiple outputs:
-            >>> worker = MyWorker('input_q', 'out1,out2,out3', 'rabbitmq')
-            >>> [q.queue_name for q in worker.out_queues]
-            ['out1', 'out2', 'out3']
-            
-            Multiple inputs:
-            >>> worker = MyWorker(None, 'output_q', 'rabbitmq',
-            ...                   multiple_input_queues=['in1', 'in2'])
-            >>> list(worker.in_queues.keys())
-            ['in1', 'in2']
+            multiple_input_queues (list, optional): List of input queue names.
+            service_name (str, optional): Service name for crash replica identification (e.g. 'joiner_v2_q2').
+            **kwargs: Additional worker-specific parameters.
         """
         self.rabbitmq_host = rabbitmq_host
         self._running = False
@@ -122,6 +102,65 @@ class Worker(ABC):
         self.out_queues = self._initialize_output_queues(queue_out)
         
         self.worker_kwargs = kwargs
+
+        # Crash eligibility check
+        self.crash_eligible = True
+        self.processed_count = 0
+        target_replica = os.environ.get("CRASH_REPLICA_ID")
+        if target_replica:
+            self.crash_eligible = False
+            try:
+                my_hostname = socket.gethostname()
+                my_ip = socket.gethostbyname(my_hostname)
+                
+                if service_name:
+                    # Robust IP matching
+                    project_name = "coffee-shop-22"
+                    candidates = [
+                        f"{project_name}-{service_name}-{target_replica}",
+                        f"{project_name}_{service_name}_{target_replica}",
+                        f"{service_name}-{target_replica}",
+                        f"{service_name}_{target_replica}"
+                    ]
+                    
+                    for candidate in candidates:
+                        try:
+                            target_ip = socket.gethostbyname(candidate)
+                            if target_ip == my_ip:
+                                self.crash_eligible = True
+                                logging.info(f"Crash enabled: My IP ({my_ip}) matches target {candidate} ({target_ip})")
+                                break
+                        except (socket.error, UnicodeError, ValueError):
+                            continue
+                        
+                else:
+                    # Fallback to hostname suffix check (less robust with short container IDs)
+                    if my_hostname.endswith(f"-{target_replica}") or my_hostname.endswith(f"_{target_replica}"):
+                         self.crash_eligible = True
+                         logging.info(f"Crash enabled: My hostname ({my_hostname}) matches target replica ID {target_replica}")
+                    else:
+                         logging.info(f"Crash disabled: My hostname ({my_hostname}) does not match target replica ID {target_replica}")
+
+            except Exception as e:
+                logging.warning(f"Could not verify replica ID for crash target: {e}")
+                self.crash_eligible = False
+
+    def simulate_crash(self, queue_name, request_id):
+        """
+        Check if this worker should crash based on probability.
+        """
+        self.processed_count += 1
+        crash_prob = float(os.environ.get("CRASH_PROBABILITY", "0.0"))
+        wait_count = int(os.environ.get("CRASH_WAIT_COUNT", "5"))
+        
+        if self.crash_eligible and crash_prob > 0:
+            if self.processed_count <= wait_count:
+                logging.info(f"Crash pending: Processed {self.processed_count}/{wait_count} messages before crash eligibility.")
+                return
+
+            if random.random() < crash_prob:
+                logging.critical(f"Simulating CRASH (prob={crash_prob}) on message from {queue_name} for req={request_id}")
+                os._exit(1)
     
     def _initialize_output_queues(self, queue_out):
         """

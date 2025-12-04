@@ -81,7 +81,8 @@ class Coordinator(Worker):
         ...     rabbitmq_host='rabbitmq'
         ... )
     """
-    super().__init__(queue_in, queue_out, rabbitmq_host)
+    service_name = f"coordinator_{os.environ.get('DATA_TYPE', '')}"
+    super().__init__(queue_in, queue_out, rabbitmq_host, service_name=service_name)
 
     self.messages_by_request_id_counter = defaultdict(int)
     self.end_messages_received = defaultdict(int)  
@@ -284,9 +285,14 @@ class Coordinator(Worker):
     self.messages_by_request_id_counter[request_id] = self.messages_by_request_id_counter.get(request_id, 0) + 1
     new_position = self.messages_by_request_id_counter[request_id]
     
+    self._forward_message(msg_type, data_type, request_id, new_position, payload)
+
+    # TEST-CASE: Completar
+    # Aca duplicariamos el mensaje pero no haria la deduplication el coordinator
+    #self.simulate_crash(queue_name, request_id)
+
     self._persist_assigned_position(request_id, new_position)
     
-    self._forward_message(msg_type, data_type, request_id, new_position, payload)
 
   def _handle_end_signal(self, message, msg_type, data_type, request_id, position, queue_name=None):
     """

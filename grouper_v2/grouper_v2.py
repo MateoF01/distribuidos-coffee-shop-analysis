@@ -161,7 +161,8 @@ class GrouperV2(StreamProcessingWorker):
             ...     'rabbitmq', 'q4', 'grouper-q4-2'
             ... )
         """
-        super().__init__(queue_in, queue_out, rabbitmq_host)
+        service_name = f"grouper_{grouper_mode}_v2"
+        super().__init__(queue_in, queue_out, rabbitmq_host, service_name=service_name)
         self.grouper_mode = grouper_mode
         self.replica_id = replica_id
         self.backoff_start = backoff_start
@@ -230,6 +231,9 @@ class GrouperV2(StreamProcessingWorker):
             # WSM detects position 42 already processed
             # Message discarded, no aggregation
         """
+        # TEST-CASE: Crashear al Grouper luego de procesar varios mensajes
+        self.simulate_crash(queue_name, request_id)
+
         self._initialize_request_paths(request_id)
 
         if self.wsm_client.is_position_processed(request_id, position):

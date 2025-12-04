@@ -22,7 +22,7 @@ while IFS=' ?= ' read -r VAR _ VALUE; do
   COUNT=$(echo "$VALUE" | tr -d ' ')
 
   for ((i=1; i<=COUNT; i++)); do
-    CONTAINERS+=("distribuidos-coffee-shop-analysis-${NAME}-${i}")
+    CONTAINERS+=("coffee-shop-22-${NAME}-${i}")
   done
 done <<< "$REPLICA_LINES"
 

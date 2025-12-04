@@ -1,4 +1,4 @@
-# distribuidos-coffee-shop-analysis
+# coffee-shop-22
 
 ## Como correr el test de WSM
 

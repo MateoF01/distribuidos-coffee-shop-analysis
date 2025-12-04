@@ -1,4 +1,5 @@
 import os
+import signal
 import socket
 import time
 import configparser
@@ -90,7 +91,8 @@ class Joiner_v2(Worker):
             ...     multiple_queues=['menu_items_cleaned', 'resultados_groupby_q2']
             ... )
         """
-        super().__init__(None, queue_out, rabbitmq_host, multiple_input_queues=multiple_queues)
+        service_name = f"joiner_v2_{query_type}"
+        super().__init__(None, queue_out, rabbitmq_host, multiple_input_queues=multiple_queues, service_name=service_name)
         
         self.query_type = query_type
         self.columns_want = columns_want
@@ -139,6 +141,8 @@ class Joiner_v2(Worker):
         self._rows_received_per_request = {}
         self._csv_initialized_per_request = {}
         self._rows_written_per_request = {}
+
+
 
     def _initialize_request_paths(self, request_id):
         """
@@ -222,6 +226,9 @@ class Joiner_v2(Worker):
             ... )
             # Saves to temp/stores_cleaned_q4/replica-1.csv
         """
+
+        self.simulate_crash(queue_name, request_id)
+
         self._initialize_request_paths(request_id)
 
         outputs = self._outputs_by_request[request_id]
