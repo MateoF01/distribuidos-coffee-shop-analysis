@@ -904,7 +904,7 @@ class SignalProcessingWorker(Worker):
         if msg_type == protocol.MSG_TYPE_NOTI:
             logging.info(f"[{self.__class__.__name__}] Notification received — starting processing.")
             try:
-                self._process_signal(request_id, data_type)
+                self._process_signal(request_id)
                 logging.info(f"[{self.__class__.__name__}] Processing complete. Completion signal sent.")
             except Exception as e:
                 logging.error(f"[{self.__class__.__name__}] Error during processing: {e}")
@@ -912,7 +912,7 @@ class SignalProcessingWorker(Worker):
             logging.warning(f"[{self.__class__.__name__}] Unexpected message type: {msg_type}/{data_type}")
 
     @abstractmethod
-    def _process_signal(self, request_id, data_type):
+    def _process_signal(self, request_id):
         """
         Core processing logic triggered when a notification signal is received.
         
@@ -921,10 +921,9 @@ class SignalProcessingWorker(Worker):
         
         Args:
             request_id (int): Request identifier from the notification message.
-            data_type (int): Data type constant from the notification message.
         
         Example:
-            >>> def _process_signal(self, request_id, data_type):
+            >>> def _process_signal(self, request_id):
             ...     logging.info(f"Processing request {request_id}")
             ...     # Perform file merge, aggregation, or coordination
             ...     result_data = self.aggregate_results()
