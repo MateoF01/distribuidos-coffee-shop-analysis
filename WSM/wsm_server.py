@@ -1,3 +1,4 @@
+import random
 import socket
 import threading
 import json
@@ -92,6 +93,75 @@ class WorkerStateManager:
         self._load_state()
         logging.info(f"[WSM] Archivo de estado: {self.state_file}")
         logging.info(f"[WSM] Directorio base de salida: {self.output_base_dir}")
+
+        # Crash eligibility check (ported from Worker)
+        self.crash_eligible = True
+        self.processed_count = 0
+        target_replica = os.environ.get("CRASH_REPLICA_ID")
+        service_name = os.environ.get("WSM_NAME") # e.g. wsm_transactions
+
+        if target_replica:
+            self.crash_eligible = False
+            
+            # Check WSM_ID first (explicit ID for WSM services)
+            wsm_id = os.environ.get("WSM_ID")
+            if wsm_id and wsm_id == target_replica:
+                self.crash_eligible = True
+                logging.info(f"Crash enabled: WSM_ID ({wsm_id}) matches target replica ID {target_replica}")
+                return
+
+            try:
+                my_hostname = socket.gethostname()
+                my_ip = socket.gethostbyname(my_hostname)
+                
+                if service_name:
+                    # Robust IP matching
+                    project_name = "coffee-shop-22"
+                    candidates = [
+                        f"{project_name}-{service_name}-{target_replica}",
+                        f"{project_name}_{service_name}_{target_replica}",
+                        f"{service_name}-{target_replica}",
+                        f"{service_name}_{target_replica}"
+                    ]
+                    
+                    for candidate in candidates:
+                        try:
+                            target_ip = socket.gethostbyname(candidate)
+                            if target_ip == my_ip:
+                                self.crash_eligible = True
+                                logging.info(f"Crash enabled: My IP ({my_ip}) matches target {candidate} ({target_ip})")
+                                break
+                        except (socket.error, UnicodeError, ValueError):
+                            continue
+                        
+                else:
+                    # Fallback to hostname suffix check
+                    if my_hostname.endswith(f"-{target_replica}") or my_hostname.endswith(f"_{target_replica}"):
+                         self.crash_eligible = True
+                         logging.info(f"Crash enabled: My hostname ({my_hostname}) matches target replica ID {target_replica}")
+                    else:
+                         logging.info(f"Crash disabled: My hostname ({my_hostname}) does not match target replica ID {target_replica}")
+
+            except Exception as e:
+                logging.warning(f"Could not verify replica ID for crash target: {e}")
+                self.crash_eligible = False
+
+    def simulate_crash(self, worker_type, request_id):
+        """
+        Check if this WSM should crash based on probability.
+        """
+        self.processed_count += 1
+        crash_prob = float(os.environ.get("CRASH_PROBABILITY", "0.0"))
+        wait_count = int(os.environ.get("CRASH_WAIT_COUNT", "5"))
+        
+        if self.crash_eligible and crash_prob > 0:
+            if self.processed_count <= wait_count:
+                logging.info(f"Crash pending: Processed {self.processed_count}/{wait_count} messages before crash eligibility.")
+                return
+
+            if random.random() < crash_prob:
+                logging.critical(f"Simulating CRASH (prob={crash_prob}) on update from {worker_type} for req={request_id}")
+                os._exit(1)
 
     def _get_positions_dir(self, worker_type):
         """
@@ -378,6 +448,11 @@ class WorkerStateManager:
                     )
                 if state == "END":
                     self.ends_by_requests[request_id] -= 1
+
+            if state == "PROCESSING":
+                # TEST-CASE: crash si el estado es PROCESSING
+                logging.debug("JAJAJAJAJAJAJAJAJAJAJAJAJAJAJAJAJAJA")
+                self.simulate_crash(worker_type, request_id)
 
             if state == "WAITING":
                 self.worker_states[worker_type][replica_id] = {"state": state, "request_id": None}

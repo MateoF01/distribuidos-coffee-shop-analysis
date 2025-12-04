@@ -177,11 +177,18 @@ def generate_crash_config(selected_workers, wait_count="5"):
                 # Fallback for non-standard names?
                 pass
         
-        # Format 2: Explicit container name (e.g. gateway)
+        # Format 2: Explicit container name (e.g. gateway, wsm_transaction_items_3)
         if not service_name:
             if worker in container_to_service:
                 service_name = container_to_service[worker]
-                replica_id = "1" # Default for singletons
+                
+                # Try to extract replica ID from service name (e.g. wsm_..._3 -> 3)
+                # Matches _N or -N at the end
+                match = re.search(r'[_-](\d+)$', service_name)
+                if match:
+                    replica_id = match.group(1)
+                else:
+                    replica_id = "1" # Default for singletons
         
         if service_name:
             # Add to config
