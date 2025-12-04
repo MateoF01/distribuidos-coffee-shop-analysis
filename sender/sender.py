@@ -106,13 +106,6 @@ class Sender(FileProcessingWorker):
             queue_name (str, optional): Source queue name.
         """
         if msg_type == protocol.MSG_TYPE_NOTI:
-            if data_type == protocol.DATA_END:
-                print(f"[INFO] DATA_END received for request_id {request_id}, cleaning up files and forwarding")
-                message = protocol.create_end_message(protocol.DATA_END, request_id)
-                self.out_queues[0].send(message)
-                print(f"[INFO] Forwarded DATA_END for request_id {request_id}")
-                return
-            
             self.current_request_id = request_id
             
             self._initialize_request_paths(request_id)
@@ -199,7 +192,6 @@ class Sender(FileProcessingWorker):
             payload = "\n".join(batch).encode('utf-8')
             data_type_map = {
                 'q1': protocol.Q1_RESULT,
-                'q2': protocol.Q2_RESULT_a,
                 'q2_a': protocol.Q2_RESULT_a,
                 'q2_b': protocol.Q2_RESULT_b,
                 'q3': protocol.Q3_RESULT,
@@ -227,7 +219,6 @@ class Sender(FileProcessingWorker):
         try:
             data_type_map = {
                 'q1': protocol.Q1_RESULT,
-                'q2': protocol.Q2_RESULT_a,
                 'q2_a': protocol.Q2_RESULT_a,
                 'q2_b': protocol.Q2_RESULT_b,
                 'q3': protocol.Q3_RESULT,
@@ -238,7 +229,7 @@ class Sender(FileProcessingWorker):
             self.out_queues[0].send(message1)
             print(f"[INFO] Sent MSG_TYPE_END with {self.query_type.upper()}_RESULT ({query_result_type}) and position {position_counter} to results queue: request_id={self.current_request_id}")
             
-            message2 = protocol.create_end_message(protocol.DATA_END, self.current_request_id, position_counter+1)
+            message2 = protocol.create_end_message(protocol.DATA_END, self.current_request_id)
             self.out_queues[0].send(message2)
             print(f"[INFO] Sent MSG_TYPE_END with DATA_END to results queue: request_id={self.current_request_id}")
             

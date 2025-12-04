@@ -79,7 +79,7 @@ class ReducerV2(SignalProcessingWorker):
 
         os.makedirs(self.output_dir, exist_ok=True)
 
-    def _process_signal(self, request_id, data_type):
+    def _process_signal(self, request_id):
         """
         Process notification signal by combining partial results from all replicas.
         
@@ -88,7 +88,6 @@ class ReducerV2(SignalProcessingWorker):
         
         Args:
             request_id (str): Request identifier.
-            data_type (int): Data type constant from the notification message.
         
         Example:
             Input: Notification signal for req-123
@@ -108,16 +107,6 @@ class ReducerV2(SignalProcessingWorker):
                 2024-01.csv
                 2024-02.csv
         """
-        
-        if data_type == protocol.DATA_END:
-            logging.info(f"[Reducer {self.reducer_mode.upper()}] Manejo de DATA_END para request {request_id}")
-            self._cleanup_request_files(request_id, self.output_dir)
-            cleanup_message = protocol.create_notification_message(protocol.DATA_END, b"", request_id)
-            for q in self.out_queues:
-                q.send(cleanup_message)
-            logging.info(f"[Reducer {self.reducer_mode.upper()}] Forwarded DATA_END notification for request {request_id}")
-            return
-        
         base_input = self.input_dir
         base_output = self.output_dir
 
@@ -152,13 +141,17 @@ class ReducerV2(SignalProcessingWorker):
 
         logging.info(f"[Reducer {self.reducer_mode.upper()}] Se encontraron {len(groups)} grupos para combinar.")
 
+        DATA_TYPE = ''
         for prefix, filepaths in groups.items():
             if self.reducer_mode == "q2":
                 combined = self._reduce_q2(filepaths)
+                DATA_TYPE = protocol.DATA_TRANSACTION_ITEMS
             elif self.reducer_mode == "q3":
                 combined = self._reduce_q3(filepaths)
+                DATA_TYPE = protocol.DATA_TRANSACTIONS
             elif self.reducer_mode == "q4":
                 combined = self._reduce_q4(filepaths)
+                DATA_TYPE = protocol.DATA_TRANSACTIONS
             else:
                 logging.error(f"[Reducer] Modo desconocido: {self.reducer_mode}")
                 return
@@ -176,7 +169,7 @@ class ReducerV2(SignalProcessingWorker):
 
         gc.collect()
         logging.info(f"[Reducer {self.reducer_mode.upper()}] Reducción completa para request_id={request_id}.")
-        self._notify_completion(data_type, request_id)
+        self._notify_completion(DATA_TYPE, request_id)
 
     def _reduce_q2(self, filepaths):
         """
@@ -289,35 +282,6 @@ class ReducerV2(SignalProcessingWorker):
                 logging.error(f"[Reducer Q4] Error leyendo {fpath}: {e}")
 
         return [(user_id, count) for user_id, count in combined.items()]
-
-    def _cleanup_request_files(self, request_id, base_dir):
-        """
-        Clean up temporary files for a completed request.
-        
-        Removes the entire request directory tree containing aggregation files.
-        This prevents disk space accumulation after requests are completed.
-        
-        Args:
-            request_id (str): Request identifier to clean up.
-            base_dir (str): Base directory (input_dir or output_dir).
-        
-        Example:
-            >>> reducer._cleanup_request_files('req-123', '/app/temp/reduced_q2')
-            # Removes: /app/temp/reduced_q2/req-123/
-            [Reducer Q2] Cleaned up files for request_id=req-123 at /app/temp/reduced_q2/req-123
-        """
-        import shutil
-        
-        request_dir = os.path.join(base_dir, str(request_id))
-        
-        if os.path.exists(request_dir):
-            try:
-                shutil.rmtree(request_dir)
-                logging.info(f"[Reducer {self.reducer_mode.upper()}] Cleaned up files for request_id={request_id} at {request_dir}")
-            except Exception as e:
-                logging.error(f"[Reducer {self.reducer_mode.upper()}] Error cleaning up files for request_id={request_id} at {request_dir}: {e}")
-        else:
-            logging.debug(f"[Reducer {self.reducer_mode.upper()}] No files found for request_id={request_id} at {request_dir}")
 
 
 if __name__ == "__main__":
