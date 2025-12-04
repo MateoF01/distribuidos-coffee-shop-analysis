@@ -70,7 +70,7 @@ fi
 sleep 2
 
 # --- Ventana 2 ---
-open_terminal "Cleaner Logs" "docker logs -f distribuidos-coffee-shop-analysis-cleaner_transactions-2"
+open_terminal "Cleaner Logs" "docker logs -f coffee-shop-22-cleaner_transactions-2"
 
 # --- Ventana 3 ---
 open_terminal "Kill WSM" "docker kill wsm_transactions"
