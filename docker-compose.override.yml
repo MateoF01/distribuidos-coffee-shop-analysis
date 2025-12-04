@@ -1,6 +1,0 @@
-services:
-  cleaner_transaction_items:
-    environment:
-      CRASH_PROBABILITY: "1.0"
-      CRASH_REPLICA_ID: "1"
-      CRASH_WAIT_COUNT: "3"
