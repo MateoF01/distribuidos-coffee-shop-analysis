@@ -37,6 +37,9 @@ def main():
         DATA_DIR (str): Directory containing CSV data files (default: '/app/.data')
         BATCH_MAX_AMOUNT (int): Maximum rows per batch (default: 100)
         REQUESTS_PER_CLIENT (int): Number of complete data iterations (default: 1)
+        CLIENT_INITIAL_BACKOFF (float): Initial backoff in seconds (default: 1.0)
+        CLIENT_MAX_BACKOFF (float): Maximum backoff cap in seconds (default: 60.0)
+        CLIENT_BACKOFF_MULTIPLIER (float): Exponential backoff multiplier (default: 2.0)
     
     Example:
         Environment configuration:
@@ -60,13 +63,21 @@ def main():
     data_dir = os.getenv("DATA_DIR", "/app/.data")
     batch_max_amount = int(os.getenv("BATCH_MAX_AMOUNT", "100"))
     requests_amount = int(os.getenv("REQUESTS_PER_CLIENT", "1"))
+    
+    # Exponential backoff reconnection parameters
+    initial_backoff = float(os.getenv("CLIENT_INITIAL_BACKOFF", "1.0"))
+    max_backoff = float(os.getenv("CLIENT_MAX_BACKOFF", "60.0"))
+    backoff_multiplier = float(os.getenv("CLIENT_BACKOFF_MULTIPLIER", "2.0"))
 
     client = Client(
         client_id=client_id,
         server_address=server_address,
         data_dir=data_dir,
         batch_max_amount=batch_max_amount,
-        requests_amount=requests_amount
+        requests_amount=requests_amount,
+        initial_backoff=initial_backoff,
+        max_backoff=max_backoff,
+        backoff_multiplier=backoff_multiplier
     )
 
     def handle_shutdown(sig, frame):

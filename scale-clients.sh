@@ -20,28 +20,44 @@ if ! [[ "$NUM_CLIENTS" =~ ^[1-9][0-9]*$ ]]; then
     exit 1
 fi
 
-# Get the Docker network name
-PROJECT_NAME=$(basename $(pwd) | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]//g')
+# Load .env file if it exists to get COMPOSE_PROJECT_NAME
+if [ -f .env ]; then
+    export $(grep -v '^#' .env | xargs)
+fi
+
+# Get the Docker project name - prefer COMPOSE_PROJECT_NAME from .env
+if [ -n "$COMPOSE_PROJECT_NAME" ]; then
+    PROJECT_NAME="$COMPOSE_PROJECT_NAME"
+else
+    PROJECT_NAME=$(basename $(pwd) | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]//g')
+fi
 NETWORK="${PROJECT_NAME}_coffee-net"
 
-# Check if network exists
+# Check if network exists, try multiple patterns
 if ! docker network ls --format '{{.Name}}' | grep -q "^${NETWORK}$"; then
-    # Try alternative network name
-    NETWORK="coffee-shop-22_coffee-net"
+    # Try alternative network name patterns
+    NETWORK="distribuidos-coffee-shop-analysis_coffee-net"
     if ! docker network ls --format '{{.Name}}' | grep -q "^${NETWORK}$"; then
-        echo "❌ Network not found. Make sure the system is running with 'make up'"
-        echo "   Looking for: ${PROJECT_NAME}_coffee-net or coffee-shop-22_coffee-net"
-        exit 1
+        # Try to find any network ending with _coffee-net
+        NETWORK=$(docker network ls --format '{{.Name}}' | grep '_coffee-net$' | head -1)
+        if [ -z "$NETWORK" ]; then
+            echo "❌ Network not found. Make sure the system is running with 'make up'"
+            echo "   Looking for a network ending with '_coffee-net'"
+            exit 1
+        fi
     fi
 fi
+
+echo "📡 Using network: $NETWORK"
 
 # Find the client image - try multiple naming patterns
 CLIENT_IMAGE=""
 POSSIBLE_IMAGES=(
-    "coffee-shop-22-client:latest"
-    "coffee-shop-22_client:latest"
+    "distribuidos-coffee-shop-analysis-client:latest"
+    "distribuidos-coffee-shop-analysis_client:latest"
     "${PROJECT_NAME}-client:latest"
     "${PROJECT_NAME}_client:latest"
+    "client:latest"
 )
 
 for img in "${POSSIBLE_IMAGES[@]}"; do
@@ -51,7 +67,12 @@ for img in "${POSSIBLE_IMAGES[@]}"; do
     fi
 done
 
-# If no image found, build it and find the actual name
+# If no image found from predefined list, try to find any image with 'client' in name
+if [ -z "$CLIENT_IMAGE" ]; then
+    CLIENT_IMAGE=$(docker image ls --format '{{.Repository}}:{{.Tag}}' | grep -E '^[^:]*-client:latest$' | head -1)
+fi
+
+# If still no image found, build it and find the actual name
 if [ -z "$CLIENT_IMAGE" ]; then
     echo "❌ Client image not found. Building it now..."
     docker compose build client
@@ -110,6 +131,9 @@ for i in $(seq 1 $NUM_CLIENTS); do
         -e SERVER_ADDRESS=gateway:5000 \
         -e BATCH_MAX_AMOUNT=$BATCH_MAX_AMOUNT \
         -e REQUESTS_PER_CLIENT=$REQUESTS_PER_CLIENT \
+        -e CLIENT_INITIAL_BACKOFF=1.0 \
+        -e CLIENT_MAX_BACKOFF=60.0 \
+        -e CLIENT_BACKOFF_MULTIPLIER=2.0 \
         -v "$(pwd)/data:/app/.data" \
         -v "$(pwd)/client/results:/app/client/results" \
         "$CLIENT_IMAGE" 2>&1)

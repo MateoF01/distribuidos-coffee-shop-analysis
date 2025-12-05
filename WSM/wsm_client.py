@@ -106,6 +106,9 @@ class WSMClient:
 
         self.sock: Optional[socket.socket] = None
         self.current_node: Optional[Tuple[str, int]] = None
+        
+        # Lock for thread-safe socket access (main thread + heartbeat thread)
+        self._lock = threading.Lock()
 
         # Conectar y registrar la réplica
         self._connect_to_leader()
@@ -246,30 +249,31 @@ class WSMClient:
         """
         payload = json.dumps(msg).encode("utf-8")
 
-        while True:
+        with self._lock:
+            while True:
 
-            # Asegurarse de estar conectado a algún líder
-            if self.sock is None:
-                self._connect_to_leader()
+                # Asegurarse de estar conectado a algún líder
+                if self.sock is None:
+                    self._connect_to_leader()
 
-            try:
-                self.sock.sendall(payload)
-                data = self.sock.recv(4096)
-                if not data:
-                    raise ConnectionError("WSM cerró la conexión")
+                try:
+                    self.sock.sendall(payload)
+                    data = self.sock.recv(4096)
+                    if not data:
+                        raise ConnectionError("WSM cerró la conexión")
 
-                response = json.loads(data.decode("utf-8")).get("response")
+                    response = json.loads(data.decode("utf-8")).get("response")
 
-                if response == "NOT_LEADER":
-                    logging.warning("[WSMClient] Nodo actual dejó de ser líder, redescubriendo líder...")
+                    if response == "NOT_LEADER":
+                        logging.warning("[WSMClient] Nodo actual dejó de ser líder, redescubriendo líder...")
+                        self._reset_connection()
+                        continue  # vuelve al while, encuentra nuevo líder y reenvía
+
+                    return response
+
+                except Exception as e:
+                    logging.warning(f"[WSMClient] Error de conexión con el líder ({e}), buscando nuevo líder...")
                     self._reset_connection()
-                    continue  # vuelve al while, encuentra nuevo líder y reenvía
-
-                return response
-
-            except Exception as e:
-                logging.warning(f"[WSMClient] Error de conexión con el líder ({e}), buscando nuevo líder...")
-                self._reset_connection()
 
     def _register(self):
         """

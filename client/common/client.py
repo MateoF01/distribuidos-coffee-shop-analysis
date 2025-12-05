@@ -1,6 +1,12 @@
-import socket, time, threading, os
+import socket, time, threading, os, random
 from common import csv_loaders
 from shared import protocol
+
+
+class ConnectionRetriesExhausted(Exception):
+    """Raised when connection retry attempts have been exhausted (backoff exceeded max)"""
+    pass
+
 
 class Client:
     """
@@ -62,7 +68,8 @@ class Client:
         ...     print(f"Error: {e}")
         ...     client.close()
     """
-    def __init__(self, client_id, server_address, data_dir, batch_max_amount, out_dir=None, requests_amount=1):
+    def __init__(self, client_id, server_address, data_dir, batch_max_amount, out_dir=None, requests_amount=1,
+                 initial_backoff=1.0, max_backoff=60.0, backoff_multiplier=2.0):
         """
         Initialize a new Client instance.
         
@@ -73,6 +80,9 @@ class Client:
             batch_max_amount (int): Maximum number of rows to send in each batch.
             out_dir (str, optional): Legacy parameter, not used. Results are stored in client/results/.
             requests_amount (int, optional): Number of complete dataset iterations to send. Defaults to 1.
+            initial_backoff (float, optional): Initial backoff time in seconds. Defaults to 1.0.
+            max_backoff (float, optional): Maximum backoff cap in seconds. Defaults to 60.0.
+            backoff_multiplier (float, optional): Exponential backoff multiplier. Defaults to 2.0.
         
         Example:
             >>> client = Client(
@@ -117,8 +127,15 @@ class Client:
         self.received_data_ends = 0
         self.expected_data_ends = self.requests_amount
         
+        # Exponential backoff parameters for reconnection
+        self.initial_backoff = initial_backoff
+        self.max_backoff = max_backoff
+        self.backoff_multiplier = backoff_multiplier
+        self.current_backoff = self.initial_backoff
+        
         print(f"[INFO] Client expecting query results: {self.expected_queries}")
         print(f"[INFO] Expected final DATA_END signals: {self.expected_data_ends}")
+        print(f"[INFO] Reconnection config: initial_backoff={self.initial_backoff}s, max_backoff={self.max_backoff}s, multiplier={self.backoff_multiplier}x")
 
     def _setup_request_directory(self, request_num):
         """
@@ -147,33 +164,71 @@ class Client:
 
     def create_socket(self):
         """
-        Internal method to establish a TCP connection to the gateway server with retry logic.
+        Internal method to establish a TCP connection to the gateway server with exponential backoff.
         
         This method is called automatically by start_client_loop() and should not be invoked
         directly by users of the Client class.
         
-        Attempts to connect up to 10 times with a 3-second delay between retries.
-        This handles scenarios where the gateway may not be ready immediately.
+        Uses exponential backoff with jitter to retry connections. The backoff time doubles
+        after each failed attempt up to a maximum, with random jitter to avoid thundering herd.
+        After successful connection, the backoff timer is reset.
         
         Raises:
-            ConnectionError: If unable to connect after all retry attempts.
+            ConnectionRetriesExhausted: If the next backoff would exceed max_backoff, indicating
+                                       all reasonable retry attempts have been exhausted.
         
         Note:
             This is an internal method. Users should call start_client_loop() instead,
             which manages the connection lifecycle automatically.
         """
         host, port = self.server_address.split(":")
-        retries = 10
-        for attempt in range(retries):
+        attempt = 0
+        
+        while True:
             try:
+                if self.conn:
+                    try:
+                        self.conn.close()
+                    except Exception:
+                        pass
+                    
                 self.conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 self.conn.connect((host, int(port)))
                 print(f"[INFO] Connected to gateway {host}:{port}")
+                self.reset_backoff()
                 return
-            except ConnectionRefusedError:
-                print(f"[WARN] Gateway not ready, retrying ({attempt+1}/{retries})...")
-                time.sleep(3)
-        raise ConnectionError("Failed to connect to gateway after retries")
+                
+            except (ConnectionRefusedError, OSError) as e:
+                attempt += 1
+                
+                # Add jitter: random value between 0.5 and 1.5 times the current backoff
+                jitter = random.uniform(0.5, 1.5)
+                wait_time = min(self.current_backoff * jitter, self.max_backoff)
+                
+                print(f"[WARN] Connection failed (attempt {attempt}): {e}")
+                print(f"[INFO] Retrying in {wait_time:.2f} seconds (backoff: {self.current_backoff:.2f}s)...")
+                
+                time.sleep(wait_time)
+                
+                # Calculate next backoff
+                next_backoff = self.current_backoff * self.backoff_multiplier
+                
+                # If next backoff would exceed max, we've exhausted reasonable retry attempts
+                if next_backoff > self.max_backoff:
+                    raise ConnectionRetriesExhausted(f"Failed to connect to gateway after {attempt} attempts (max backoff exceeded)")
+                
+                # Increase backoff for next attempt
+                self.current_backoff = next_backoff
+    
+    def reset_backoff(self):
+        """
+        Reset the exponential backoff timer to its initial value.
+        
+        This method is called automatically after a successful connection to reset
+        the backoff parameters for future reconnection attempts.
+        """
+        self.current_backoff = self.initial_backoff
+        print(f"[DEBUG] Backoff timer reset to {self.initial_backoff}s")
 
     def close(self):
         """
@@ -273,7 +328,8 @@ class Client:
                         print(f"[INFO] Socket closed, but all {self.expected_data_ends} DATA_END signals received. Normal completion.")
                         break
                     else:
-                        print(f"[ERROR] Socket closed prematurely: {e} (received {self.received_data_ends}/{self.expected_data_ends} DATA_ENDs)")
+                        print(f"[ERROR] Connection lost in listener thread: {e} (received {self.received_data_ends}/{self.expected_data_ends} DATA_ENDs)")
+                        print(f"[INFO] Listener thread exiting. Main loop will handle reconnection.")
                         break
                 except Exception as e:
                     print(f"[ERROR] Failed to receive message: {e}")
@@ -320,7 +376,8 @@ class Client:
         except Exception as e:
             print(f"[ERROR] Listening thread crashed: {e}")
         finally:
-            self.close()
+            if self.received_data_ends >= self.expected_data_ends:
+                self.close()
 
     def _write_rows(self, data_type, rows, request_id=None, local_request_num=None):
         """
@@ -449,7 +506,7 @@ class Client:
         Execute the main client loop: connect, send data, and receive results.
         
         This method performs the following steps:
-        1. Create socket connection to gateway
+        1. Create socket connection to gateway (with exponential backoff retry)
         2. Start listener thread for receiving responses
         3. For each request iteration:
            - Set up request directory
@@ -459,10 +516,13 @@ class Client:
         4. Send final DATA_END signal
         5. Wait for all query results
         
-        The method blocks until all results are received or an error occurs.
+        If a connection error occurs, the client will retry with exponential backoff
+        and restart the entire loop from the beginning.
+        
+        The method blocks until all results are received or a non-connection error occurs.
         
         Raises:
-            Exception: If connection fails or data sending encounters errors.
+            Exception: If a non-connection error occurs during execution.
         
         Example:
             >>> client = Client('client1', 'gateway:5000', '/data', 100, requests_amount=2)
@@ -477,41 +537,76 @@ class Client:
             [INFO] Waiting for results from queries: {10, 11, 12, 13, 14}
             [INFO] All query results received successfully
         """
-        try:
-            self.create_socket()
+        while True:
+            try:
+                self.create_socket()
 
-            listener_thread = threading.Thread(target=self._listen_for_responses, daemon=False)
-            listener_thread.start()
+                listener_thread = threading.Thread(target=self._listen_for_responses, daemon=False)
+                listener_thread.start()
 
-            for request_num in range(self.requests_amount):
-                self._setup_request_directory(request_num + 1)
-                print(f"[INFO] Iteration {request_num+1}/{self.requests_amount}: Sending files from data folder")
+                for request_num in range(self.requests_amount):
+                    self._setup_request_directory(request_num + 1)
+                    print(f"[INFO] Iteration {request_num+1}/{self.requests_amount}: Sending files from data folder")
 
-                files_by_type = {}
-                for data_type, filepath in csv_loaders.iter_csv_files(self.data_dir):
-                    files_by_type.setdefault(data_type, []).append(filepath)
+                    files_by_type = {}
+                    for data_type, filepath in csv_loaders.iter_csv_files(self.data_dir):
+                        files_by_type.setdefault(data_type, []).append(filepath)
 
-                for data_type, filepaths in files_by_type.items():
-                    print(f"[INFO] REQ {request_num+1}/{self.requests_amount}: Processing {len(filepaths)} files for data_type={data_type}")
-                    position_counter = 1
-                    for filepath in filepaths:
-                        print(f"[INFO] REQ {request_num+1}/{self.requests_amount}: Sending file {filepath} (type={data_type})")
-                        for batch in csv_loaders.load_csv_batch(filepath, self.batch_max_amount):
-                            payload = "\n".join(batch).encode()
-                            protocol.send_message(self.conn, protocol.MSG_TYPE_DATA, data_type, payload, position_counter)
-                            position_counter += 1
-                    protocol.send_message(self.conn, protocol.MSG_TYPE_END, data_type, b"", position_counter)
-                    print(f"[INFO] REQ {request_num+1}/{self.requests_amount}: Sent END for data_type={data_type}")
+                    for data_type, filepaths in files_by_type.items():
+                        print(f"[INFO] REQ {request_num+1}/{self.requests_amount}: Processing {len(filepaths)} files for data_type={data_type}")
+                        position_counter = 1
+                        for filepath in filepaths:
+                            print(f"[INFO] REQ {request_num+1}/{self.requests_amount}: Sending file {filepath} (type={data_type})")
+                            for batch in csv_loaders.load_csv_batch(filepath, self.batch_max_amount):
+                                payload = "\n".join(batch).encode()
+                                protocol.send_message(self.conn, protocol.MSG_TYPE_DATA, data_type, payload, position_counter)
+                                position_counter += 1
+                        protocol.send_message(self.conn, protocol.MSG_TYPE_END, data_type, b"", position_counter)
+                        print(f"[INFO] REQ {request_num+1}/{self.requests_amount}: Sent END for data_type={data_type}")
 
-            protocol.send_message(self.conn, protocol.MSG_TYPE_END, protocol.DATA_END, b"", 1)
-            print("[INFO] Sent END FINAL - waiting for query results...")
+                protocol.send_message(self.conn, protocol.MSG_TYPE_END, protocol.DATA_END, b"", 1)
+                print("[INFO] Sent END FINAL - waiting for query results...")
 
-            print(f"[INFO] Waiting for results from queries: {self.expected_queries}")
-            listener_thread.join()
-            
-            print("[INFO] All query results received successfully")
+                print(f"[INFO] Waiting for results from queries: {self.expected_queries}")
+                listener_thread.join()
                 
-        except Exception as e:
-            print(f"[ERROR] Client loop failed: {e}")
-            self.close()
-            raise
+                if self.received_data_ends >= self.expected_data_ends:
+                    print("[INFO] All query results received successfully")
+                    break
+                else:
+                    print(f"[WARN] Listener thread exited prematurely (received {self.received_data_ends}/{self.expected_data_ends} DATA_ENDs)")
+                    raise ConnectionError("Listener thread exited due to connection loss")
+            
+            except ConnectionRetriesExhausted as e:
+                print(f"[ERROR] Connection retries exhausted: {e}")
+                print(f"[INFO] Unable to establish connection after multiple attempts. Shutting down.")
+                self.close()
+                raise
+                    
+            except (ConnectionError, ConnectionRefusedError, BrokenPipeError, OSError) as e:
+                print(f"[ERROR] Connection error in client loop: {e}")
+                print(f"[INFO] Attempting to reconnect and restart the client loop...")
+                
+                # Close current connection
+                if self.conn:
+                    try:
+                        self.conn.close()
+                    except Exception:
+                        pass
+                    self.conn = None
+                
+                jitter = random.uniform(0.5, 1.5)
+                wait_time = min(self.current_backoff * jitter, self.max_backoff)
+                
+                print(f"[INFO] Waiting {wait_time:.2f}s before retry (backoff: {self.current_backoff:.2f}s)...")
+                time.sleep(wait_time)
+                
+                self.current_backoff = min(self.current_backoff * self.backoff_multiplier, self.max_backoff)
+                
+                self.queries_received = set()
+                continue
+                
+            except Exception as e:
+                print(f"[ERROR] Non-connection error in client loop: {e}")
+                self.close()
+                raise

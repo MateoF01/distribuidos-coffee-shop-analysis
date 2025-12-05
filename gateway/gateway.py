@@ -177,7 +177,7 @@ class Server:
         except Exception as e:
             logging.warning(f"[GATEWAY PERSISTENCE] Failed to save active request {request_id}: {e}")
 
-    def _cleanup_active_request(self, request_id):
+    def _cleanup_active_request(self, request_id, queues=None):
         """
         Remove the .active persistence file when a request completes successfully.
         
@@ -187,6 +187,10 @@ class Server:
         
         Args:
             request_id (int): The request identifier whose .active file should be removed.
+            queues (dict, optional): Dictionary of queue connections to use. If None, uses self.queues.
+                                     IMPORTANT: When called from a subprocess, pass the subprocess's
+                                     own queue connections to avoid corrupting the main process's
+                                     RabbitMQ connections.
         
         Example:
             >>> server._save_active_request(42)
@@ -203,10 +207,13 @@ class Server:
             logging.debug(f"[GATEWAY CLEANUP] Request {request_id} already cleaned up, skipping")
             return
         
+        # Use provided queues or fall back to self.queues (main process only!)
+        queues_to_use = queues if queues is not None else self.queues
+        
         for queue_name in queue_names.values():
             try:
                 message = protocol.create_end_message(protocol.DATA_END, request_id, 1)
-                self.queues[queue_name].send(message)
+                queues_to_use[queue_name].send(message)
             except Exception as e:
                 logging.error(f"[GATEWAY CLEANUP] Failed to send END to {queue_name} for request_id={request_id}: {e}")
         
@@ -685,14 +692,14 @@ class Server:
             logging.warning(f"Connection closed with {addr}: {e}")
             if current_request_id is not None:
                 logging.info(f"[GATEWAY DISCONNECT] Cleaning up abandoned request_id={current_request_id} due to connection error")
-                self._cleanup_active_request(current_request_id)
+                self._cleanup_active_request(current_request_id, queues=queues)
         except Exception as e:
             logging.error(f"Error in connection with {addr}: {type(e).__name__}: {e}")
             import traceback
             logging.debug(f"Traceback: {traceback.format_exc()}")
             if current_request_id is not None:
                 logging.info(f"[GATEWAY DISCONNECT] Cleaning up abandoned request_id={current_request_id} due to error")
-                self._cleanup_active_request(current_request_id)
+                self._cleanup_active_request(current_request_id, queues=queues)
         finally:
             to_remove = [rid for rid, c in self.requests.items() if c == conn]
             for rid in to_remove:

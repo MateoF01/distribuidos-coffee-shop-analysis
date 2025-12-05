@@ -385,19 +385,49 @@ class CoffeeMessageMiddlewareQueue(MessageMiddlewareQueue):
     with self._state_lock:
       self._state = ConnectionState.CONNECTED
 
+  def _ensure_publisher_channel(self):
+    """
+    Ensure the publisher channel is available, reconnecting if necessary.
+    
+    This method checks if the publisher channel is closed and attempts to
+    reconnect transparently. Called internally by send() to handle transient
+    connection issues.
+    
+    Returns:
+        bool: True if channel is available, False otherwise.
+    """
+    if self._publisher_channel and not self._publisher_channel.is_closed:
+      return True
+    
+    # Try to reconnect
+    try:
+      if self._publisher_connection and not self._publisher_connection.is_closed:
+        self._publisher_channel = self._publisher_connection.channel()
+        self._publisher_channel.confirm_delivery()
+        self._publisher_channel.queue_declare(queue=self.queue_name, durable=True)
+        return True
+      else:
+        # Full reconnect needed - reinitialize connections
+        self._initialize_connections()
+        return self._publisher_channel and not self._publisher_channel.is_closed
+    except Exception as e:
+      print(f"Failed to reconnect publisher channel: {e}")
+      return False
+
   def send(self, message):
     """
     Send a message to the queue with publisher confirms for guaranteed delivery.
     
     The message is sent using the dedicated publisher channel with confirm_delivery
     enabled, ensuring the message is successfully stored by RabbitMQ before returning.
-    Messages are persisted to disk (delivery_mode=2).
+    Messages are persisted to disk (delivery_mode=2). Auto-reconnects if channel
+    is unavailable.
     
     Args:
         message (bytes|str): Message to send. Strings are automatically encoded to UTF-8.
     
     Raises:
-        MessageMiddlewareDisconnectedError: If not connected or channel unavailable.
+        MessageMiddlewareDisconnectedError: If not connected or channel unavailable after retry.
         MessageMiddlewareMessageError: If message cannot be routed or is rejected.
     
     Example:
@@ -420,7 +450,9 @@ class CoffeeMessageMiddlewareQueue(MessageMiddlewareQueue):
         raise MessageMiddlewareDisconnectedError("Not connected")
       
       if not self._publisher_channel or self._publisher_channel.is_closed:
-        raise MessageMiddlewareDisconnectedError("Publisher channel not available")
+        # Try to reconnect before failing
+        if not self._ensure_publisher_channel():
+          raise MessageMiddlewareDisconnectedError("Publisher channel not available")
     
     try:
       if isinstance(message, bytes):
