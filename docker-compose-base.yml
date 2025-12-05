@@ -719,7 +719,6 @@ services:
     build:
       context: .
       dockerfile: topper/Dockerfile
-    container_name: topper_q2
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -736,9 +735,27 @@ services:
       TOP_N: 1
       COMPLETION_QUEUE: sender_grouper_q2_signal
       TOPPER_MODE: Q2
+      WSM_HOST: wsm_topper_q2
+      WSM_PORT: 9060
     volumes:
       - ./reducer/temp:/app/reducer_temp/q2    
       - ./topper/temp:/app/topper_temp
+    networks:
+      - coffee-net
+  wsm_topper_q2:
+    build:
+      context: .
+      dockerfile: WSM/Dockerfile
+    environment:
+      PYTHONUNBUFFERED: 1
+      STATE_FILE_PATH: /app/output/worker_states_topper_q2.json
+      HOST: 0.0.0.0
+      PORT: 9660
+      WSM_CONTROL_BASE_PORT: 9260
+      WSM_NAME: wsm_topper_q2
+    volumes:
+      - ./output_wsm/worker_states_topper_q2:/app/output
+      - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - coffee-net
   sender_grouper_q2:
@@ -835,7 +852,6 @@ services:
     build:
       context: .
       dockerfile: topper/Dockerfile
-    container_name: topper_q3
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -852,9 +868,27 @@ services:
       TOP_N: 1
       COMPLETION_QUEUE: sender_grouper_q3_signal
       TOPPER_MODE: Q3
+      WSM_HOST: wsm_topper_q3
+      WSM_PORT: 9070
     volumes:
       - ./reducer/temp:/app/reducer_temp/q3    
       - ./topper/temp:/app/topper_temp
+    networks:
+      - coffee-net
+  wsm_topper_q3:
+    build:
+      context: .
+      dockerfile: WSM/Dockerfile
+    environment:
+      PYTHONUNBUFFERED: 1
+      STATE_FILE_PATH: /app/output/worker_states_topper_q3.json
+      HOST: 0.0.0.0
+      PORT: 9670
+      WSM_CONTROL_BASE_PORT: 9270
+      WSM_NAME: wsm_topper_q3
+    volumes:
+      - ./output_wsm/worker_states_topper_q3:/app/output
+      - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - coffee-net
   sender_grouper_q3:
@@ -950,7 +984,6 @@ services:
     build:
       context: .
       dockerfile: topper/Dockerfile
-    container_name: topper_q4
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -967,11 +1000,29 @@ services:
       TOP_N: 3
       COMPLETION_QUEUE: sender_grouper_q4_signal
       TOPPER_MODE: Q4
+      WSM_HOST: wsm_topper_q4
+      WSM_PORT: 9080
     volumes:
       - ./reducer/temp:/app/reducer_temp/q4    
       - ./topper/temp:/app/topper_temp
     networks:
-    - coffee-net
+      - coffee-net
+  wsm_topper_q4:
+    build:
+      context: .
+      dockerfile: WSM/Dockerfile
+    environment:
+      PYTHONUNBUFFERED: 1
+      STATE_FILE_PATH: /app/output/worker_states_topper_q4.json
+      HOST: 0.0.0.0
+      PORT: 9680
+      WSM_CONTROL_BASE_PORT: 9280
+      WSM_NAME: wsm_topper_q4
+    volumes:
+      - ./output_wsm/worker_states_topper_q4:/app/output
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - coffee-net
   sender_grouper_q4:
     build:
       context: .

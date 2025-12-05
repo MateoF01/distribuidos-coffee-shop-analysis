@@ -5,6 +5,9 @@ import heapq
 import logging
 from shared import protocol
 from shared.worker import Worker
+from WSM.wsm_client import WSMClient
+from wsm_config import WSM_NODES
+import socket
 
 config_path = os.path.join(os.path.dirname(__file__), 'config.ini')
 config = configparser.ConfigParser()
@@ -121,6 +124,23 @@ class Topper(Worker):
         self.current_request_id = 0
         self.request_id_initialized = False
 
+        self.replica_id = socket.gethostname()
+        wsm_host = os.environ.get("WSM_HOST", "wsm")
+        wsm_port = int(os.environ.get("WSM_PORT", "9000"))
+        
+        # Initialize WSMClient to start sending heartbeats automatically
+        worker_type_key = f"topper_{topper_mode.lower()}"
+        wsm_nodes = WSM_NODES.get(worker_type_key)
+        
+        self.wsm_client = WSMClient(
+            worker_type=worker_type_key,
+            replica_id=self.replica_id,
+            host=wsm_host,
+            port=wsm_port,
+            nodes=wsm_nodes
+        )
+        logging.info(f"[Topper:{self.topper_mode}] Initialized WSMClient for heartbeats with replica_id={self.replica_id}, nodes={wsm_nodes}")
+
     def _initialize_request_paths(self, request_id):
         """
         Initialize per-request directory structure.
@@ -191,6 +211,8 @@ class Topper(Worker):
             # Triggers: process_csv_files_Q2('/app/temp/reducer_q2/123')
             ```
         """
+        self.simulate_crash(queue_name, request_id)
+
         self.current_request_id = request_id
 
         self._initialize_request_paths(request_id)
