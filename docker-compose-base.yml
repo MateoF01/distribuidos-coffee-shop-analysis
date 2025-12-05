@@ -802,6 +802,8 @@ services:
       INPUT_FILE: /app/topper_temp/topper_q2_signal/q2_top.csv
       BATCH_SIZE: 5000
       QUERY_TYPE: q2
+      WSM_HOST: wsm_coordinator
+      WSM_PORT: 7015     
     volumes:
     - ./topper/temp:/app/topper_temp
     networks:
@@ -937,6 +939,8 @@ services:
       INPUT_FILE: /app/topper_temp/topper_q3_signal/q3_top.csv
       BATCH_SIZE: 5000
       QUERY_TYPE: q3
+      WSM_HOST: wsm_coordinator
+      WSM_PORT: 7016
     volumes:
     - ./topper/temp:/app/topper_temp
     networks:
@@ -1071,6 +1075,8 @@ services:
       INPUT_FILE: /app/topper_temp/topper_q4_signal/q4_top.csv
       BATCH_SIZE: 5000
       QUERY_TYPE: q4
+      WSM_HOST: wsm_coordinator
+      WSM_PORT: 7017
     volumes:
     - ./topper/temp:/app/topper_temp
     networks:
@@ -1135,7 +1141,9 @@ services:
       QUEUE_IN: sorter_q1_v2_signal         
       COMPLETION_QUEUE: sender_q1_signal     
       BASE_TEMP_DIR: /app/temp
-      SORT_COLUMNS: "0"                    
+      SORT_COLUMNS: "0"
+      WSM_HOST: wsm_coordinator
+      WSM_PORT: 7014                    
     volumes:
       - ./splitter/temp:/app/temp
       - ./output:/app/output
@@ -1161,6 +1169,8 @@ services:
       INPUT_FILE: /app/output/q1.csv
       QUERY_TYPE: q1
       INCLUDE_HEADERS: true
+      WSM_HOST: wsm_coordinator
+      WSM_PORT: 7018
     volumes:
     - ./output:/app/output
     networks:
@@ -1230,6 +1240,8 @@ services:
       INPUT_FILE: /app/output/q2_a.csv
       QUERY_TYPE: q2_a
       INCLUDE_HEADERS: true
+      WSM_HOST: wsm_coordinator
+      WSM_PORT: 7019
     volumes:
     - ./output:/app/output
     networks:
@@ -1254,6 +1266,8 @@ services:
       INPUT_FILE: /app/output/q2_b.csv
       QUERY_TYPE: q2_b
       INCLUDE_HEADERS: true
+      WSM_HOST: wsm_coordinator
+      WSM_PORT: 7020
     volumes:
     - ./output:/app/output
     networks:
@@ -1347,6 +1361,8 @@ services:
       INPUT_FILE: /app/output/q3.csv
       QUERY_TYPE: q3
       INCLUDE_HEADERS: true
+      WSM_HOST: wsm_coordinator
+      WSM_PORT: 7021
     volumes:
     - ./output:/app/output
     networks:
@@ -1442,6 +1458,8 @@ services:
       INPUT_FILE: /app/output/q4.csv
       QUERY_TYPE: q4
       INCLUDE_HEADERS: true
+      WSM_HOST: wsm_coordinator
+      WSM_PORT: 7022
     volumes:
     - ./output:/app/output
     networks:
