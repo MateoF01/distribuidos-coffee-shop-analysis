@@ -195,6 +195,13 @@ class Cleaner(StreamProcessingWorker):
             [Cleaner] ✅ Permiso otorgado para enviar END de req-123
             [END forwarded to output queues]
         """
+
+        if data_type == protocol.DATA_END:
+            logging.info(f"[Cleaner] Manejo de DATA_END para request {request_id}")
+            self.wsm_client.cleanup_request(request_id)
+            super()._handle_end_signal(message, msg_type, data_type, request_id, position, queue_name)
+            return
+
         self.wsm_client.update_state("END", request_id, position)
         logging.info(f"[Cleaner] Recibido END para request {request_id}. Consultando WSM...")
 

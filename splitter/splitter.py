@@ -277,7 +277,7 @@ class SplitterQ1(StreamProcessingWorker):
         Handle END signal with WSM coordination for exactly-once notification.
         
         Flushes final chunk, marks END in WSM, waits for all replicas to reach END,
-        then sends single notification downstream.
+        then sends single notification downstream. Handles DATA_END for cleanup.
         
         Args:
             message (bytes): Raw message.
@@ -294,9 +294,20 @@ class SplitterQ1(StreamProcessingWorker):
             - Replica 3: Reaches END, marks in WSM
             - WSM authorizes one replica to send notification
             - Single notification sent to sorter
+            
+            DATA_END handling:
+            - Cleans up WSM state for request
+            - Removes chunk files for request
+            - Forwards DATA_END to downstream
         """
-        if(data_type == 6):
-            logging.info(f"[Splitter:{self.replica_id}] Ignorando END END para request {request_id}. ")
+        if data_type == protocol.DATA_END:
+            logging.info(f"[SplitterQ1:{self.replica_id}] Manejo de DATA_END para request {request_id}")
+            self.wsm_client.cleanup_request(request_id)
+            self._cleanup_request_files(request_id)
+            cleanup_message = protocol.create_notification_message(protocol.DATA_END, b"", request_id)
+            for q in self.out_queues:
+                q.send(cleanup_message)
+            logging.info(f"[SplitterQ1:{self.replica_id}] Sent cleanup notification for request {request_id}")
             return
 
         self._write_chunk(request_id)
@@ -332,6 +343,43 @@ class SplitterQ1(StreamProcessingWorker):
 
         if request_id in self.buffers:
             del self.buffers[request_id]
+
+    def _cleanup_request_files(self, request_id):
+        """
+        Clean up entire request directory including all replica subdirectories.
+        
+        Removes complete request directory tree containing all replica chunk files
+        when request is aborted. Called during DATA_END handling.
+        
+        Args:
+            request_id (str): Request identifier to clean up.
+        
+        Example:
+            >>> splitter._cleanup_request_files('req-123')
+            # Removes entire directory tree:
+            #   /app/temp/splitter_q1/req-123/
+            #     splitter-q1-1/chunk_0.csv
+            #     splitter-q1-1/chunk_1.csv
+            #     splitter-q1-2/chunk_0.csv
+            #     splitter-q1-3/chunk_0.csv
+        """
+        import shutil
+        
+        request_dir = os.path.join(self.base_temp_root, str(request_id))
+        
+        if os.path.exists(request_dir):
+            try:
+                shutil.rmtree(request_dir)
+                logging.info(f"[SplitterQ1:{self.replica_id}] Cleaned up entire request directory for request_id={request_id} at {request_dir}")
+            except Exception as e:
+                logging.error(f"[SplitterQ1:{self.replica_id}] Error removing directory for request_id={request_id} at {request_dir}: {e}")
+        else:
+            logging.debug(f"[SplitterQ1:{self.replica_id}] Request directory already removed for request_id={request_id} at {request_dir}")
+        
+        # Clean up buffer tracking
+        if request_id in self.buffers:
+            del self.buffers[request_id]
+            logging.debug(f"[SplitterQ1:{self.replica_id}] Cleared buffer for request_id={request_id}")
 
 
 if __name__ == '__main__':

@@ -306,7 +306,13 @@ class GrouperV2(StreamProcessingWorker):
             # After 2.0s total wait, raises TimeoutError
         """
         if data_type == protocol.DATA_END:
-            logging.info(f"[GrouperV2:{self.grouper_mode}] Recibido DATA_END para request {request_id} en cola {queue_name}.")
+            logging.info(f"[GrouperV2:{self.grouper_mode}] Manejo de DATA_END para request {request_id}")
+            self.wsm_client.cleanup_request(request_id)
+            self._cleanup_request_files(request_id)
+            cleanup_message = protocol.create_notification_message(protocol.DATA_END, b"", request_id)
+            for q in self.out_queues:
+                q.send(cleanup_message)
+            logging.info(f"[GrouperV2:{self.grouper_mode}] Sent cleanup notification for request {request_id}")
             return
         
         self.wsm_client.update_state("END", request_id, position)
@@ -826,6 +832,37 @@ class GrouperV2(StreamProcessingWorker):
         self.temp_dir = os.path.join(self.base_temp_root, mode_dir, str(request_id), self.replica_id)
         os.makedirs(self.temp_dir, exist_ok=True)
         self.request_id_initialized = True
+
+    def _cleanup_request_files(self, request_id):
+        """
+        Clean up temporary aggregation files for a completed request.
+        
+        Removes the entire request directory tree containing partial aggregation
+        files from all replicas. This prevents disk space accumulation after
+        requests are completed and reduced.
+        
+        Args:
+            request_id (str): Request identifier to clean up.
+        
+        Example:
+            >>> grouper._cleanup_request_files('req-123')
+            # Removes: /tmp/grouper_v2_q2/req-123/
+            # Including all replica subdirectories and CSV files
+            [GrouperV2:q2] Cleaned up temporary files for request_id=req-123
+        """
+        import shutil
+        
+        mode_dir = f"grouper_v2_{self.grouper_mode}"
+        request_dir = os.path.join(self.base_temp_root, mode_dir, str(request_id))
+        
+        if os.path.exists(request_dir):
+            try:
+                shutil.rmtree(request_dir)
+                logging.info(f"[GrouperV2:{self.grouper_mode}] Cleaned up temporary files for request_id={request_id} at {request_dir}")
+            except Exception as e:
+                logging.error(f"[GrouperV2:{self.grouper_mode}] Error cleaning up temporary files for request_id={request_id}: {e}")
+        else:
+            logging.debug(f"[GrouperV2:{self.grouper_mode}] No temporary files found for request_id={request_id} at {request_dir}")
 
 
 if __name__ == '__main__':

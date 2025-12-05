@@ -12,6 +12,11 @@ PORT = int(os.environ.get("PORT", "9000"))
 STATE_FILE = os.environ.get("STATE_FILE_PATH", "/app/output/worker_states.json")
 USING_END_SYNC = os.environ.get("USING_END_SYNC", "0") == "1"
 
+# Cleanup backoff configuration
+CLEANUP_BACKOFF_START = float(os.environ.get("WSM_CLEANUP_BACKOFF_START", "0.1"))
+CLEANUP_BACKOFF_MAX = float(os.environ.get("WSM_CLEANUP_BACKOFF_MAX", "5.0"))
+CLEANUP_MAX_WAIT = float(os.environ.get("WSM_CLEANUP_MAX_WAIT", "30.0"))
+
 os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -91,6 +96,7 @@ class WorkerStateManager:
         self.worker_states = {}
         self.workers_being_used = {}
         self.ends_by_requests = {}
+        self.data_ends_by_requests = {}
         self.lock = threading.Lock()
         self._load_state()
         self._load_state()
@@ -324,6 +330,7 @@ class WorkerStateManager:
                     self.worker_states = data.get("worker_states", {})
                     self.workers_being_used = data.get("workers_being_used", {})
                     self.ends_by_requests = data.get("ends_by_requests", {})
+                    self.data_ends_by_requests = data.get("data_ends_by_requests", {})
                     logging.info(f"[WSM] Estado cargado desde {self.state_file}")
                 else:
                     logging.error(f"[WSM] Formato de estado inválido en {self.state_file}")
@@ -348,6 +355,7 @@ class WorkerStateManager:
                 "worker_states": self.worker_states,
                 "workers_being_used": self.workers_being_used,
                 "ends_by_requests": self.ends_by_requests,
+                "data_ends_by_requests": self.data_ends_by_requests,
             }
             with open(self.state_file, "w", encoding="utf-8") as f:
                 json.dump(payload, f, indent=2, ensure_ascii=False)
@@ -671,6 +679,150 @@ class WorkerStateManager:
             logging.error(f"[WSM] Failed to restart container {replica_id}: {e}")
 
 
+    def cleanup_request(self, request_id, backoff_start=None, backoff_max=None, max_wait=None):
+        """
+        Clean up all position files and state related to a specific request_id.
+        
+        Uses exponential backoff to wait until all replicas finish processing
+        the request before cleaning up. This prevents premature cleanup while
+        workers are still handling the request.
+        
+        Removes position files across all worker types for the given request_id.
+        Cleans up ends_by_requests tracking. Should be called when a request
+        is completed or abandoned to free disk space and memory.
+        
+        Args:
+            request_id (int): Request identifier to clean up.
+            backoff_start (float, optional): Initial backoff delay in seconds. Uses WSM_CLEANUP_BACKOFF_START env var if None.
+            backoff_max (float, optional): Maximum backoff delay in seconds. Uses WSM_CLEANUP_BACKOFF_MAX env var if None.
+            max_wait (float, optional): Maximum total wait time in seconds. Uses WSM_CLEANUP_MAX_WAIT env var if None.
+        
+        Example:
+            ```python
+            # Request 123 completed, clean up all related files
+            wsm.cleanup_request(123)
+            
+            # Waits until no replicas are processing request_id=123
+            # Then removes:
+            # - /app/output/cleaner_positions/123.txt
+            # - /app/output/filter_positions/123.txt
+            # - /app/output/joiner_positions/123.txt
+            # - etc. (all worker types)
+            # - ends_by_requests[123] entry
+            ```
+        """
+        # Use environment variables as defaults if not provided
+        if backoff_start is None:
+            backoff_start = CLEANUP_BACKOFF_START
+        if backoff_max is None:
+            backoff_max = CLEANUP_BACKOFF_MAX
+        if max_wait is None:
+            max_wait = CLEANUP_MAX_WAIT
+        
+        backoff = backoff_start
+        total_wait = 0.0
+        
+        # Wait until no replicas are actively processing this request
+        while True:
+            with self.lock:
+                active_replicas = []
+                for worker_type, replicas in self.worker_states.items():
+                    for replica_id, info in replicas.items():
+                        if info.get("request_id") == request_id and info.get("state") in ["PROCESSING", "END"]:
+                            active_replicas.append(f"{worker_type}:{replica_id}")
+                
+                if not active_replicas:
+                    # No active replicas, safe to cleanup
+                    break
+                
+                if total_wait >= max_wait:
+                    logging.warning(f"[WSM CLEANUP] Max wait time reached for request_id={request_id}, forcing cleanup (active: {active_replicas})")
+                    break
+            
+            logging.info(f"[WSM CLEANUP] Waiting for {len(active_replicas)} replica(s) to finish request_id={request_id} (backoff={backoff:.3f}s, total={total_wait:.2f}s)")
+            logging.debug(f"[WSM CLEANUP] Active replicas: {active_replicas}")
+            
+            time.sleep(backoff)
+            total_wait += backoff
+            backoff = min(backoff * 2, backoff_max)
+        
+        # Perform cleanup
+        with self.lock:
+            removed_count = 0
+            
+            # Clean up position files for all worker types
+            for worker_type in self.worker_states.keys():
+                positions_file = self._get_positions_file(worker_type, request_id)
+                if os.path.exists(positions_file):
+                    try:
+                        os.remove(positions_file)
+                        removed_count += 1
+                        logging.info(f"[WSM CLEANUP] Removed position file: {positions_file}")
+                    except Exception as e:
+                        logging.error(f"[WSM CLEANUP] Failed to remove {positions_file}: {e}")
+            
+            # Clean up ends_by_requests entry
+            if str(request_id) in self.ends_by_requests:
+                del self.ends_by_requests[str(request_id)]
+                logging.info(f"[WSM CLEANUP] Removed ends_by_requests entry for request_id={request_id}")
+            
+            # Save updated state
+            self._save_state()
+            
+            logging.info(f"[WSM CLEANUP] Cleanup complete for request_id={request_id}, removed {removed_count} position file(s) after {total_wait:.2f}s wait")
+
+    def can_send_last_data_end(self, worker_type, replica_id, request_id):
+        """
+        Check if this is the last worker type to receive DATA_END for a request.
+        
+        Used by multi-queue workers (like joiner) to coordinate DATA_END across
+        different input queues. Decrements counter and returns True when all
+        worker types have received DATA_END.
+        
+        Args:
+            worker_type (str): Worker type identifier.
+            replica_id (str): Replica identifier.
+            request_id (int): Request identifier.
+        
+        Returns:
+            bool: True if all worker types received DATA_END, False otherwise.
+        
+        Example:
+            ```python
+            # Joiner with 3 input queues
+            # First queue finishes
+            can_send = wsm.can_send_last_data_end('stores_cleaned_q4', 'joiner-1', 123)
+            # Returns: False (data_end_by_requests[123] = 2)
+            
+            # Second queue finishes
+            can_send = wsm.can_send_last_data_end('users_cleaned', 'joiner-1', 123)
+            # Returns: False (data_end_by_requests[123] = 1)
+            
+            # Last queue finishes
+            can_send = wsm.can_send_last_data_end('resultados_groupby_q4', 'joiner-1', 123)
+            # Returns: True (all queues done, can clean up)
+            ```
+        """
+        with self.lock:
+            self.worker_states.setdefault(worker_type, {})
+            self.workers_being_used.setdefault(worker_type, True)
+            
+            if request_id not in self.data_ends_by_requests:
+                self.data_ends_by_requests[request_id] = sum(
+                    1 for being_used in self.workers_being_used.values() if being_used
+                )
+                logging.info(f"[WSM] Initialized data_end_by_requests[{request_id}] = {self.data_ends_by_requests[request_id]}")
+            self.data_ends_by_requests[request_id] -= 1
+            self.worker_states[worker_type][replica_id] = {"state": "DATA_END", "request_id": request_id}
+            self._save_state()
+            remaining = self.data_ends_by_requests.get(request_id, 0)
+            if remaining > 0:
+                logging.info(f"[WSM] Still {remaining} worker types pending DATA_END for request_id={request_id}")
+                return False
+            
+            logging.info(f"[WSM] All worker types received DATA_END for request_id={request_id}")
+            return True
+
 class WSMServer:
     """
     TCP server for Worker State Manager with leader election support.
@@ -879,6 +1031,13 @@ class WSMServer:
         elif action == "is_position_processed":
             processed = self.manager.is_position_processed(worker_type, msg.get("request_id"), msg.get("position"))
             return processed
+        elif action == "cleanup_request":
+            request_id = msg.get("request_id")
+            self.manager.cleanup_request(request_id)
+            return "OK"
+        elif action == "can_send_last_data_end":
+            can_send = self.manager.can_send_last_data_end(worker_type, replica_id, msg.get("request_id"))
+            return "OK" if can_send else "WAIT"
         elif action == "is_leader":
             return "YES" if self.role == "LEADER" else "NO"
         else:
