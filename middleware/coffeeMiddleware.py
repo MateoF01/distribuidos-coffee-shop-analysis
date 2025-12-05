@@ -67,7 +67,6 @@ TIMEOUTS = {
   "consumer_graceful_shutdown": read_timeout_config("TIMEOUTS", "consumer-graceful-shutdown", 5.0),
   "consumer_thread_join": read_timeout_config("TIMEOUTS", "consumer-thread-join", 2.0),
   "consumer_force_stop": read_timeout_config("TIMEOUTS", "consumer-force-stop", 2.0),
-  "data_events_time_limit": read_timeout_config("TIMEOUTS", "data-events-time-limit", 0.1)
 }
 
 CONSUMER_CONFIG = {
@@ -300,25 +299,12 @@ class CoffeeMessageMiddlewareQueue(MessageMiddlewareQueue):
       
       self._consumer_ready_event.set()
       
-      while not self._consumer_stop_event.is_set():
-        try:
-          if not self._consumer_connection or self._consumer_connection.is_closed:
-            break
-          self._consumer_connection.process_data_events(time_limit=TIMEOUTS["data_events_time_limit"])
-        except Exception as e:
-          if not self._consumer_stop_event.is_set():
-            raise MessageMiddlewareDisconnectedError(str(e))
-          break
+      self._consumer_channel.start_consuming()
             
     except Exception as e:
       if not self._consumer_stop_event.is_set():
         print(f"Consumer loop error: {e}")
     finally:
-      try:
-        if self._consumer_channel and not self._consumer_channel.is_closed:
-          self._consumer_channel.stop_consuming()
-      except:
-        pass
       self._consumer_ready_event.clear()
       self._consumer_finished_event.set()
 
@@ -352,6 +338,12 @@ class CoffeeMessageMiddlewareQueue(MessageMiddlewareQueue):
     try:
       self._consumer_stop_event.set()
       
+      try:
+        if self._consumer_channel and not self._consumer_channel.is_closed:
+          self._consumer_connection.add_callback_threadsafe(self._consumer_channel.stop_consuming)
+      except Exception:
+        pass
+      
       if not self._consumer_finished_event.wait(timeout=TIMEOUTS["consumer_graceful_shutdown"]):
         print("Warning: Consumer thread did not finish within timeout")
       
@@ -379,6 +371,11 @@ class CoffeeMessageMiddlewareQueue(MessageMiddlewareQueue):
         [Consumer thread stopped immediately]
     """
     self._consumer_stop_event.set()
+    try:
+      if self._consumer_channel and not self._consumer_channel.is_closed:
+        self._consumer_connection.add_callback_threadsafe(self._consumer_channel.stop_consuming)
+    except Exception:
+      pass
     if self._consumer_thread and self._consumer_thread.is_alive():
       self._consumer_thread.join(timeout=TIMEOUTS["consumer_force_stop"])
     self._consumer_thread = None
@@ -809,25 +806,12 @@ class CoffeeMessageMiddlewareExchange(MessageMiddlewareExchange):
       
       self._consumer_ready_event.set()
       
-      while not self._consumer_stop_event.is_set():
-        try:
-          if not self._consumer_connection or self._consumer_connection.is_closed:
-            break
-          self._consumer_connection.process_data_events(time_limit=TIMEOUTS["data_events_time_limit"])
-        except Exception as e:
-          if not self._consumer_stop_event.is_set():
-            raise MessageMiddlewareDisconnectedError(str(e))
-          break
+      self._consumer_channel.start_consuming()
             
     except Exception as e:
       if not self._consumer_stop_event.is_set():
         print(f"Consumer loop error: {e}")
     finally:
-      try:
-        if self._consumer_channel and not self._consumer_channel.is_closed:
-          self._consumer_channel.stop_consuming()
-      except:
-        pass
       self._consumer_ready_event.clear()
       self._consumer_finished_event.set()
 
@@ -859,6 +843,12 @@ class CoffeeMessageMiddlewareExchange(MessageMiddlewareExchange):
     try:
       self._consumer_stop_event.set()
       
+      try:
+        if self._consumer_channel and not self._consumer_channel.is_closed:
+          self._consumer_connection.add_callback_threadsafe(self._consumer_channel.stop_consuming)
+      except Exception:
+        pass
+      
       if not self._consumer_finished_event.wait(timeout=TIMEOUTS["consumer_graceful_shutdown"]):
         print("Warning: Consumer thread did not finish within timeout")
       
@@ -886,6 +876,11 @@ class CoffeeMessageMiddlewareExchange(MessageMiddlewareExchange):
         [Consumer thread stopped immediately]
     """
     self._consumer_stop_event.set()
+    try:
+      if self._consumer_channel and not self._consumer_channel.is_closed:
+        self._consumer_connection.add_callback_threadsafe(self._consumer_channel.stop_consuming)
+    except Exception:
+      pass
     if self._consumer_thread and self._consumer_thread.is_alive():
       self._consumer_thread.join(timeout=TIMEOUTS["consumer_force_stop"])
     self._consumer_thread = None
