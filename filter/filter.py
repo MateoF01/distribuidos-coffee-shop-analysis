@@ -123,6 +123,13 @@ class Filter(StreamProcessingWorker):
             [Filter:worker-1] Esperando permiso para reenviar END... (backoff=0.100s)
             [Filter:worker-1] ✅ Permiso otorgado por el WSM para reenviar END
         """
+
+        if data_type == protocol.DATA_END:
+            logging.info(f"[Filter] Manejo de DATA_END para request {request_id}")
+            self.wsm_client.cleanup_request(request_id)
+            super()._handle_end_signal(message, msg_type, data_type, request_id, position, queue_name)
+            return
+
         self.wsm_client.update_state("END", request_id, position)
         logging.info(f"[Filter:{self.replica_id}] Recibido END para request {request_id}. Esperando permiso del WSM...")
 

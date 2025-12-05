@@ -298,6 +298,9 @@ def open_stats_terminal(selected_workers):
     Open a new terminal window with docker stats command typed but not executed.
     Order: rabbitmq, gateway, clients, selected_workers (all replicas).
     """
+    import platform
+    import shutil
+    
     # 1. Fixed start
     ordered_names = ["rabbitmq", "gateway"]
     
@@ -340,29 +343,73 @@ def open_stats_terminal(selected_workers):
     full_cmd_str = " ".join(cmd_parts)
     print(f"\nPreparing stats command: {full_cmd_str}")
     
-    # Generate AppleScript lines to type each part followed by a space
-    keystroke_lines = ""
-    for i, part in enumerate(cmd_parts):
-        keystroke_lines += f'        keystroke "{part}"\n'
-        if i < len(cmd_parts) - 1:
-            keystroke_lines += '        key code 49\n'
-
-    # AppleScript to open terminal and type command robustly
-    osascript_cmd = f'''
-    tell application "Terminal"
-        activate
-        do script ""
-    end tell
-    delay 0.5
-    tell application "System Events"
-{keystroke_lines}
-    end tell
-    '''
+    system = platform.system()
     
-    try:
-        subprocess.run(["osascript", "-e", osascript_cmd], check=True)
-    except subprocess.CalledProcessError as e:
-        print(f"Failed to open stats terminal: {e}")
+    if system == "Darwin":
+        # macOS: Use AppleScript
+        keystroke_lines = ""
+        for i, part in enumerate(cmd_parts):
+            keystroke_lines += f'        keystroke "{part}"\n'
+            if i < len(cmd_parts) - 1:
+                keystroke_lines += '        key code 49\n'
+
+        osascript_cmd = f'''
+        tell application "Terminal"
+            activate
+            do script ""
+        end tell
+        delay 0.5
+        tell application "System Events"
+{keystroke_lines}
+        end tell
+        '''
+        
+        try:
+            subprocess.run(["osascript", "-e", osascript_cmd], check=True)
+        except subprocess.CalledProcessError as e:
+            print(f"Failed to open stats terminal: {e}")
+            
+    elif system == "Linux":
+        # Linux: Try different terminal emulators
+        # Show the command and wait for Enter before executing
+        bash_script = f'''echo "Command to run:"; echo ""; echo "{full_cmd_str}"; echo ""; read -p "Press Enter to execute..."; {full_cmd_str}'''
+        
+        terminal_cmds = [
+            # gnome-terminal
+            ["gnome-terminal", "--", "bash", "-c", bash_script],
+            # xterm
+            ["xterm", "-e", "bash", "-c", bash_script],
+            # konsole (KDE)
+            ["konsole", "-e", "bash", "-c", bash_script],
+            # xfce4-terminal
+            ["xfce4-terminal", "-e", f"bash -c '{bash_script}'"],
+            # mate-terminal
+            ["mate-terminal", "-e", f"bash -c '{bash_script}'"],
+            # tilix
+            ["tilix", "-e", f"bash -c '{bash_script}'"],
+        ]
+        
+        terminal_opened = False
+        for term_cmd in terminal_cmds:
+            terminal_name = term_cmd[0]
+            if shutil.which(terminal_name):
+                try:
+                    subprocess.Popen(term_cmd, start_new_session=True)
+                    print(f"Opened stats terminal in {terminal_name}")
+                    terminal_opened = True
+                    break
+                except Exception as e:
+                    continue
+        
+        if not terminal_opened:
+            print("\nCould not open a terminal automatically.")
+            print("Please run this command manually in a new terminal:")
+            print(f"  {full_cmd_str}")
+    else:
+        # Windows or other
+        print("\nAutomatic terminal opening not supported on this OS.")
+        print("Please run this command manually in a new terminal:")
+        print(f"  {full_cmd_str}")
 
 def main():
     workers = list_workers()

@@ -41,7 +41,7 @@ services:
       GATEWAY_PORT: 5000
       QUEUE_IN: results
       REQUESTS_PER_CLIENT: 1
-      GATEWAY_MAX_PROCESSES: 1
+      GATEWAY_MAX_PROCESSES: 5
     volumes:
     - ./output_gateway:/app/output_gateway
     networks:
@@ -69,7 +69,10 @@ services:
       SERVER_ADDRESS: gateway:5000
       BATCH_MAX_AMOUNT: 5000
       REQUESTS_PER_CLIENT: 1
-      INITIAL_CLIENT_COUNT: 1
+      CLIENT_INITIAL_BACKOFF: 1.0
+      CLIENT_MAX_BACKOFF: 60.0
+      CLIENT_BACKOFF_MULTIPLIER: 2.0
+      INITIAL_CLIENT_COUNT: 2
     volumes:
     - ./data:/app/.data
     - ./client/results:/app/client/results
@@ -109,6 +112,9 @@ services:
       PORT: 9501
       WSM_CONTROL_BASE_PORT: 9100
       WSM_NAME: wsm_transactions
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
       WSM_ID: 1
     volumes:
     - ./output_wsm/worker_states_transactions:/app/output
@@ -171,6 +177,9 @@ services:
       PORT: 9511
       WSM_CONTROL_BASE_PORT: 9110
       WSM_NAME: wsm_transaction_items
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
       WSM_ID: 1
     volumes:
     - ./output_wsm/worker_states_transaction_items:/app/output
@@ -233,6 +242,9 @@ services:
       PORT: 9521
       WSM_CONTROL_BASE_PORT: 9120
       WSM_NAME: wsm_users
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
       WSM_ID: 1
     volumes:
     - ./output_wsm/worker_states_users:/app/output
@@ -295,6 +307,9 @@ services:
       PORT: 9531
       WSM_CONTROL_BASE_PORT: 9130
       WSM_NAME: wsm_stores
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
       WSM_ID: 1
     volumes:
     - ./output_wsm/worker_states_stores:/app/output
@@ -357,6 +372,9 @@ services:
       PORT: 9541
       WSM_CONTROL_BASE_PORT: 9140
       WSM_NAME: wsm_menu_items
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
       WSM_ID: 1
     volumes:
     - ./output_wsm/worker_states_menu_items:/app/output
@@ -419,6 +437,9 @@ services:
       PORT: 9551
       WSM_CONTROL_BASE_PORT: 9150
       WSM_NAME: wsm_transactions_q4
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
       WSM_ID: 1
     volumes:
     - ./output_wsm/worker_states_transactions_q4:/app/output
@@ -482,6 +503,9 @@ services:
       PORT: 9561
       WSM_CONTROL_BASE_PORT: 9160
       WSM_NAME: wsm_temporal_filter_transactions
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
       WSM_ID: 1
     volumes:
     - ./output_wsm/worker_states_temporal_filter_transactions:/app/output
@@ -587,6 +611,9 @@ services:
       PORT: 9571
       WSM_CONTROL_BASE_PORT: 9170
       WSM_NAME: wsm_temporal_filter_transaction_items
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
       WSM_ID: 1
     volumes:
     - ./output_wsm/worker_states_temporal_filter_transaction_items:/app/output
@@ -651,6 +678,9 @@ services:
       PORT: 9581
       WSM_CONTROL_BASE_PORT: 9180
       WSM_NAME: wsm_amount_filter_transactions
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
       WSM_ID: 1
     volumes:
     - ./output_wsm/worker_states_amount_filter_transactions:/app/output
@@ -715,6 +745,9 @@ services:
       PORT: 9591
       WSM_CONTROL_BASE_PORT: 9190
       WSM_NAME: wsm_grouper_q2
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
       WSM_ID: 1
     volumes:
     - ./output_wsm/worker_states_grouper_q2:/app/output
@@ -837,6 +870,9 @@ services:
       PORT: 9601
       WSM_CONTROL_BASE_PORT: 9200
       WSM_NAME: wsm_grouper_q3
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
       WSM_ID: 1
     volumes:
     - ./output_wsm/worker_states_grouper_q3:/app/output
@@ -959,6 +995,9 @@ services:
       PORT: 9611
       WSM_CONTROL_BASE_PORT: 9210
       WSM_NAME: wsm_grouper_q4
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
       WSM_ID: 1
     volumes:
     - ./output_wsm/worker_states_grouper_q4:/app/output
@@ -1081,6 +1120,9 @@ services:
       PORT: 9621
       WSM_CONTROL_BASE_PORT: 9220
       WSM_NAME: wsm_splitter_q1
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
       WSM_ID: 1
     volumes:
     - ./output_wsm/worker_states_splitter_q1:/app/output
@@ -1178,6 +1220,9 @@ services:
       WSM_CONTROL_BASE_PORT: 9230
       WSM_NAME: wsm_q2
       USING_END_SYNC: 1
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
       WSM_ID: 1
     volumes:
     - ./output_wsm/joiner_states_q2:/app/output
@@ -1276,6 +1321,9 @@ services:
       WSM_CONTROL_BASE_PORT: 9240
       WSM_NAME: wsm_q3
       USING_END_SYNC: 1
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
       WSM_ID: 1
     volumes:
     - ./output_wsm/joiner_states_q3:/app/output
@@ -1374,6 +1422,9 @@ services:
       WSM_CONTROL_BASE_PORT: 9250
       WSM_NAME: wsm_q4
       USING_END_SYNC: 1
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
       WSM_ID: 1
     volumes:
     - ./output_wsm/joiner_states_q4:/app/output
@@ -1459,6 +1510,9 @@ services:
       PORT: 9502
       WSM_CONTROL_BASE_PORT: 9100
       WSM_NAME: wsm_transactions
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
       WSM_ID: 2
     volumes:
     - ./output_wsm/worker_states_transactions:/app/output
@@ -1479,6 +1533,9 @@ services:
       PORT: 9503
       WSM_CONTROL_BASE_PORT: 9100
       WSM_NAME: wsm_transactions
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
       WSM_ID: 3
     volumes:
     - ./output_wsm/worker_states_transactions:/app/output
@@ -1499,6 +1556,9 @@ services:
       PORT: 9512
       WSM_CONTROL_BASE_PORT: 9110
       WSM_NAME: wsm_transaction_items
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
       WSM_ID: 2
     volumes:
     - ./output_wsm/worker_states_transaction_items:/app/output
@@ -1519,6 +1579,9 @@ services:
       PORT: 9513
       WSM_CONTROL_BASE_PORT: 9110
       WSM_NAME: wsm_transaction_items
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
       WSM_ID: 3
     volumes:
     - ./output_wsm/worker_states_transaction_items:/app/output
@@ -1539,6 +1602,9 @@ services:
       PORT: 9522
       WSM_CONTROL_BASE_PORT: 9120
       WSM_NAME: wsm_users
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
       WSM_ID: 2
     volumes:
     - ./output_wsm/worker_states_users:/app/output
@@ -1559,6 +1625,9 @@ services:
       PORT: 9523
       WSM_CONTROL_BASE_PORT: 9120
       WSM_NAME: wsm_users
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
       WSM_ID: 3
     volumes:
     - ./output_wsm/worker_states_users:/app/output
@@ -1579,6 +1648,9 @@ services:
       PORT: 9532
       WSM_CONTROL_BASE_PORT: 9130
       WSM_NAME: wsm_stores
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
       WSM_ID: 2
     volumes:
     - ./output_wsm/worker_states_stores:/app/output
@@ -1599,6 +1671,9 @@ services:
       PORT: 9533
       WSM_CONTROL_BASE_PORT: 9130
       WSM_NAME: wsm_stores
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
       WSM_ID: 3
     volumes:
     - ./output_wsm/worker_states_stores:/app/output
@@ -1619,6 +1694,9 @@ services:
       PORT: 9542
       WSM_CONTROL_BASE_PORT: 9140
       WSM_NAME: wsm_menu_items
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
       WSM_ID: 2
     volumes:
     - ./output_wsm/worker_states_menu_items:/app/output
@@ -1639,6 +1717,9 @@ services:
       PORT: 9543
       WSM_CONTROL_BASE_PORT: 9140
       WSM_NAME: wsm_menu_items
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
       WSM_ID: 3
     volumes:
     - ./output_wsm/worker_states_menu_items:/app/output
@@ -1659,6 +1740,9 @@ services:
       PORT: 9552
       WSM_CONTROL_BASE_PORT: 9150
       WSM_NAME: wsm_transactions_q4
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
       WSM_ID: 2
     volumes:
     - ./output_wsm/worker_states_transactions_q4:/app/output
@@ -1679,6 +1763,9 @@ services:
       PORT: 9553
       WSM_CONTROL_BASE_PORT: 9150
       WSM_NAME: wsm_transactions_q4
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
       WSM_ID: 3
     volumes:
     - ./output_wsm/worker_states_transactions_q4:/app/output
@@ -1699,6 +1786,9 @@ services:
       PORT: 9562
       WSM_CONTROL_BASE_PORT: 9160
       WSM_NAME: wsm_temporal_filter_transactions
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
       WSM_ID: 2
     volumes:
     - ./output_wsm/worker_states_temporal_filter_transactions:/app/output
@@ -1719,6 +1809,9 @@ services:
       PORT: 9563
       WSM_CONTROL_BASE_PORT: 9160
       WSM_NAME: wsm_temporal_filter_transactions
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
       WSM_ID: 3
     volumes:
     - ./output_wsm/worker_states_temporal_filter_transactions:/app/output
@@ -1739,6 +1832,9 @@ services:
       PORT: 9572
       WSM_CONTROL_BASE_PORT: 9170
       WSM_NAME: wsm_temporal_filter_transaction_items
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
       WSM_ID: 2
     volumes:
     - ./output_wsm/worker_states_temporal_filter_transaction_items:/app/output
@@ -1759,6 +1855,9 @@ services:
       PORT: 9573
       WSM_CONTROL_BASE_PORT: 9170
       WSM_NAME: wsm_temporal_filter_transaction_items
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
       WSM_ID: 3
     volumes:
     - ./output_wsm/worker_states_temporal_filter_transaction_items:/app/output
@@ -1779,6 +1878,9 @@ services:
       PORT: 9582
       WSM_CONTROL_BASE_PORT: 9180
       WSM_NAME: wsm_amount_filter_transactions
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
       WSM_ID: 2
     volumes:
     - ./output_wsm/worker_states_amount_filter_transactions:/app/output
@@ -1799,6 +1901,9 @@ services:
       PORT: 9583
       WSM_CONTROL_BASE_PORT: 9180
       WSM_NAME: wsm_amount_filter_transactions
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
       WSM_ID: 3
     volumes:
     - ./output_wsm/worker_states_amount_filter_transactions:/app/output
@@ -1819,6 +1924,9 @@ services:
       PORT: 9592
       WSM_CONTROL_BASE_PORT: 9190
       WSM_NAME: wsm_grouper_q2
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
       WSM_ID: 2
     volumes:
     - ./output_wsm/worker_states_grouper_q2:/app/output
@@ -1839,6 +1947,9 @@ services:
       PORT: 9593
       WSM_CONTROL_BASE_PORT: 9190
       WSM_NAME: wsm_grouper_q2
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
       WSM_ID: 3
     volumes:
     - ./output_wsm/worker_states_grouper_q2:/app/output
@@ -1859,6 +1970,9 @@ services:
       PORT: 9602
       WSM_CONTROL_BASE_PORT: 9200
       WSM_NAME: wsm_grouper_q3
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
       WSM_ID: 2
     volumes:
     - ./output_wsm/worker_states_grouper_q3:/app/output
@@ -1879,6 +1993,9 @@ services:
       PORT: 9603
       WSM_CONTROL_BASE_PORT: 9200
       WSM_NAME: wsm_grouper_q3
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
       WSM_ID: 3
     volumes:
     - ./output_wsm/worker_states_grouper_q3:/app/output
@@ -1899,6 +2016,9 @@ services:
       PORT: 9612
       WSM_CONTROL_BASE_PORT: 9210
       WSM_NAME: wsm_grouper_q4
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
       WSM_ID: 2
     volumes:
     - ./output_wsm/worker_states_grouper_q4:/app/output
@@ -1918,6 +2038,9 @@ services:
       PORT: 9613
       WSM_CONTROL_BASE_PORT: 9210
       WSM_NAME: wsm_grouper_q4
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
       WSM_ID: 3
     volumes:
     - ./output_wsm/worker_states_grouper_q4:/app/output
@@ -1937,6 +2060,9 @@ services:
       PORT: 9622
       WSM_CONTROL_BASE_PORT: 9220
       WSM_NAME: wsm_splitter_q1
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
       WSM_ID: 2
     volumes:
     - ./output_wsm/worker_states_splitter_q1:/app/output
@@ -1956,6 +2082,9 @@ services:
       PORT: 9623
       WSM_CONTROL_BASE_PORT: 9220
       WSM_NAME: wsm_splitter_q1
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
       WSM_ID: 3
     volumes:
     - ./output_wsm/worker_states_splitter_q1:/app/output
@@ -1976,6 +2105,9 @@ services:
       WSM_CONTROL_BASE_PORT: 9230
       WSM_NAME: wsm_q2
       USING_END_SYNC: 1
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
       WSM_ID: 2
     volumes:
     - ./output_wsm/joiner_states_q2:/app/output
@@ -1996,6 +2128,9 @@ services:
       WSM_CONTROL_BASE_PORT: 9230
       WSM_NAME: wsm_q2
       USING_END_SYNC: 1
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
       WSM_ID: 3
     volumes:
     - ./output_wsm/joiner_states_q2:/app/output
@@ -2016,6 +2151,9 @@ services:
       WSM_CONTROL_BASE_PORT: 9240
       WSM_NAME: wsm_q3
       USING_END_SYNC: 1
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
       WSM_ID: 2
     volumes:
     - ./output_wsm/joiner_states_q3:/app/output
@@ -2036,6 +2174,9 @@ services:
       WSM_CONTROL_BASE_PORT: 9240
       WSM_NAME: wsm_q3
       USING_END_SYNC: 1
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
       WSM_ID: 3
     volumes:
     - ./output_wsm/joiner_states_q3:/app/output
@@ -2056,6 +2197,9 @@ services:
       WSM_CONTROL_BASE_PORT: 9250
       WSM_NAME: wsm_q4
       USING_END_SYNC: 1
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
       WSM_ID: 2
     volumes:
     - ./output_wsm/joiner_states_q4:/app/output
@@ -2076,6 +2220,9 @@ services:
       WSM_CONTROL_BASE_PORT: 9250
       WSM_NAME: wsm_q4
       USING_END_SYNC: 1
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
       WSM_ID: 3
     volumes:
     - ./output_wsm/joiner_states_q4:/app/output

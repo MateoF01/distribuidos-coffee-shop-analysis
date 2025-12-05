@@ -439,3 +439,62 @@ class WSMClient:
         }
         # Use _safe_request to handle leader failover automatically
         self._safe_request(msg)
+
+    def cleanup_request(self, request_id):
+        """
+        Clean up all position files and state for a completed or abandoned request.
+        
+        Removes position files across all worker types and cleans up tracking state
+        for the given request_id. Should be called by gateway when a request completes
+        or is abandoned to free resources.
+        
+        Args:
+            request_id (int): Request identifier to clean up.
+        
+        Returns:
+            str: 'OK'
+        
+        Example:
+            ```python
+            # Request completed successfully
+            client.cleanup_request(123)
+            
+            # Request abandoned due to client disconnect
+            client.cleanup_request(456)
+            ```
+        """
+        msg = {
+            "action": "cleanup_request",
+            "request_id": request_id
+        }
+        return self._safe_request(msg)
+
+    def can_send_last_data_end(self, request_id):
+        """
+        Check if this is the last worker type to receive DATA_END.
+        
+        Used by multi-queue workers (like joiner) to coordinate DATA_END across
+        different input queues.
+        
+        Args:
+            request_id (int): Request identifier.
+        
+        Returns:
+            bool: True if all worker types received DATA_END.
+        
+        Example:
+            ```python
+            # Joiner checking if all input queues received DATA_END
+            can_send = client.can_send_last_data_end(123)
+            if can_send:
+                # All queues done, can clean up and forward
+                pass
+            ```
+        """
+        msg = {
+            "action": "can_send_last_data_end",
+            "worker_type": self.worker_type,
+            "replica_id": self.replica_id,
+            "request_id": request_id
+        }
+        return self._safe_request(msg) == "OK"

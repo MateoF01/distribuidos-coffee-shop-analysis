@@ -404,6 +404,7 @@ class Sorter(FileProcessingWorker):
     def _process_message(self, message, msg_type, data_type, request_id, position, payload, queue_name=None):
         """
         Process sort signal to trigger file sorting.
+        Handles DATA_END for cleanup during abnormal termination.
         
         Args:
             message (bytes): Raw message.
@@ -414,6 +415,15 @@ class Sorter(FileProcessingWorker):
             payload (bytes): Message payload.
             queue_name (str, optional): Source queue name.
         """
+        if msg_type == self.config.sort_signal_type and data_type == protocol.DATA_END:
+            print(f"[Sorter] Received DATA_END for request_id={request_id}")
+            self._cleanup_request_files(request_id)
+            cleanup_message = protocol.create_notification_message(protocol.DATA_END, b"", request_id)
+            for q in self.out_queues:
+                q.send(cleanup_message)
+            print(f"[Sorter] Forwarded DATA_END notification for request_id={request_id}")
+            return
+        
         if msg_type == self.config.sort_signal_type:
             if request_id in self._processed_requests:
                 print(f'Sort signal for request_id={request_id} already processed, ignoring duplicate')
@@ -431,6 +441,29 @@ class Sorter(FileProcessingWorker):
         else:
             print(f"Received unexpected message type: {msg_type}/{data_type}")
     
+    def _cleanup_request_files(self, request_id):
+        """
+        Clean up tracking data structures for a request during abnormal termination.
+        
+        Note: File cleanup is handled by the upstream joiner, which shares the same
+        output directory (/app/output/<request_id>/) and removes it when receiving DATA_END.
+        This prevents redundant cleanup and race conditions.
+        
+        Args:
+            request_id (str): Request identifier to clean up.
+        """
+        # Clean up tracking data
+        if request_id in self._temp_files_by_request:
+            del self._temp_files_by_request[request_id]
+        
+        if request_id in self._processed_requests:
+            self._processed_requests.discard(request_id)
+        
+        if hasattr(self, "_initialized_requests") and request_id in self._initialized_requests:
+            self._initialized_requests.discard(request_id)
+        
+        print(f"[Sorter] Cleared tracking data for request_id={request_id}")
+
     def _validate_message(self, message):
         """
         Validate message format and size.
