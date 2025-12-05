@@ -133,6 +133,8 @@ services:
       RABBITMQ_PASS: secretpassword
       QUEUE_IN: transactions_coord_cleaned
       QUEUE_OUT: transactions_cleaned
+      WSM_HOST: wsm_coordinator
+      WSM_PORT: 7000
     networks:
     - coffee-net
   cleaner_transaction_items:
@@ -193,6 +195,8 @@ services:
       RABBITMQ_PASS: secretpassword
       QUEUE_IN: transaction_items_coord_cleaned
       QUEUE_OUT: transaction_items_cleaned
+      WSM_HOST: wsm_coordinator
+      WSM_PORT: 7001
     networks:
     - coffee-net
   cleaner_users:
@@ -253,6 +257,8 @@ services:
       RABBITMQ_PASS: secretpassword
       QUEUE_IN: users_coord_cleaned
       QUEUE_OUT: users_cleaned
+      WSM_HOST: wsm_coordinator
+      WSM_PORT: 7002
     networks:
     - coffee-net
   cleaner_stores:
@@ -313,6 +319,8 @@ services:
       RABBITMQ_PASS: secretpassword
       QUEUE_IN: stores_coord_cleaned
       QUEUE_OUT: stores_cleaned_q3,stores_cleaned_q4
+      WSM_HOST: wsm_coordinator
+      WSM_PORT: 7003
     networks:
     - coffee-net
   cleaner_menu_items:
@@ -373,6 +381,8 @@ services:
       RABBITMQ_PASS: secretpassword
       QUEUE_IN: menu_items_coord_cleaned
       QUEUE_OUT: menu_items_cleaned
+      WSM_HOST: wsm_coordinator
+      WSM_PORT: 7004
     networks:
     - coffee-net
   cleaner_transactions_q4:
@@ -433,6 +443,8 @@ services:
       RABBITMQ_PASS: secretpassword
       QUEUE_IN: transactions_coord_cleaned_Q4
       QUEUE_OUT: transactions_cleaned_Q4
+      WSM_HOST: wsm_coordinator
+      WSM_PORT: 7005
     networks:
     - coffee-net
   temporal_filter_transactions:
@@ -494,6 +506,8 @@ services:
       RABBITMQ_PASS: secretpassword
       QUEUE_IN: transactions_coord_filtered_Q1
       QUEUE_OUT: transactions_filtered_Q1
+      WSM_HOST: wsm_coordinator
+      WSM_PORT: 7006
     networks:
     - coffee-net
   coordinator_temporal_filter_transactions_q3:
@@ -513,6 +527,8 @@ services:
       RABBITMQ_PASS: secretpassword
       QUEUE_IN: transactions_coord_filtered_Q3
       QUEUE_OUT: transactions_filtered_Q3
+      WSM_HOST: wsm_coordinator
+      WSM_PORT: 7007
     networks:
     - coffee-net
   coordinator_temporal_filter_transactions_q4:
@@ -532,6 +548,8 @@ services:
       RABBITMQ_PASS: secretpassword
       QUEUE_IN: transactions_coord_filtered_Q4
       QUEUE_OUT: transactions_filtered_Q4
+      WSM_HOST: wsm_coordinator
+      WSM_PORT: 7008
     networks:
     - coffee-net
   temporal_filter_transaction_items:
@@ -593,6 +611,8 @@ services:
       RABBITMQ_PASS: secretpassword
       QUEUE_IN: transaction_items_coord_filtered_Q2
       QUEUE_OUT: transaction_items_filtered_Q2
+      WSM_HOST: wsm_coordinator
+      WSM_PORT: 7009
     networks:
     - coffee-net
   amount_filter_transactions:
@@ -655,6 +675,8 @@ services:
       RABBITMQ_PASS: secretpassword
       QUEUE_IN: transactions_coord_filtered_Q1_b
       QUEUE_OUT: transactions_filtered_Q1_b
+      WSM_HOST: wsm_coordinator
+      WSM_PORT: 7010
     networks:
     - coffee-net
   grouper_q2_v2:
@@ -1438,6 +1460,24 @@ services:
     - ./output:/app/output
     networks:
     - coffee-net
+  wsm_coordinators:
+    build:
+      context: .
+      dockerfile: WSM/Dockerfile
+    container_name: wsm_coordinators
+    environment:
+      PYTHONUNBUFFERED: 1
+      STATE_FILE_PATH: /app/output/worker_states_coordinators.json
+      HOST: 0.0.0.0
+      PORT: 9901
+      WSM_CONTROL_BASE_PORT: 9300
+      WSM_NAME: wsm_coordinators
+      WSM_ID: 1
+    volumes:
+    - ./output_wsm/worker_states_coordinators:/app/output
+    - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+    - coffee-net
   wsm_transactions_2:
     build:
       context: .
@@ -2194,6 +2234,46 @@ services:
     container_name: wsm_q4_3
     depends_on:
     - wsm_q4_2
+  wsm_coordinators_2:
+    build:
+      context: .
+      dockerfile: WSM/Dockerfile
+    container_name: wsm_coordinators_2
+    environment:
+      PYTHONUNBUFFERED: 1
+      STATE_FILE_PATH: /app/output/worker_states_coordinators.json
+      HOST: 0.0.0.0
+      PORT: 9902
+      WSM_CONTROL_BASE_PORT: 9300
+      WSM_NAME: wsm_coordinators
+      WSM_ID: 2
+    volumes:
+    - ./output_wsm/worker_states_coordinators:/app/output
+    - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+    - coffee-net
+    depends_on:
+    - wsm_coordinators
+  wsm_coordinators_3:
+    build:
+      context: .
+      dockerfile: WSM/Dockerfile
+    container_name: wsm_coordinators_3
+    environment:
+      PYTHONUNBUFFERED: 1
+      STATE_FILE_PATH: /app/output/worker_states_coordinators.json
+      HOST: 0.0.0.0
+      PORT: 9903
+      WSM_CONTROL_BASE_PORT: 9300
+      WSM_NAME: wsm_coordinators
+      WSM_ID: 3
+    volumes:
+    - ./output_wsm/worker_states_coordinators:/app/output
+    - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+    - coffee-net
+    depends_on:
+    - wsm_coordinators_2
 networks:
   coffee-net:
     driver: bridge

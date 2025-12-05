@@ -628,7 +628,7 @@ class WorkerStateManager:
         """
         Periodically check for workers that haven't sent a heartbeat.
         """
-        HEARTBEAT_TIMEOUT = 10.0  # seconds
+        HEARTBEAT_TIMEOUT = 7.0  # seconds
         CHECK_INTERVAL = 3.0
 
         logging.info("[WSM] Starting dead worker check loop...")
