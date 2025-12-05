@@ -188,11 +188,12 @@ class Topper(Worker):
         
         Routes to query-specific processing based on topper_mode.
         Initializes request paths and dispatches to Q2/Q3/Q4 handlers.
+        Handles DATA_END signals for cleanup during abnormal termination.
         
         Args:
             message (bytes): Raw message.
             msg_type (str): Message type (expects MSG_TYPE_NOTI).
-            data_type (str): Data type (expects DATA_END).
+            data_type (str): Data type (expects DATA_END or 0 for normal completion).
             request_id (int): Request identifier.
             position (int): Message position.
             payload (bytes): Message payload.
@@ -216,12 +217,21 @@ class Topper(Worker):
         self.simulate_crash(queue_name, request_id)
 
         self.current_request_id = request_id
-
-        self._initialize_request_paths(request_id)
-
-        request_input_dir = os.path.join(self.input_dir, str(request_id))
+        self.current_data_type = data_type
 
         if msg_type == protocol.MSG_TYPE_NOTI:
+            if data_type == protocol.DATA_END:
+                logging.info(f"[Topper {self.topper_mode}] Received DATA_END for request_id={request_id}")
+                self._cleanup_request_files(request_id)
+                cleanup_message = protocol.create_notification_message(protocol.DATA_END, b"", request_id)
+                for q in self.out_queues:
+                    q.send(cleanup_message)
+                logging.info(f"[Topper {self.topper_mode}] Forwarded DATA_END notification for request_id={request_id}")
+                return
+
+            self._initialize_request_paths(request_id)
+            request_input_dir = os.path.join(self.input_dir, str(request_id))
+
             logging.info(f"[Topper] Received completion signal for request_id={request_id}, starting CSV processing...")
             if self.topper_mode == 'Q2':
                 self.process_csv_files_Q2(request_input_dir)
@@ -563,23 +573,59 @@ class Topper(Worker):
         output_path = os.path.join(self.output_dir, f"q4_top.csv")
         self._write_output(all_rows, ['store_id', 'purchases_qty', 'user_id'], output_path)
 
+    def _cleanup_request_files(self, request_id):
+        """
+        Clean up request-specific output directory for abnormal termination.
+        
+        Removes output directory containing top-N results when request is aborted.
+        Called during DATA_END handling to free disk space.
+        
+        Args:
+            request_id (int): Request identifier to clean up.
+        
+        Example:
+            ```python
+            topper._cleanup_request_files(123)
+            # Removes: /app/temp/topper_q2/123/
+            ```
+        """
+        import shutil
+        
+        request_output_dir = os.path.join(self.base_output_dir, str(request_id))
+        
+        if os.path.exists(request_output_dir):
+            try:
+                shutil.rmtree(request_output_dir)
+                logging.info(f"[Topper {self.topper_mode}] Cleaned up output directory for request_id={request_id} at {request_output_dir}")
+            except Exception as e:
+                logging.error(f"[Topper {self.topper_mode}] Error removing directory for request_id={request_id} at {request_output_dir}: {e}")
+        else:
+            logging.debug(f"[Topper {self.topper_mode}] Output directory already removed for request_id={request_id} at {request_output_dir}")
+        
+        # Clean up tracking set if it exists
+        if hasattr(self, "_initialized_requests") and request_id in self._initialized_requests:
+            self._initialized_requests.discard(request_id)
+            logging.debug(f"[Topper {self.topper_mode}] Cleared initialization tracking for request_id={request_id}")
+
     def _send_completion_signal(self):
         """
         Send completion notification to next stage.
         
-        Sends DATA_END notification with current request_id to completion queue.
-        Signals downstream workers that top-N results are ready.
+        Sends notification with the same data_type received from reducer to completion queue.
+        Signals downstream workers that top-N results are ready for processing.
+        Note: DATA_END is only used for cleanup/cancellation, not successful completion.
         
         Example:
             ```python
             topper._send_completion_signal()
-            # Sends to joiner_signal: NOTI|DATA_END|req_id=123|pos=0|payload=b''
+            # Sends to joiner_signal: NOTI|data_type|req_id=123|pos=0|payload=b''
             ```
         """
         if self.out_queues:
             try:
-                logging.info(f"[Topper:{self.query_id}] Sending completion signal to {self.completion_queue_name} with request_id={self.current_request_id}")
-                completion_message = protocol.create_notification_message(protocol.DATA_END, b"", self.current_request_id)
+                logging.info(f"[Topper:{self.query_id}] Sending completion signal to {self.completion_queue_name} with request_id={self.current_request_id}, data_type={self.current_data_type}")
+                # Send notification with the same data_type received from reducer
+                completion_message = protocol.create_notification_message(self.current_data_type, b"", self.current_request_id)
                 self.out_queues[0].send(completion_message)
                 logging.info(f"[Topper:{self.query_id}] Completion signal sent successfully to {self.completion_queue_name} with request_id={self.current_request_id}")
             except Exception as e:

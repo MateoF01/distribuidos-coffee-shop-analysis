@@ -181,6 +181,10 @@ class Server:
         """
         Remove the .active persistence file when a request completes successfully.
         
+        Sends DATA_END signals to all queues for this request_id to ensure workers
+        clean up any resources associated with the request before removing the .active file.
+        This method is idempotent - it checks if the .active file exists before attempting cleanup.
+        
         Args:
             request_id (int): The request identifier whose .active file should be removed.
         
@@ -193,10 +197,22 @@ class Server:
             False
         """
         active_file = os.path.join(OUTPUT_GATEWAY_DIR, f"request_{request_id}.active")
+        
+        # Check if already cleaned up (idempotent guard)
+        if not os.path.exists(active_file):
+            logging.debug(f"[GATEWAY CLEANUP] Request {request_id} already cleaned up, skipping")
+            return
+        
+        for queue_name in queue_names.values():
+            try:
+                message = protocol.create_end_message(protocol.DATA_END, request_id, 1)
+                self.queues[queue_name].send(message)
+            except Exception as e:
+                logging.error(f"[GATEWAY CLEANUP] Failed to send END to {queue_name} for request_id={request_id}: {e}")
+        
         try:
-            if os.path.exists(active_file):
-                os.remove(active_file)
-                logging.info(f"[GATEWAY PERSISTENCE] Deleted active request: request_id={request_id}")
+            os.remove(active_file)
+            logging.info(f"[GATEWAY PERSISTENCE] Deleted active request: request_id={request_id}")
         except Exception as e:
             logging.warning(f"[GATEWAY PERSISTENCE] Failed to cleanup active request {request_id}: {e}")
 
@@ -207,6 +223,10 @@ class Server:
         On startup, scans for orphaned .active files from previous runs and sends
         DATA_END signals to all queues for each abandoned request to ensure workers
         don't wait indefinitely for data that will never arrive.
+        
+        Additionally, adjusts the next_request_id counter to be one higher than the
+        highest request_id found (whether active or abandoned), ensuring no ID collisions
+        when new requests are created.
         
         Args:
             queues (dict): Dictionary of queue name to CoffeeMessageMiddlewareQueue instances.
@@ -221,6 +241,7 @@ class Server:
             [GATEWAY RECOVERY] Found 2 abandoned request(s), sending cancellation signals...
             [GATEWAY RECOVERY] Recovered request_id=15, sent END to all queues
             [GATEWAY RECOVERY] Recovered request_id=23, sent END to all queues
+            [GATEWAY RECOVERY] Adjusted next_request_id to 24 (max found: 23)
         """
         self._ensure_output_dir()
         active_files = glob.glob(os.path.join(OUTPUT_GATEWAY_DIR, "request_*.active"))
@@ -231,11 +252,15 @@ class Server:
         
         logging.warning(f"[GATEWAY RECOVERY] Found {len(active_files)} abandoned request(s), sending cancellation signals...")
         
+        max_request_id = 0
+        
         for active_file in active_files:
             try:
                 with open(active_file, 'r') as f:
                     request_id_str = f.read().strip()
                     request_id = int(request_id_str)
+                
+                max_request_id = max(max_request_id, request_id)
                 
                 for queue_name in queue_names.values():
                     try:
@@ -251,6 +276,13 @@ class Server:
                     
             except Exception as e:
                 logging.error(f"[GATEWAY RECOVERY] Error processing active file {active_file}: {e}")
+        
+        # Adjust next_request_id to be after the highest found
+        if max_request_id > 0:
+            with self.next_request_id.get_lock():
+                if max_request_id >= self.next_request_id.value:
+                    self.next_request_id.value = max_request_id + 1
+                    logging.info(f"[GATEWAY RECOVERY] Adjusted next_request_id to {self.next_request_id.value} (max found: {max_request_id})")
 
     def _setup_rabbitmq(self):
         """
@@ -379,6 +411,9 @@ class Server:
         def on_result(message):
             try:
                 msg_type, data_type, request_id, position, payload = protocol.unpack_message(message)
+                if msg_type == protocol.MSG_TYPE_END and data_type == protocol.DATA_END and position == 1:
+                    logging.info(f"[GATEWAY ROUTER] Cleanup signal received for request_id={request_id}, ignoring in router")
+                    return
                 
                 if request_id not in message_log:
                     message_log[request_id] = {
@@ -443,11 +478,13 @@ class Server:
                     logging.info(summary)
 
                     if data_end_counts[request_id] == data_end_expected:
+                        send_success = False
                         try:
                             protocol.send_message(target_conn, protocol.MSG_TYPE_END, protocol.DATA_END, b"", 1, request_id=request_id)
                             logging.info(f"[GATEWAY ROUTER] Sent final DATA_END to client for request_id={request_id}")
+                            send_success = True
                         except Exception as e:
-                            logging.warning(f"[GATEWAY ROUTER] Failed to send final DATA_END: {e}")
+                            logging.warning(f"[GATEWAY ROUTER] Failed to send final DATA_END to request_id={request_id}: {e}")
                         
                         completed_requests.add(request_id)
                         if request_id in self.requests:
@@ -458,7 +495,10 @@ class Server:
                         self._cleanup_active_request(request_id)
                         
                         elapsed = time.time() - message_log[request_id]['first_seen']
-                        logging.info(f"[GATEWAY ROUTER] Request completed: request_id={request_id}, elapsed_seconds={elapsed:.2f}")
+                        if send_success:
+                            logging.info(f"[GATEWAY ROUTER] Request completed: request_id={request_id}, elapsed_seconds={elapsed:.2f}")
+                        else:
+                            logging.info(f"[GATEWAY ROUTER] Request failed (connection error): request_id={request_id}, elapsed_seconds={elapsed:.2f}")
                 else:
                     try:
                         protocol.send_message(target_conn, msg_type, data_type, payload, position, request_id=request_id)
@@ -467,7 +507,17 @@ class Server:
                         elif msg_type == protocol.MSG_TYPE_DATA:
                             logging.info(f"[GATEWAY ROUTER] Forwarded DATA: data_type={data_type}, request_id={request_id}, size={len(payload)}")
                     except Exception as e:
-                        logging.warning(f"[GATEWAY ROUTER] Error forwarding message: {e}")
+                        logging.warning(f"[GATEWAY ROUTER] Error forwarding message to request_id={request_id}: {e}")
+                        if request_id not in completed_requests:
+                            logging.info(f"[GATEWAY ROUTER] Cleaning up failed request_id={request_id}")
+                            completed_requests.add(request_id)
+                            if request_id in self.requests:
+                                del self.requests[request_id]
+                            if request_id in data_end_counts:
+                                del data_end_counts[request_id]
+                            self._cleanup_active_request(request_id)
+                        else:
+                            logging.debug(f"[GATEWAY ROUTER] Request {request_id} already cleaned up, skipping")
 
             except Exception as e:
                 logging.error(f"[GATEWAY ROUTER] Exception: {e}")
@@ -583,6 +633,7 @@ class Server:
         rabbitmq_host = os.environ.get('RABBITMQ_HOST', 'rabbitmq')
         queues = {q: CoffeeMessageMiddlewareQueue(host=rabbitmq_host, queue_name=q) for q in queue_names.values()}
 
+        current_request_id = None
         try:
             data_end_received = set()
             current_request_id = self._get_next_request_id()
@@ -631,11 +682,17 @@ class Server:
                 else:
                     logging.warning(f"Unknown message type: {msg_type}")
         except ConnectionError as e:
-            logging.debug(f"Connection closed with {addr}: {e}")
+            logging.warning(f"Connection closed with {addr}: {e}")
+            if current_request_id is not None:
+                logging.info(f"[GATEWAY DISCONNECT] Cleaning up abandoned request_id={current_request_id} due to connection error")
+                self._cleanup_active_request(current_request_id)
         except Exception as e:
             logging.error(f"Error in connection with {addr}: {type(e).__name__}: {e}")
             import traceback
             logging.debug(f"Traceback: {traceback.format_exc()}")
+            if current_request_id is not None:
+                logging.info(f"[GATEWAY DISCONNECT] Cleaning up abandoned request_id={current_request_id} due to error")
+                self._cleanup_active_request(current_request_id)
         finally:
             to_remove = [rid for rid, c in self.requests.items() if c == conn]
             for rid in to_remove:
