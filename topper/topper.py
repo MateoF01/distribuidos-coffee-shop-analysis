@@ -110,7 +110,8 @@ class Topper(Worker):
             )
             ```
         """
-        super().__init__(queue_in, completion_queue, rabbitmq_host)
+        service_name = f"topper_{topper_mode.lower()}"
+        super().__init__(queue_in, completion_queue, rabbitmq_host, service_name=service_name)
         self.input_dir = input_dir
         self.top_n = top_n
         self.completion_queue_name = completion_queue
