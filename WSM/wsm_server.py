@@ -99,7 +99,6 @@ class WorkerStateManager:
         self.data_ends_by_requests = {}
         self.lock = threading.Lock()
         self._load_state()
-        self._load_state()
         logging.info(f"[WSM] Archivo de estado: {self.state_file}")
         logging.info(f"[WSM] Directorio base de salida: {self.output_base_dir}")
 
@@ -1009,7 +1008,7 @@ class WSMServer:
         worker_type = msg.get("worker_type")
         replica_id = msg.get("replica_id")
 
-        print("Recibo mensaje: ", msg)
+        # print("Recibo mensaje: ", msg)
 
         if action != "is_leader" and self.role != "LEADER":
             return "NOT_LEADER"
