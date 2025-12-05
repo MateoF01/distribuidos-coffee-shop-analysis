@@ -3,6 +3,12 @@ import csv
 from shared import protocol
 from shared.worker import FileProcessingWorker
 
+from WSM.wsm_client import WSMClient
+from wsm_config import WSM_NODES
+import socket
+import logging
+
+
 class Sender(FileProcessingWorker):
     """
     File-to-queue sender for final query results.
@@ -51,6 +57,31 @@ class Sender(FileProcessingWorker):
             include_headers (bool, optional): Include CSV header. Defaults to False.
         """
         super().__init__(queue_in, queue_out, rabbitmq_host, input_file=input_file)
+
+
+        # --- WSM Heartbeat Integration ----
+        self.replica_id = socket.gethostname()
+
+        worker_type_key = "coordinator"
+
+        # Read WSM host/port (OPTIONAL for single-node; required if you specify wsm host in compose)
+        wsm_host = os.environ.get("WSM_HOST", None)
+        wsm_port = int(os.environ.get("WSM_PORT", "0")) if os.environ.get("WSM_PORT") else None
+
+        # Load multi-node config if exists
+        wsm_nodes = WSM_NODES.get(worker_type_key)
+
+        # Create client in heartbeat-only mode
+        self.wsm_client = WSMClient(
+            worker_type=worker_type_key,
+            replica_id=self.replica_id,
+            host=wsm_host,
+            port=wsm_port,
+            nodes=wsm_nodes
+        )
+
+        logging.info(f"[Coordinator] Heartbeat WSM client ready for {worker_type_key}, replica={self.replica_id}")
+
         self.batch_size = batch_size
         self.query_type = query_type
         self.include_headers = include_headers

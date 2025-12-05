@@ -139,6 +139,8 @@ services:
       RABBITMQ_PASS: secretpassword
       QUEUE_IN: transactions_coord_cleaned
       QUEUE_OUT: transactions_cleaned
+      WSM_HOST: wsm_coordinator
+      WSM_PORT: 7000
     networks:
     - coffee-net
 
@@ -201,6 +203,8 @@ services:
       RABBITMQ_PASS: secretpassword
       QUEUE_IN: transaction_items_coord_cleaned
       QUEUE_OUT: transaction_items_cleaned
+      WSM_HOST: wsm_coordinator
+      WSM_PORT: 7001
     networks:
     - coffee-net
 
@@ -263,6 +267,8 @@ services:
       RABBITMQ_PASS: secretpassword
       QUEUE_IN: users_coord_cleaned
       QUEUE_OUT: users_cleaned
+      WSM_HOST: wsm_coordinator
+      WSM_PORT: 7002
     networks:
     - coffee-net
 
@@ -325,6 +331,8 @@ services:
       RABBITMQ_PASS: secretpassword
       QUEUE_IN: stores_coord_cleaned
       QUEUE_OUT: stores_cleaned_q3,stores_cleaned_q4
+      WSM_HOST: wsm_coordinator
+      WSM_PORT: 7003
     networks:
     - coffee-net
 
@@ -387,6 +395,8 @@ services:
       RABBITMQ_PASS: secretpassword
       QUEUE_IN: menu_items_coord_cleaned
       QUEUE_OUT: menu_items_cleaned
+      WSM_HOST: wsm_coordinator
+      WSM_PORT: 7004
     networks:
     - coffee-net
 
@@ -449,6 +459,8 @@ services:
       RABBITMQ_PASS: secretpassword
       QUEUE_IN: transactions_coord_cleaned_Q4
       QUEUE_OUT: transactions_cleaned_Q4
+      WSM_HOST: wsm_coordinator
+      WSM_PORT: 7005
     networks:
     - coffee-net
 
@@ -512,6 +524,8 @@ services:
       RABBITMQ_PASS: secretpassword
       QUEUE_IN: transactions_coord_filtered_Q1
       QUEUE_OUT: transactions_filtered_Q1
+      WSM_HOST: wsm_coordinator
+      WSM_PORT: 7006
     networks:
     - coffee-net  
   coordinator_temporal_filter_transactions_q3:
@@ -531,6 +545,8 @@ services:
       RABBITMQ_PASS: secretpassword
       QUEUE_IN: transactions_coord_filtered_Q3
       QUEUE_OUT: transactions_filtered_Q3
+      WSM_HOST: wsm_coordinator
+      WSM_PORT: 7007
     networks:
     - coffee-net
   coordinator_temporal_filter_transactions_q4:
@@ -550,6 +566,8 @@ services:
       RABBITMQ_PASS: secretpassword
       QUEUE_IN: transactions_coord_filtered_Q4
       QUEUE_OUT: transactions_filtered_Q4
+      WSM_HOST: wsm_coordinator
+      WSM_PORT: 7008
     networks:
     - coffee-net
 
@@ -613,6 +631,8 @@ services:
       RABBITMQ_PASS: secretpassword
       QUEUE_IN: transaction_items_coord_filtered_Q2
       QUEUE_OUT: transaction_items_filtered_Q2
+      WSM_HOST: wsm_coordinator
+      WSM_PORT: 7009
     networks:
     - coffee-net 
 
@@ -677,6 +697,8 @@ services:
       RABBITMQ_PASS: secretpassword
       QUEUE_IN: transactions_coord_filtered_Q1_b
       QUEUE_OUT: transactions_filtered_Q1_b
+      WSM_HOST: wsm_coordinator
+      WSM_PORT: 7010
     networks:
     - coffee-net 
 
@@ -743,6 +765,8 @@ services:
       REDUCER_MODE: q2      
       INPUT_DIR: /app/temp/grouper_v2_q2      
       OUTPUT_DIR: /app/reducer_temp/q2/transaction_items_filtered_Q2
+      WSM_HOST: wsm_coordinator
+      WSM_PORT: 7011
     volumes:
       - ./grouper_v2/temp/q2:/app/temp/grouper_v2_q2
       - ./reducer/temp:/app/reducer_temp/q2    
@@ -768,29 +792,14 @@ services:
       TOP_N: 1
       COMPLETION_QUEUE: sender_grouper_q2_signal
       TOPPER_MODE: Q2
-      WSM_HOST: wsm_topper_q2
-      WSM_PORT: 9660
+      WSM_HOST: wsm_coordinator
+      WSM_PORT: 7023
     volumes:
       - ./reducer/temp:/app/reducer_temp/q2    
       - ./topper/temp:/app/topper_temp
     networks:
       - coffee-net
-  wsm_topper_q2:
-    build:
-      context: .
-      dockerfile: WSM/Dockerfile
-    environment:
-      PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/worker_states_topper_q2.json
-      HOST: 0.0.0.0
-      PORT: 9660
-      WSM_CONTROL_BASE_PORT: 9260
-      WSM_NAME: wsm_topper_q2
-    volumes:
-      - ./output_wsm/worker_states_topper_q2:/app/output
-      - /var/run/docker.sock:/var/run/docker.sock
-    networks:
-      - coffee-net
+
   sender_grouper_q2:
     build:
       context: .
@@ -811,6 +820,8 @@ services:
       INPUT_FILE: /app/topper_temp/topper_q2_signal/q2_top.csv
       BATCH_SIZE: 5000
       QUERY_TYPE: q2
+      WSM_HOST: wsm_coordinator
+      WSM_PORT: 7015     
     volumes:
     - ./topper/temp:/app/topper_temp
     networks:
@@ -879,6 +890,8 @@ services:
       REDUCER_MODE: q3     
       INPUT_DIR: /app/temp/grouper_v2_q3      
       OUTPUT_DIR: /app/reducer_temp/q3/transactions_filtered_Q3
+      WSM_HOST: wsm_coordinator
+      WSM_PORT: 7012
     volumes:
       - ./grouper_v2/temp/q3:/app/temp/grouper_v2_q3
       - ./reducer/temp:/app/reducer_temp/q3    
@@ -904,29 +917,14 @@ services:
       TOP_N: 1
       COMPLETION_QUEUE: sender_grouper_q3_signal
       TOPPER_MODE: Q3
-      WSM_HOST: wsm_topper_q3
-      WSM_PORT: 9670
+      WSM_HOST: wsm_coordinator
+      WSM_PORT: 7024
     volumes:
       - ./reducer/temp:/app/reducer_temp/q3    
       - ./topper/temp:/app/topper_temp
     networks:
       - coffee-net
-  wsm_topper_q3:
-    build:
-      context: .
-      dockerfile: WSM/Dockerfile
-    environment:
-      PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/worker_states_topper_q3.json
-      HOST: 0.0.0.0
-      PORT: 9670
-      WSM_CONTROL_BASE_PORT: 9270
-      WSM_NAME: wsm_topper_q3
-    volumes:
-      - ./output_wsm/worker_states_topper_q3:/app/output
-      - /var/run/docker.sock:/var/run/docker.sock
-    networks:
-      - coffee-net
+
   sender_grouper_q3:
     build:
       context: .
@@ -947,6 +945,8 @@ services:
       INPUT_FILE: /app/topper_temp/topper_q3_signal/q3_top.csv
       BATCH_SIZE: 5000
       QUERY_TYPE: q3
+      WSM_HOST: wsm_coordinator
+      WSM_PORT: 7016
     volumes:
     - ./topper/temp:/app/topper_temp
     networks:
@@ -1015,6 +1015,8 @@ services:
       REDUCER_MODE: q4      
       INPUT_DIR: /app/temp/grouper_v2_q4      
       OUTPUT_DIR: /app/reducer_temp/q4/transactions_cleaned_Q4
+      WSM_HOST: wsm_coordinator
+      WSM_PORT: 7013
     volumes:
       - ./grouper_v2/temp/q4:/app/temp/grouper_v2_q4
       - ./reducer/temp:/app/reducer_temp/q4    
@@ -1040,29 +1042,14 @@ services:
       TOP_N: 3
       COMPLETION_QUEUE: sender_grouper_q4_signal
       TOPPER_MODE: Q4
-      WSM_HOST: wsm_topper_q4
-      WSM_PORT: 9680
+      WSM_HOST: wsm_coordinator
+      WSM_PORT: 7025
     volumes:
       - ./reducer/temp:/app/reducer_temp/q4    
       - ./topper/temp:/app/topper_temp
     networks:
       - coffee-net
-  wsm_topper_q4:
-    build:
-      context: .
-      dockerfile: WSM/Dockerfile
-    environment:
-      PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/worker_states_topper_q4.json
-      HOST: 0.0.0.0
-      PORT: 9680
-      WSM_CONTROL_BASE_PORT: 9280
-      WSM_NAME: wsm_topper_q4
-    volumes:
-      - ./output_wsm/worker_states_topper_q4:/app/output
-      - /var/run/docker.sock:/var/run/docker.sock
-    networks:
-      - coffee-net
+
   sender_grouper_q4:
     build:
       context: .
@@ -1083,6 +1070,8 @@ services:
       INPUT_FILE: /app/topper_temp/topper_q4_signal/q4_top.csv
       BATCH_SIZE: 5000
       QUERY_TYPE: q4
+      WSM_HOST: wsm_coordinator
+      WSM_PORT: 7017
     volumes:
     - ./topper/temp:/app/topper_temp
     networks:
@@ -1151,7 +1140,9 @@ services:
       QUEUE_IN: sorter_q1_v2_signal         
       COMPLETION_QUEUE: sender_q1_signal     
       BASE_TEMP_DIR: /app/temp
-      SORT_COLUMNS: "0"                    
+      SORT_COLUMNS: "0"
+      WSM_HOST: wsm_coordinator
+      WSM_PORT: 7014                    
     volumes:
       - ./splitter/temp:/app/temp
       - ./output:/app/output
@@ -1177,6 +1168,8 @@ services:
       INPUT_FILE: /app/output/q1.csv
       QUERY_TYPE: q1
       INCLUDE_HEADERS: true
+      WSM_HOST: wsm_coordinator
+      WSM_PORT: 7018
     volumes:
     - ./output:/app/output
     networks:
@@ -1250,6 +1243,8 @@ services:
       INPUT_FILE: /app/output/q2_a.csv
       QUERY_TYPE: q2_a
       INCLUDE_HEADERS: true
+      WSM_HOST: wsm_coordinator
+      WSM_PORT: 7019
     volumes:
     - ./output:/app/output
     networks:
@@ -1274,6 +1269,8 @@ services:
       INPUT_FILE: /app/output/q2_b.csv
       QUERY_TYPE: q2_b
       INCLUDE_HEADERS: true
+      WSM_HOST: wsm_coordinator
+      WSM_PORT: 7020
     volumes:
     - ./output:/app/output
     networks:
@@ -1371,6 +1368,8 @@ services:
       INPUT_FILE: /app/output/q3.csv
       QUERY_TYPE: q3
       INCLUDE_HEADERS: true
+      WSM_HOST: wsm_coordinator
+      WSM_PORT: 7021
     volumes:
     - ./output:/app/output
     networks:
@@ -1470,10 +1469,30 @@ services:
       INPUT_FILE: /app/output/q4.csv
       QUERY_TYPE: q4
       INCLUDE_HEADERS: true
+      WSM_HOST: wsm_coordinator
+      WSM_PORT: 7022
     volumes:
     - ./output:/app/output
     networks:
     - coffee-net
+
+  wsm_coordinators:
+    build:
+      context: .
+      dockerfile: WSM/Dockerfile
+    container_name: wsm_coordinators
+    environment:
+      PYTHONUNBUFFERED: 1
+      STATE_FILE_PATH: /app/output/worker_states_coordinators.json
+      HOST: 0.0.0.0
+      PORT: 9900
+      WSM_CONTROL_BASE_PORT: 9300
+      WSM_NAME: wsm_coordinators
+    volumes:
+      - ./output_wsm/worker_states_coordinators:/app/output
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - coffee-net
 
 networks:
   coffee-net:

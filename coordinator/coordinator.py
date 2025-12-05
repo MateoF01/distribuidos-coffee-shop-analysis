@@ -5,6 +5,11 @@ from collections import defaultdict
 from shared.worker import Worker
 from shared import protocol
 
+from WSM.wsm_client import WSMClient
+from wsm_config import WSM_NODES
+import socket
+
+
 class Coordinator(Worker):
   """
   Message coordinator that reorders distributed worker outputs into sequential positions.
@@ -81,8 +86,36 @@ class Coordinator(Worker):
         ...     rabbitmq_host='rabbitmq'
         ... )
     """
+
+
+
+    
     service_name = f"coordinator_{os.environ.get('DATA_TYPE', '')}"
     super().__init__(queue_in, queue_out, rabbitmq_host, service_name=service_name)
+
+    # --- WSM Heartbeat Integration ----
+    self.replica_id = socket.gethostname()
+
+    worker_type_key = "coordinator"
+
+    # Read WSM host/port (OPTIONAL for single-node; required if you specify wsm host in compose)
+    wsm_host = os.environ.get("WSM_HOST", None)
+    wsm_port = int(os.environ.get("WSM_PORT", "0")) if os.environ.get("WSM_PORT") else None
+
+    # Load multi-node config if exists
+    wsm_nodes = WSM_NODES.get(worker_type_key)
+
+    # Create client in heartbeat-only mode
+    self.wsm_client = WSMClient(
+        worker_type=worker_type_key,
+        replica_id=self.replica_id,
+        host=wsm_host,
+        port=wsm_port,
+        nodes=wsm_nodes
+    )
+
+    logging.info(f"[Coordinator] Heartbeat WSM client ready for {worker_type_key}, replica={self.replica_id}")
+
 
     self.messages_by_request_id_counter = defaultdict(int)
     self.end_messages_received = defaultdict(int)  

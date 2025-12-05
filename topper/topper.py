@@ -112,6 +112,32 @@ class Topper(Worker):
         """
         service_name = f"topper_{topper_mode.lower()}"
         super().__init__(queue_in, completion_queue, rabbitmq_host, service_name=service_name)
+
+        # --- WSM Heartbeat Integration ----
+        self.replica_id = socket.gethostname()
+
+        worker_type_key = "coordinator"
+
+        # Read WSM host/port (OPTIONAL for single-node; required if you specify wsm host in compose)
+        wsm_host = os.environ.get("WSM_HOST", None)
+        wsm_port = int(os.environ.get("WSM_PORT", "0")) if os.environ.get("WSM_PORT") else None
+
+        # Load multi-node config if exists
+        wsm_nodes = WSM_NODES.get(worker_type_key)
+
+        # Create client in heartbeat-only mode
+        self.wsm_client = WSMClient(
+            worker_type=worker_type_key,
+            replica_id=self.replica_id,
+            host=wsm_host,
+            port=wsm_port,
+            nodes=wsm_nodes
+        )
+
+        logging.info(f"[Coordinator] Heartbeat WSM client ready for {worker_type_key}, replica={self.replica_id}")
+
+
+
         self.input_dir = input_dir
         self.top_n = top_n
         self.completion_queue_name = completion_queue
@@ -125,22 +151,6 @@ class Topper(Worker):
         self.current_request_id = 0
         self.request_id_initialized = False
 
-        self.replica_id = socket.gethostname()
-        wsm_host = os.environ.get("WSM_HOST", "wsm")
-        wsm_port = int(os.environ.get("WSM_PORT", "9000"))
-        
-        # Initialize WSMClient to start sending heartbeats automatically
-        worker_type_key = f"topper_{topper_mode.lower()}"
-        wsm_nodes = WSM_NODES.get(worker_type_key)
-        
-        self.wsm_client = WSMClient(
-            worker_type=worker_type_key,
-            replica_id=self.replica_id,
-            host=wsm_host,
-            port=wsm_port,
-            nodes=wsm_nodes
-        )
-        logging.info(f"[Topper:{self.topper_mode}] Initialized WSMClient for heartbeats with replica_id={self.replica_id}, nodes={wsm_nodes}")
 
     def _initialize_request_paths(self, request_id):
         """
