@@ -106,6 +106,9 @@ class WSMClient:
 
         self.sock: Optional[socket.socket] = None
         self.current_node: Optional[Tuple[str, int]] = None
+        
+        # Lock for thread-safe socket access (main thread + heartbeat thread)
+        self._lock = threading.Lock()
 
         # Conectar y registrar la réplica
         self._connect_to_leader()
@@ -113,6 +116,70 @@ class WSMClient:
 
         # Start heartbeat loop
         threading.Thread(target=self._heartbeat_loop, daemon=True).start()
+
+
+    def _safe_request(self, msg: dict):
+        """
+        Send request with automatic retry and failover.
+        
+        Handles:
+        - Connection loss → reconnect to new LEADER and retry
+        - NOT_LEADER response → discover new LEADER and retry
+        - Network errors → discover new LEADER and retry
+        
+        Args:
+            msg (dict): Request message.
+        
+        Returns:
+            Any: Response payload.
+        
+        Example:
+            ```python
+            # Normal operation
+            response = client._safe_request({
+                'action': 'update_state',
+                'worker_type': 'cleaner',
+                'replica_id': 'cleaner-1',
+                'state': 'PROCESSING',
+                'request_id': 123,
+                'position': 1
+            })
+            # Returns: 'OK'
+            
+            # LEADER fails during request
+            # - Connection error caught
+            # - Discovers new LEADER
+            # - Retries same request
+            # - Returns: 'OK' from new LEADER
+            ```
+        """
+        payload = json.dumps(msg).encode("utf-8")
+
+        with self._lock:
+            while True:
+
+                # Asegurarse de estar conectado a algún líder
+                if self.sock is None:
+                    self._connect_to_leader()
+
+                try:
+                    self.sock.sendall(payload)
+                    data = self.sock.recv(4096)
+                    if not data:
+                        raise ConnectionError("WSM cerró la conexión")
+
+                    response = json.loads(data.decode("utf-8")).get("response")
+
+                    if response == "NOT_LEADER":
+                        logging.warning("[WSMClient] Nodo actual dejó de ser líder, redescubriendo líder...")
+                        self._reset_connection()
+                        continue  # vuelve al while, encuentra nuevo líder y reenvía
+
+                    return response
+
+                except Exception as e:
+                    logging.warning(f"[WSMClient] Error de conexión con el líder ({e}), buscando nuevo líder...")
+                    self._reset_connection()
 
     def _find_leader_once(self) -> Optional[Tuple[str, int]]:
         """
@@ -208,68 +275,6 @@ class WSMClient:
                 pass
         self.sock = None
         self.current_node = None
-
-    def _safe_request(self, msg: dict):
-        """
-        Send request with automatic retry and failover.
-        
-        Handles:
-        - Connection loss → reconnect to new LEADER and retry
-        - NOT_LEADER response → discover new LEADER and retry
-        - Network errors → discover new LEADER and retry
-        
-        Args:
-            msg (dict): Request message.
-        
-        Returns:
-            Any: Response payload.
-        
-        Example:
-            ```python
-            # Normal operation
-            response = client._safe_request({
-                'action': 'update_state',
-                'worker_type': 'cleaner',
-                'replica_id': 'cleaner-1',
-                'state': 'PROCESSING',
-                'request_id': 123,
-                'position': 1
-            })
-            # Returns: 'OK'
-            
-            # LEADER fails during request
-            # - Connection error caught
-            # - Discovers new LEADER
-            # - Retries same request
-            # - Returns: 'OK' from new LEADER
-            ```
-        """
-        payload = json.dumps(msg).encode("utf-8")
-
-        while True:
-
-            # Asegurarse de estar conectado a algún líder
-            if self.sock is None:
-                self._connect_to_leader()
-
-            try:
-                self.sock.sendall(payload)
-                data = self.sock.recv(4096)
-                if not data:
-                    raise ConnectionError("WSM cerró la conexión")
-
-                response = json.loads(data.decode("utf-8")).get("response")
-
-                if response == "NOT_LEADER":
-                    logging.warning("[WSMClient] Nodo actual dejó de ser líder, redescubriendo líder...")
-                    self._reset_connection()
-                    continue  # vuelve al while, encuentra nuevo líder y reenvía
-
-                return response
-
-            except Exception as e:
-                logging.warning(f"[WSMClient] Error de conexión con el líder ({e}), buscando nuevo líder...")
-                self._reset_connection()
 
     def _register(self):
         """
