@@ -993,6 +993,7 @@ services:
       WSM_CLEANUP_MAX_WAIT: 30.0
     volumes:
       - ./output_wsm/worker_states_grouper_q4:/app/output
+      - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - coffee-net
   reducer_q4:
@@ -1129,6 +1130,7 @@ services:
       WSM_CLEANUP_MAX_WAIT: 30.0
     volumes:
       - ./output_wsm/worker_states_splitter_q1:/app/output
+      - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - coffee-net
   
@@ -1225,6 +1227,7 @@ services:
       WSM_CLEANUP_MAX_WAIT: 30.0
     volumes:
       - ./output_wsm/joiner_states_q2:/app/output
+      - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - coffee-net
   sender_q2_a:
@@ -1321,6 +1324,7 @@ services:
       WSM_CLEANUP_MAX_WAIT: 30.0
     volumes:
       - ./output_wsm/joiner_states_q3:/app/output
+      - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - coffee-net
   sorter_q3:
@@ -1419,6 +1423,7 @@ services:
       WSM_CLEANUP_MAX_WAIT: 30.0
     volumes:
       - ./output_wsm/joiner_states_q4:/app/output
+      - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - coffee-net
   sorter_q4:
