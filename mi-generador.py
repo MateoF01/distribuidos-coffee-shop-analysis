@@ -4,13 +4,12 @@ import copy
 
 def main():
 
-    if len(sys.argv) != 4:
-        print("Uso: python3 mi-generador.py <cantidad_clientes> <requests_por_cliente> <max_clientes>")
+    if len(sys.argv) != 3:
+        print("Uso: python3 mi-generador.py <requests_por_cliente> <max_clientes>")
         sys.exit(1)
 
-    cantidad_clientes = int(sys.argv[1])
-    requests_por_cliente = int(sys.argv[2])
-    max_clientes = int(sys.argv[3])
+    requests_por_cliente = int(sys.argv[1])
+    max_clientes = int(sys.argv[2])
 
     with open("docker-compose-base.yml", "r", encoding="utf-8") as base_file:
         compose = yaml.safe_load(base_file)
@@ -18,7 +17,7 @@ def main():
     services = compose["services"]
 
     # ============================================
-    # 1. Expandir CLIENT
+    # 1. Configurar CLIENT y GATEWAY
     # ============================================
     client_base = services["client"]
     if "container_name" in client_base:
@@ -26,7 +25,6 @@ def main():
 
     client_env = client_base.setdefault("environment", {})
     client_env["REQUESTS_PER_CLIENT"] = requests_por_cliente
-    client_env["INITIAL_CLIENT_COUNT"] = cantidad_clientes
 
     # Gateway config
     if "gateway" in services:

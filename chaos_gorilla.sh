@@ -28,15 +28,20 @@ done <<< "$REPLICA_LINES"
 
 
 # ───────────────────────────────────────────────────────────
-# 2) Agregar *todos* los WSM (name real = wsm_*)
+# 2) Opción: Incluir WSMs (deshabilitado por defecto para que
+#    puedan revivir a los workers muertos)
 # ───────────────────────────────────────────────────────────
 
-WSM_CONTAINERS=$(docker ps --format '{{.Names}}' | grep '^wsm_' || true)
+INCLUDE_WSM=false  # Cambiar a true para matar WSMs también
 
-while IFS= read -r WSM; do
-  [ -z "$WSM" ] && continue
-  CONTAINERS+=("$WSM")
-done <<< "$WSM_CONTAINERS"
+if [ "$INCLUDE_WSM" = true ]; then
+  WSM_CONTAINERS=$(docker ps --format '{{.Names}}' | grep '^wsm_' || true)
+
+  while IFS= read -r WSM; do
+    [ -z "$WSM" ] && continue
+    CONTAINERS+=("$WSM")
+  done <<< "$WSM_CONTAINERS"
+fi
 
 
 # ───────────────────────────────────────────────────────────

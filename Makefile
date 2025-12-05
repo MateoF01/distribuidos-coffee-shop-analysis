@@ -33,6 +33,8 @@ JOINER_V2_Q3_REPLICAS ?= 2
 JOINER_V2_Q4_REPLICAS ?= 2
 
 CLIENT_REPLICAS ?= 1
+REQUESTS_PER_CLIENT ?= 1
+GATEWAY_MAX_PROCESSES ?= 5
 
 default: help
 
@@ -69,15 +71,27 @@ help:
 	@echo "  topper_q3: $(TOPPER_Q3_REPLICAS)"
 	@echo "  topper_q4: $(TOPPER_Q4_REPLICAS)"
 	@echo ""
+	@echo "Client/Gateway configuration:"
+	@echo "  CLIENT_REPLICAS:       $(CLIENT_REPLICAS)"
+	@echo "  REQUESTS_PER_CLIENT:   $(REQUESTS_PER_CLIENT)"
+	@echo "  GATEWAY_MAX_PROCESSES: $(GATEWAY_MAX_PROCESSES)"
+	@echo ""
 	@echo "Examples:"
 	@echo "  make up  # Start with defaults"
+	@echo "  CLIENT_REPLICAS=3 REQUESTS_PER_CLIENT=2 make up  # 3 clients, 2 requests each"
 	@echo "  CLEANER_TRANSACTIONS_REPLICAS=5 make up  # Only scale transactions cleaners"
 	@echo "  CLEANER_TRANSACTIONS_REPLICAS=3 CLEANER_USERS_REPLICAS=4 make up"
-	@echo "  make scale-cleaners CLEANER_TRANSACTIONS_REPLICAS=2 CLEANER_STORES_REPLICAS=5"
+
+# 📦 Generate docker-compose.yml
+.PHONY: generate
+generate:
+	@REQUESTS_PER_CLIENT=$(REQUESTS_PER_CLIENT) \
+	 GATEWAY_MAX_PROCESSES=$(GATEWAY_MAX_PROCESSES) \
+	 ./generar-compose.sh
 
 # 🛠️ Build
 .PHONY: build
-build:
+build: generate
 	docker compose build
 
 # 🚀 Up
