@@ -732,6 +732,8 @@ services:
       REDUCER_MODE: q2      
       INPUT_DIR: /app/temp/grouper_v2_q2      
       OUTPUT_DIR: /app/reducer_temp/q2/transaction_items_filtered_Q2
+      WSM_HOST: wsm_coordinator
+      WSM_PORT: 7011
     volumes:
       - ./grouper_v2/temp/q2:/app/temp/grouper_v2_q2
       - ./reducer/temp:/app/reducer_temp/q2    
@@ -865,6 +867,8 @@ services:
       REDUCER_MODE: q3     
       INPUT_DIR: /app/temp/grouper_v2_q3      
       OUTPUT_DIR: /app/reducer_temp/q3/transactions_filtered_Q3
+      WSM_HOST: wsm_coordinator
+      WSM_PORT: 7012
     volumes:
       - ./grouper_v2/temp/q3:/app/temp/grouper_v2_q3
       - ./reducer/temp:/app/reducer_temp/q3    
@@ -997,6 +1001,8 @@ services:
       REDUCER_MODE: q4      
       INPUT_DIR: /app/temp/grouper_v2_q4      
       OUTPUT_DIR: /app/reducer_temp/q4/transactions_cleaned_Q4
+      WSM_HOST: wsm_coordinator
+      WSM_PORT: 7013
     volumes:
       - ./grouper_v2/temp/q4:/app/temp/grouper_v2_q4
       - ./reducer/temp:/app/reducer_temp/q4    
