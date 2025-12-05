@@ -42,6 +42,8 @@ services:
       QUEUE_IN: results
       REQUESTS_PER_CLIENT: 1
       GATEWAY_MAX_PROCESSES: 5
+      WSM_HOST: wsm_coordinator
+      WSM_PORT: 7026
     volumes:
     - ./output_gateway:/app/output_gateway
     networks:

@@ -12,6 +12,9 @@ import logging
 from shared.logging_config import initialize_log
 from shared.worker import Worker
 
+from WSM.wsm_client import WSMClient
+from wsm_config import WSM_NODES
+import socket
 
 HOST = os.environ.get('GATEWAY_HOST', '0.0.0.0')
 PORT = int(os.environ.get('GATEWAY_PORT', 5000))
@@ -114,6 +117,31 @@ class Server:
             ...                 shared_request_id=shared_id,
             ...                 shared_requests=shared_req)
         """
+
+        # --- WSM Heartbeat Integration ----
+        self.replica_id = socket.gethostname()
+
+        worker_type_key = "coordinator"
+
+        # Read WSM host/port (OPTIONAL for single-node; required if you specify wsm host in compose)
+        wsm_host = os.environ.get("WSM_HOST", None)
+        wsm_port = int(os.environ.get("WSM_PORT", "0")) if os.environ.get("WSM_PORT") else None
+
+        # Load multi-node config if exists
+        wsm_nodes = WSM_NODES.get(worker_type_key)
+
+        # Create client in heartbeat-only mode
+        self.wsm_client = WSMClient(
+            worker_type=worker_type_key,
+            replica_id=self.replica_id,
+            host=wsm_host,
+            port=wsm_port,
+            nodes=wsm_nodes
+        )
+
+        logging.info(f"[Coordinator] Heartbeat WSM client ready for {worker_type_key}, replica={self.replica_id}")
+
+
         self.host = host
         self.port = port
         self.listen_backlog = listen_backlog
