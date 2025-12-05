@@ -69,6 +69,9 @@ services:
       SERVER_ADDRESS: gateway:5000
       BATCH_MAX_AMOUNT: 5000
       REQUESTS_PER_CLIENT: 1
+      CLIENT_INITIAL_BACKOFF: 1.0
+      CLIENT_MAX_BACKOFF: 60.0
+      CLIENT_BACKOFF_MULTIPLIER: 2.0
     volumes:
     - ./data:/app/.data
     - ./client/results:/app/client/results
@@ -110,6 +113,9 @@ services:
       PORT: 9500
       WSM_CONTROL_BASE_PORT: 9100
       WSM_NAME: wsm_transactions
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
     volumes:
     - ./output_wsm/worker_states_transactions:/app/output
     - /var/run/docker.sock:/var/run/docker.sock
@@ -172,6 +178,9 @@ services:
       PORT: 9510
       WSM_CONTROL_BASE_PORT: 9110
       WSM_NAME: wsm_transaction_items
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
     volumes:
       - ./output_wsm/worker_states_transaction_items:/app/output
       - /var/run/docker.sock:/var/run/docker.sock
@@ -233,6 +242,9 @@ services:
       PORT: 9520
       WSM_CONTROL_BASE_PORT: 9120
       WSM_NAME: wsm_users
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
     volumes:
       - ./output_wsm/worker_states_users:/app/output
       - /var/run/docker.sock:/var/run/docker.sock
@@ -294,6 +306,9 @@ services:
       PORT: 9530
       WSM_CONTROL_BASE_PORT: 9130
       WSM_NAME: wsm_stores
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
     volumes:
       - ./output_wsm/worker_states_stores:/app/output
       - /var/run/docker.sock:/var/run/docker.sock
@@ -355,6 +370,9 @@ services:
       PORT: 9540
       WSM_CONTROL_BASE_PORT: 9140
       WSM_NAME: wsm_menu_items
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
     volumes:
       - ./output_wsm/worker_states_menu_items:/app/output
       - /var/run/docker.sock:/var/run/docker.sock
@@ -416,6 +434,9 @@ services:
       PORT: 9550
       WSM_CONTROL_BASE_PORT: 9150
       WSM_NAME: wsm_transactions_q4
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
     volumes:
       - ./output_wsm/worker_states_transactions_q4:/app/output
       - /var/run/docker.sock:/var/run/docker.sock
@@ -478,6 +499,9 @@ services:
       PORT: 9560
       WSM_CONTROL_BASE_PORT: 9160
       WSM_NAME: wsm_temporal_filter_transactions
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
     volumes:
       - ./output_wsm/worker_states_temporal_filter_transactions:/app/output
       - /var/run/docker.sock:/var/run/docker.sock
@@ -582,6 +606,9 @@ services:
       PORT: 9570
       WSM_CONTROL_BASE_PORT: 9170
       WSM_NAME: wsm_temporal_filter_transaction_items
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
     volumes:
       - ./output_wsm/worker_states_temporal_filter_transaction_items:/app/output
       - /var/run/docker.sock:/var/run/docker.sock
@@ -645,6 +672,9 @@ services:
       PORT: 9580
       WSM_CONTROL_BASE_PORT: 9180
       WSM_NAME: wsm_amount_filter_transactions
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
     volumes:
       - ./output_wsm/worker_states_amount_filter_transactions:/app/output
       - /var/run/docker.sock:/var/run/docker.sock
@@ -708,6 +738,9 @@ services:
       PORT: 9590
       WSM_CONTROL_BASE_PORT: 9190
       WSM_NAME: wsm_grouper_q2
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
     volumes:
       - ./output_wsm/worker_states_grouper_q2:/app/output
       - /var/run/docker.sock:/var/run/docker.sock
@@ -830,6 +863,9 @@ services:
       PORT: 9600
       WSM_CONTROL_BASE_PORT: 9200
       WSM_NAME: wsm_grouper_q3
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
     volumes:
       - ./output_wsm/worker_states_grouper_q3:/app/output
       - /var/run/docker.sock:/var/run/docker.sock
@@ -952,8 +988,12 @@ services:
       PORT: 9610
       WSM_CONTROL_BASE_PORT: 9210
       WSM_NAME: wsm_grouper_q4
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
     volumes:
       - ./output_wsm/worker_states_grouper_q4:/app/output
+      - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - coffee-net
   reducer_q4:
@@ -1074,8 +1114,12 @@ services:
       PORT: 9620
       WSM_CONTROL_BASE_PORT: 9220
       WSM_NAME: wsm_splitter_q1
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
     volumes:
       - ./output_wsm/worker_states_splitter_q1:/app/output
+      - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - coffee-net
   
@@ -1171,8 +1215,12 @@ services:
       WSM_CONTROL_BASE_PORT: 9230
       WSM_NAME: wsm_q2
       USING_END_SYNC: 1
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
     volumes:
       - ./output_wsm/joiner_states_q2:/app/output
+      - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - coffee-net
   sender_q2_a:
@@ -1268,8 +1316,12 @@ services:
       WSM_CONTROL_BASE_PORT: 9240
       WSM_NAME: wsm_q3
       USING_END_SYNC: 1
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
     volumes:
       - ./output_wsm/joiner_states_q3:/app/output
+      - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - coffee-net
   sorter_q3:
@@ -1365,8 +1417,12 @@ services:
       WSM_CONTROL_BASE_PORT: 9250
       WSM_NAME: wsm_q4
       USING_END_SYNC: 1
+      WSM_CLEANUP_BACKOFF_START: 0.1
+      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_MAX_WAIT: 30.0
     volumes:
       - ./output_wsm/joiner_states_q4:/app/output
+      - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - coffee-net
   sorter_q4:
