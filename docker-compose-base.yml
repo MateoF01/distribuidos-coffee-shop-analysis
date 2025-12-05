@@ -736,7 +736,7 @@ services:
       COMPLETION_QUEUE: sender_grouper_q2_signal
       TOPPER_MODE: Q2
       WSM_HOST: wsm_topper_q2
-      WSM_PORT: 9060
+      WSM_PORT: 9660
     volumes:
       - ./reducer/temp:/app/reducer_temp/q2    
       - ./topper/temp:/app/topper_temp
@@ -869,7 +869,7 @@ services:
       COMPLETION_QUEUE: sender_grouper_q3_signal
       TOPPER_MODE: Q3
       WSM_HOST: wsm_topper_q3
-      WSM_PORT: 9070
+      WSM_PORT: 9670
     volumes:
       - ./reducer/temp:/app/reducer_temp/q3    
       - ./topper/temp:/app/topper_temp
@@ -1001,7 +1001,7 @@ services:
       COMPLETION_QUEUE: sender_grouper_q4_signal
       TOPPER_MODE: Q4
       WSM_HOST: wsm_topper_q4
-      WSM_PORT: 9080
+      WSM_PORT: 9680
     volumes:
       - ./reducer/temp:/app/reducer_temp/q4    
       - ./topper/temp:/app/topper_temp

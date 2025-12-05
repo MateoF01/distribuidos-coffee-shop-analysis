@@ -212,6 +212,7 @@ class Topper(Worker):
             # Triggers: process_csv_files_Q2('/app/temp/reducer_q2/123')
             ```
         """
+        logging.info("HOLA ESTOY EN PROCESS MESSAGE Y VOY A LLAMAR A SIMULAR CRASH")
         self.simulate_crash(queue_name, request_id)
 
         self.current_request_id = request_id
