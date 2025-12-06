@@ -354,23 +354,80 @@ class Coordinator(Worker):
         Duplicate position received: request_id=req-123, position=1
         Discarding duplicate message: request_id=req-123, position=1, msg_type=1
     """
+    print("COMIENZO A PROCESAR")
+
     self._load_assigned_position_for_request(request_id)
     
-    if not self._check_and_persist_input_position(request_id, position):
-      logging.warning(f"Discarding duplicate message: request_id={request_id}, position={position}, msg_type={msg_type}")
-      return
-    
+    if not self._check_input_position(request_id, position):
+        logging.warning(
+            f"[COORD] DESCARTANDO mensaje duplicado: req={request_id}, pos={position}, msg_type={msg_type}"
+        )
+        return
+
     self.messages_by_request_id_counter[request_id] = self.messages_by_request_id_counter.get(request_id, 0) + 1
     new_position = self.messages_by_request_id_counter[request_id]
     
     self._forward_message(msg_type, data_type, request_id, new_position, payload)
 
-    # TEST-CASE: Completar
     # Aca duplicariamos el mensaje pero no haria la deduplication el coordinator
-    #self.simulate_crash(queue_name, request_id)
 
+    print("ANTES DE PERSISTIR")
+
+    self._persist_input_position(request_id, position)
     self._persist_assigned_position(request_id, new_position)
+
+    print("TERMINO")
+    print("")
+
     
+  def _check_input_position(self, request_id, position):
+    
+      positions_file = os.path.join(self.positions_dir, f"{request_id}.txt")
+
+      if not os.path.exists(positions_file):
+          return True
+
+      try:
+          with open(positions_file, "r") as f:
+              for line in f:
+                  if line.strip() == str(position):
+                      return False  # ya existe, descartar
+      except Exception as e:
+          logging.error(f"[COORD] Error leyendo positions file {positions_file}: {e}")
+          # Ante error, preferimos procesar (para no perderlo)
+          return True
+
+      return True
+
+
+  def _persist_input_position(self, request_id, position):
+      positions_file = os.path.join(self.positions_dir, f"{request_id}.txt")
+
+      with self.lock:
+          current_positions = set()
+          
+          if os.path.exists(positions_file):
+              try:
+                  with open(positions_file, "r") as f:
+                      for line in f:
+                          line = line.strip()
+                          if line:
+                              current_positions.add(int(line))
+              except Exception as e:
+                  logging.error(f"[COORD] Error leyendo positions file para {request_id}: {e}")
+
+          current_positions.add(position)
+
+          def write_all(path):
+              with open(path, "w") as f:
+                  for p in sorted(current_positions):
+                      f.write(f"{p}\n")
+
+          try:
+              Worker.atomic_write(positions_file, write_all)
+          except Exception as e:
+              logging.error(f"[COORD] Error persistiendo pos {position} para {request_id}: {e}")
+
 
   def _handle_end_signal(self, message, msg_type, data_type, request_id, position, queue_name=None):
     """

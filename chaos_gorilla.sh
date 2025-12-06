@@ -10,7 +10,7 @@
 # ───────────────────────────────────────────────────────────
 
 CHAOTIC=true          # true → docker kill, false → docker stop --time 0
-KILL_COUNT=5          # cantidad de contenedores a matar por ronda
+KILL_COUNT=1          # cantidad de contenedores a matar por ronda
 INTERVAL=${1:-30}     # intervalo entre matanzas (default 30s)
 
 # Trap Ctrl+C and Ctrl+D to exit gracefully
@@ -45,7 +45,8 @@ while true; do
 CONTAINERS=($(docker ps --format '{{.Names}}' \
     | grep -v 'rabbitmq' \
     | grep -v 'gateway' \
-    | grep -vi 'client'))
+    | grep -vi 'client' \
+))
 
 # Opcionalmente excluir WSMs
 if [ "$INCLUDE_WSM" = false ]; then
