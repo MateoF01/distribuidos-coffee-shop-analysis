@@ -227,7 +227,7 @@ class Coordinator(Worker):
       
       try:
         Worker.atomic_write(positions_file, write_all_positions)
-        logging.info(f"Persisted input position: request_id={request_id}, position={position}")
+        #logging.info(f"Persisted input position: request_id={request_id}, position={position}")
         return True
       except Exception as e:
         logging.error(f"Error persisting position for request_id={request_id}, position={position}: {e}")
@@ -259,7 +259,7 @@ class Coordinator(Worker):
     
     try:
       Worker.atomic_write(assigned_file, write_assigned)
-      logging.debug(f"Persisted assigned position: request_id={request_id}, new_position={new_position}")
+      #logging.debug(f"Persisted assigned position: request_id={request_id}, new_position={new_position}")
     except Exception as e:
       logging.error(f"Error persisting assigned position for request_id={request_id}, new_position={new_position}: {e}")
       raise
@@ -467,10 +467,10 @@ class Coordinator(Worker):
       new_message = protocol.create_notification_message(data_type, payload, request_id, position)
 
     for q in self.out_queues:
-      logging.info(f"Sending to queue: {q.queue_name}")
+      #logging.info(f"Sending to queue: {q.queue_name}")
       q.send(new_message)
 
-    logging.info(f"Forwarded message (msg_type: {msg_type}, data_type: {data_type}, request_id: {request_id}, position: {position}, payload_size: {len(payload)} bytes)")
+    #logging.info(f"Forwarded message (msg_type: {msg_type}, data_type: {data_type}, request_id: {request_id}, position: {position}, payload_size: {len(payload)} bytes)")
 
   def _process_rows(self, rows, queue_name=None):
     """

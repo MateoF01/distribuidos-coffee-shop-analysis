@@ -190,7 +190,7 @@ class WSMNode:
         """
         t = msg.get("type")
 
-        print(f"RECIBO MENSAJE: {t}, desde {addr}. MSG: {msg}")
+        #print(f"RECIBO MENSAJE: {t}, desde {addr}. MSG: {msg}")
 
         # ------------------------------------------------------------------
         # READY handshake (always processed)

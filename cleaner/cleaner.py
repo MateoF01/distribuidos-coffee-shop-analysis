@@ -131,7 +131,7 @@ class Cleaner(StreamProcessingWorker):
             [Processes rows, sends cleaned data to output queues]
         """
 
-        logging.info(f"INICIO procesado mensaje ({request_id}:{position})")
+        #logging.info(f"INICIO procesado mensaje ({request_id}:{position})")
 
         if self.wsm_client.is_position_processed(request_id, position):
             logging.info(f"🔁 Mensaje duplicado detectado ({request_id}:{position}), descartando...")
@@ -154,7 +154,7 @@ class Cleaner(StreamProcessingWorker):
         self.simulate_crash(queue_name, request_id)
 
         self.wsm_client.update_state("WAITING", request_id, position)
-        logging.info(f"FIN procesado mensaje ({request_id}:{position})")
+        #logging.info(f"FIN procesado mensaje ({request_id}:{position})")
 
     def _handle_end_signal(self, message, msg_type, data_type, request_id, position, queue_name=None):
         """
@@ -364,7 +364,6 @@ if __name__ == '__main__':
         backoff_max = float(config['DEFAULT'].get('BACKOFF_MAX', 3.0))
 
         wsm_nodes = WSM_NODES[data_type]
-        print("WSM NODES: ", wsm_nodes)
 
         return Cleaner(queue_in, queue_out, columns_have, columns_want, rabbitmq_host, keep_when_empty, backoff_start, backoff_max, wsm_nodes)
 
