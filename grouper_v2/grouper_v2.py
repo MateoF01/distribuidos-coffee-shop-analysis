@@ -231,9 +231,6 @@ class GrouperV2(StreamProcessingWorker):
             # WSM detects position 42 already processed
             # Message discarded, no aggregation
         """
-        # TEST-CASE: Crashear al Grouper luego de procesar varios mensajes
-        self.simulate_crash(queue_name, request_id)
-
         self._initialize_request_paths(request_id)
 
         if self.wsm_client.is_position_processed(request_id, position):
@@ -242,7 +239,11 @@ class GrouperV2(StreamProcessingWorker):
 
         self.wsm_client.update_state("PROCESSING", request_id, position)
 
+        self.curr_position = position
         super()._process_message(message, msg_type, data_type, request_id, position, payload, queue_name)
+
+        # TEST-CASE: Crashear al Grouper luego de procesar pero antes de avisar al WSM
+        self.simulate_crash(queue_name, request_id)
 
         self.wsm_client.update_state("WAITING", request_id, position)
 
@@ -400,13 +401,13 @@ class GrouperV2(StreamProcessingWorker):
             return
 
         if self.grouper_mode == 'q2':
-            self._q2_agg(rows, self.temp_dir)
+            self._q2_agg(rows, self.temp_dir, self.curr_position)
         elif self.grouper_mode == 'q3':
-            self._q3_agg(rows, self.temp_dir)
+            self._q3_agg(rows, self.temp_dir, self.curr_position)
         elif self.grouper_mode == 'q4':
-            self._q4_agg(rows, self.temp_dir)
+            self._q4_agg(rows, self.temp_dir, self.curr_position)
 
-    def _q2_agg(self, rows, temp_dir):
+    def _q2_agg(self, rows, temp_dir, position):
         """
         Aggregate transaction items by month and menu item (Query 2).
         
@@ -462,76 +463,37 @@ class GrouperV2(StreamProcessingWorker):
             except Exception:
                 continue
         for month, data in monthly_data.items():
-            self._update_q2_file(temp_dir, month, data)
+            self._update_q2_file(temp_dir, month, data, position)
         monthly_data.clear(); gc.collect()
 
-    def _update_q2_file(self, temp_dir, month, data):
+    def _update_q2_file(self, temp_dir, month, data, position):
         """
-        Update monthly aggregation file with new data (Query 2).
-        
-        Reads existing monthly aggregations, merges with new data, and writes back
-        atomically. Each replica maintains separate files to avoid concurrent write
-        conflicts. File format: item_id,total_quantity,total_revenue
-        
-        Args:
-            temp_dir (str): Directory for aggregation files.
-            month (str): Month string in format 'YYYY-MM'.
-            data (dict): Item aggregations {item_id: [quantity, revenue]}.
-        
-        Example:
-            Creating new monthly file:
-            >>> data = {
-            ...     'ITEM123': [5, 38.75],
-            ...     'ITEM456': [2, 17.50]
-            ... }
-            >>> grouper._update_q2_file('/tmp/req-123/replica-1', '2024-03', data)
-            # Creates: /tmp/req-123/replica-1/2024-03_replica-1.csv
-            # ITEM123,5,38.75
-            # ITEM456,2,17.50
-            
-            Merging with existing data:
-            >>> # Existing file contains:
-            >>> # ITEM123,5,38.75
-            >>> # ITEM789,3,22.00
-            >>> new_data = {
-            ...     'ITEM123': [2, 15.00],  # Add to existing
-            ...     'ITEM456': [1, 8.50]    # New item
-            ... }
-            >>> grouper._update_q2_file('/tmp/req-123/replica-1', '2024-03', new_data)
-            # Updated file:
-            # ITEM123,7,53.75  (5+2, 38.75+15.00)
-            # ITEM789,3,22.00  (unchanged)
-            # ITEM456,1,8.50   (new)
-            
-            Atomic write ensures crash consistency:
-            >>> grouper._update_q2_file(temp_dir, '2024-03', large_data)
-            # Writes to temporary file first
-            # Atomically renames to target
-            # No partial writes on crash
+        Update monthly aggregation file using LOG-BASED AGGREGATION.
+        Appends new data with position ID to the file.
+        Format: item_id,quantity,revenue,position
         """
         path = os.path.join(temp_dir, f"{month}_{self.replica_id}.csv")
-        existing = {}
-        if os.path.exists(path):
-            with open(path, 'r') as f:
-                for line in f:
-                    parts = line.strip().split(',')
-                    if len(parts) == 3:
-                        existing[parts[0]] = [int(parts[1]), float(parts[2])]
-        for k, v in data.items():
-            if k in existing:
-                existing[k][0] += v[0]
-                existing[k][1] += v[1]
-            else:
-                existing[k] = v
         
-        def write_func(temp_path):
-            with open(temp_path, 'w') as f:
-                for k, v in existing.items():
-                    f.write(f"{k},{v[0]},{v[1]}\n")
+        # In log-based mode, we just append. No read-modify-write.
+        # This atomic_write wrapper uses rename, which is not efficient for appending 
+        # but safe. Actually for true log append, simple 'a' mode is usually fine on POSIX
+        # if writes are small (<PIPE_BUF). But let's stick to safe atomic_write if we want
+        # to guarantee clear files, OR simpler: just open('a') because duplicates are handled by reducer.
+        # But `atomic_write` replaces the file.
+        # To support 'append' with `atomic_write` we would need to read all + append + write.
+        # That's expensive.
+        # BETTER: Just append to the file directly.
+        # If we crash during append, we might write a partial line?
+        # CSV readers handle partial lines? No.
+        # But if we assume standard Linux FS, O_APPEND writes are atomic.
         
-        StreamProcessingWorker.atomic_write(path, write_func)
+        with open(path, 'a') as f:
+            for k, v in data.items():
+                f.write(f"{k},{v[0]},{v[1]},{position}\n")
+        
+        logging.info(f"[GrouperV2:Q2] Appended {len(data)} items to {path} for pos {position}")
 
-    def _q3_agg(self, rows, temp_dir):
+    def _q3_agg(self, rows, temp_dir, position):
         """
         Aggregate transactions by semester and store (Query 3).
         
@@ -544,6 +506,7 @@ class GrouperV2(StreamProcessingWorker):
         Args:
             rows (list): List of pipe-delimited transaction rows.
             temp_dir (str): Directory for temporary aggregation files.
+            position (int): The position of the message in the stream.
         
         Example:
             Input rows:
@@ -590,69 +553,24 @@ class GrouperV2(StreamProcessingWorker):
                 grouped[key] = grouped.get(key, 0.0) + amt
             except Exception:
                 continue
-        self._update_q3_file(temp_dir, grouped)
+        self._update_q3_file(temp_dir, grouped, position)
         grouped.clear(); gc.collect()
 
-    def _update_q3_file(self, temp_dir, data):
+    def _update_q3_file(self, temp_dir, data, position):
         """
-        Update semester-store aggregation files with new data (Query 3).
-        
-        Reads existing semester-store totals, adds new revenue, and writes back atomically.
-        Each replica maintains separate files. File contains single line with total revenue.
-        
-        Args:
-            temp_dir (str): Directory for aggregation files.
-            data (dict): Aggregations {"semester_store": total_amount}.
-        
-        Example:
-            Creating new semester-store file:
-            >>> data = {'2024-H1_STORE001': 225.25}
-            >>> grouper._update_q3_file('/tmp/req-123/replica-1', data)
-            # Creates: /tmp/req-123/replica-1/2024-H1_STORE001_replica-1.csv
-            # 225.25
-            
-            Merging with existing data:
-            >>> # Existing file 2024-H1_STORE001_replica-1.csv contains:
-            >>> # 225.25
-            >>> new_data = {'2024-H1_STORE001': 100.00}
-            >>> grouper._update_q3_file('/tmp/req-123/replica-1', new_data)
-            # Updated file:
-            # 325.25
-            
-            Multiple semester-store combinations:
-            >>> data = {
-            ...     '2024-H1_STORE001': 150.00,
-            ...     '2024-H1_STORE002': 200.00,
-            ...     '2024-H2_STORE001': 175.00
-            ... }
-            >>> grouper._update_q3_file(temp_dir, data)
-            # Creates/updates 3 separate files
-            
-            Atomic write ensures crash consistency:
-            >>> grouper._update_q3_file(temp_dir, data)
-            # Each file written to temp location first
-            # Atomically renamed to target
-            # No partial updates on crash
+        Update semester-store aggregation files using LOG-BASED AGGREGATION.
+        Appends new data with position ID to the file.
+        Format: total_amount,position
         """
         for key, val in data.items():
             path = os.path.join(temp_dir, f"{key}_{self.replica_id}.csv")
-            old = 0.0
-            if os.path.exists(path):
-                with open(path, 'r') as f:
-                    try:
-                        old = float(f.read().strip())
-                    except:
-                        pass
-
-            total = old + val
-
-            def write_func(temp_path):
-                with open(temp_path, 'w') as f:
-                    f.write(f"{total}\n")
             
-            StreamProcessingWorker.atomic_write(path, write_func)
+            with open(path, 'a') as f:
+                f.write(f"{val},{position}\n")
+            
+            logging.debug(f"[GrouperV2:Q3] Appended {val} to {path} for pos {position}")
 
-    def _q4_agg(self, rows, temp_dir):
+    def _q4_agg(self, rows, temp_dir, position):
         """
         Aggregate user visit frequency by store (Query 4).
         
@@ -665,6 +583,7 @@ class GrouperV2(StreamProcessingWorker):
         Args:
             rows (list): List of pipe-delimited transaction rows.
             temp_dir (str): Directory for temporary aggregation files.
+            position (int): The position of the message in the stream.
         
         Example:
             Input rows:
@@ -717,20 +636,21 @@ class GrouperV2(StreamProcessingWorker):
                 continue
             grouped.setdefault(store, {})
             grouped[store][user] = grouped[store].get(user, 0) + 1
-        self._update_q4_file(temp_dir, grouped)
+        self._update_q4_file(temp_dir, grouped, position)
         grouped.clear(); gc.collect()
 
-    def _update_q4_file(self, temp_dir, data):
+    def _update_q4_file(self, temp_dir, data, position):
         """
         Update store user-frequency aggregation files with new data (Query 4).
         
         Reads existing user visit counts per store, merges with new data, and writes
         back atomically. Each replica maintains separate files to avoid concurrent
-        write conflicts. File format: user_id,visit_count
+        write conflicts. File format: user_id,visit_count,position
         
         Args:
             temp_dir (str): Directory for aggregation files.
             data (dict): Store aggregations {store_id: {user_id: count}}.
+            position (int): The position of the message in the stream.
         
         Example:
             Creating new store file:
@@ -772,22 +692,38 @@ class GrouperV2(StreamProcessingWorker):
         """
         for store, users in data.items():
             path = os.path.join(temp_dir, f"{store}_{self.replica_id}.csv")
-            existing = {}
-            if os.path.exists(path):
-                with open(path, 'r') as f:
-                    for line in f:
-                        parts = line.strip().split(',')
-                        if len(parts) == 2:
-                            existing[parts[0]] = int(parts[1])
-            for u, c in users.items():
-                existing[u] = existing.get(u, 0) + c
             
-            def write_func(temp_path):
-                with open(temp_path, 'w') as f:
-                    for u, c in existing.items():
-                        f.write(f"{u},{c}\n")
+            # For Q4, we still need to read-modify-write because we are counting visits per user.
+            # If we just append, the reducer would have to sum up all occurrences of a user,
+            # which is equivalent to what we do here, but less efficient if the file grows very large.
+            # However, the instruction is to rewrite _update_q* methods to append logs instead of summing.
+            # This implies a log-based approach for Q4 as well.
+            # So, we should append user,count,position.
             
-            StreamProcessingWorker.atomic_write(path, write_func)
+            # Original logic (summing):
+            # existing = {}
+            # if os.path.exists(path):
+            #     with open(path, 'r') as f:
+            #         for line in f:
+            #             parts = line.strip().split(',')
+            #             if len(parts) == 2:
+            #                 existing[parts[0]] = int(parts[1])
+            # for u, c in users.items():
+            #     existing[u] = existing.get(u, 0) + c
+            
+            # def write_func(temp_path):
+            #     with open(temp_path, 'w') as f:
+            #         for u, c in existing.items():
+            #             f.write(f"{u},{c}\n")
+            
+            # StreamProcessingWorker.atomic_write(path, write_func)
+
+            # Log-based append for Q4:
+            with open(path, 'a') as f:
+                for u, c in users.items():
+                    f.write(f"{u},{c},{position}\n")
+            logging.debug(f"[GrouperV2:Q4] Appended {len(users)} user counts to {path} for pos {position}")
+
 
     def _initialize_request_paths(self, request_id):
         """

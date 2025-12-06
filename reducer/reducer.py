@@ -210,33 +210,40 @@ class ReducerV2(SignalProcessingWorker):
 
     def _reduce_q2(self, filepaths):
         """
-        Q2 reduction: sum quantity and subtotal by item_id.
+        Q2 reduction: sum quantity and subtotal by item_id with deduplication.
         
         Args:
             filepaths (list): List of partial CSV file paths.
         
         Returns:
             list: List of tuples (item_id, total_quantity, total_subtotal).
-        
-        Example:
-            Input files:
-            - file1.csv: item1,10,50.0\nitem2,5,25.0
-            - file2.csv: item1,12,60.0\nitem3,8,40.0
-            
-            Output:
-            [(item1, 22, 110.0), (item2, 5, 25.0), (item3, 8, 40.0)]
         """
         combined = defaultdict(lambda: [0, 0.0])
+        # Track seen positions PER KEY to ignore duplicates
+        # Actually tracked as (item_id, position) tuples
+        seen = set()
+
         for fpath in filepaths:
             try:
                 with open(fpath, "r") as f:
                     reader = csv.reader(f)
                     for row in reader:
-                        if len(row) != 3:
+                        # item_id, qty, subtotal, position
+                        if len(row) < 4:
                             continue
-                        item_id, qty, subtotal = row
-                        combined[item_id][0] += int(qty)
-                        combined[item_id][1] += float(subtotal)
+                        
+                        item_id = row[0]
+                        qty = int(row[1])
+                        subtotal = float(row[2])
+                        pos = row[3]
+                        
+                        unique_key = (item_id, pos)
+                        if unique_key in seen:
+                            continue
+                        
+                        seen.add(unique_key)
+                        combined[item_id][0] += qty
+                        combined[item_id][1] += subtotal
             except Exception as e:
                 logging.error(f"[Reducer Q2] Error leyendo {fpath}: {e}")
 
@@ -244,44 +251,52 @@ class ReducerV2(SignalProcessingWorker):
 
     def _reduce_q3(self, filepaths):
         """
-        Q3 reduction: sum all partial TPV values with precision rounding.
-        
-        Each file contains a single numeric value (partial TPV). Sums all values
-        and rounds to 2 decimal places if needed to avoid floating-point errors.
+        Q3 reduction: sum all partial TPV values with deduplication.
         
         Args:
             filepaths (list): List of partial CSV file paths.
         
         Returns:
             list: Single-row list containing the total TPV [[total]].
-        
-        Example:
-            Input files:
-            - file1.csv: 1234.56
-            - file2.csv: 789.12
-            - file3.csv: 456.78
-            
-            Output:
-            [[2480.46]]
         """
         total = 0.0
+        # Track seen positions to ignore duplicate batches
+        seen_positions = set()
 
         for fpath in filepaths:
             try:
                 with open(fpath, "r") as f:
                     reader = csv.reader(f)
                     for row in reader:
-                        if not row:
+                        # value, position
+                        if not row or len(row) < 2:
                             continue
-                        total += float(row[0])
+                        
+                        val = float(row[0])
+                        pos = row[1]
+                        
+                        # Since Q3 splits files by Key (Semester_Store), 
+                        # duplicate Position means duplicate batch for this key.
+                        # Note: Different replicas might process DIFFERENT messages for the same key.
+                        # BUT they are processing a SERIAL STREAM of messages.
+                        # Wait, replicas share the queue.
+                        # Message 1 (Pos 5) -> Replica 1 -> Writes (Val, 5)
+                        # Message 2 (Pos 6) -> Replica 2 -> Writes (Val, 6)
+                        # Message 1 (Pos 5) -> RETRY Replica 2 -> Writes (Val, 5)
+                        # Deduplication by Position is correct because Position is unique 
+                        # identifier of the INPUT MESSAGE in the stream.
+                        
+                        if pos in seen_positions:
+                            continue
+                        
+                        seen_positions.add(pos)
+                        total += val
             except Exception as e:
                 logging.error(f"[Reducer Q3] Error leyendo {fpath}: {e}")
 
-        logging.info(f"[Reducer Q3] Total combinado: {total}")
         s = f"{total:.10f}".rstrip('0').rstrip('.')
         if '.' in s and len(s.split('.')[1]) > 2:
             total = int(total * 100 + 0.5) / 100.0
-        logging.info(f"[Reducer Q3] Total redondeado: {total}")
 
         return [[total]]
 
@@ -289,32 +304,37 @@ class ReducerV2(SignalProcessingWorker):
 
     def _reduce_q4(self, filepaths):
         """
-        Q4 reduction: sum visit counts by user_id.
+        Q4 reduction: sum visit counts by user_id with deduplication.
         
         Args:
             filepaths (list): List of partial CSV file paths.
         
         Returns:
             list: List of tuples (user_id, total_count).
-        
-        Example:
-            Input files:
-            - file1.csv: user1,5\nuser2,3
-            - file2.csv: user1,7\nuser3,2
-            
-            Output:
-            [(user1, 12), (user2, 3), (user3, 2)]
         """
         combined = defaultdict(int)
+        # Track seen (user_id, position)
+        seen = set()
+
         for fpath in filepaths:
             try:
                 with open(fpath, "r") as f:
                     reader = csv.reader(f)
                     for row in reader:
-                        if len(row) != 2:
+                        # user_id, count, position
+                        if len(row) < 3:
                             continue
-                        user_id, count = row
-                        combined[user_id] += int(count)
+                        
+                        user_id = row[0]
+                        count = int(row[1])
+                        pos = row[2]
+                        
+                        unique_key = (user_id, pos)
+                        if unique_key in seen:
+                            continue
+                            
+                        seen.add(unique_key)
+                        combined[user_id] += count
             except Exception as e:
                 logging.error(f"[Reducer Q4] Error leyendo {fpath}: {e}")
 
