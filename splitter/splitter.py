@@ -267,7 +267,7 @@ class SplitterQ1(StreamProcessingWorker):
 
         super()._process_message(message, msg_type, data_type, request_id, position, payload, queue_name)
 
-        # IF IT DIES HERE, IT WILL WRITE THE MESSAGE TO DISC TWICE
+        # TEST-CASE: If it dies here, it will write the message to disk twice.
         self.simulate_crash(queue_name, request_id)
 
         self.wsm_client.update_state("WAITING", request_id, position)
