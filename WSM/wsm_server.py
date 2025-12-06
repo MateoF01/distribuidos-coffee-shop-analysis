@@ -464,12 +464,13 @@ class WorkerStateManager:
             previous_state = self.worker_states[worker_type].get(replica_id, {}).get("state")
             if self.using_end_sync:
                 self.workers_being_used.setdefault(worker_type, True)
-                if request_id not in self.ends_by_requests:
-                    self.ends_by_requests[request_id] = sum(
+                req_key = str(request_id)
+                if req_key not in self.ends_by_requests:
+                    self.ends_by_requests[req_key] = sum(
                         1 for being_used in self.workers_being_used.values() if being_used
                     )
                 if state == "END":
-                    self.ends_by_requests[request_id] -= 1
+                    self.ends_by_requests[req_key] -= 1
 
             if state == "PROCESSING":
                 # TEST-CASE: crash si el estado es PROCESSING
@@ -573,15 +574,16 @@ class WorkerStateManager:
             if self.using_end_sync:
                 self.worker_states.setdefault(worker_type, {})
                 self.workers_being_used.setdefault(worker_type, True)
-                if request_id not in self.ends_by_requests:
-                    self.ends_by_requests[request_id] = sum(
+                req_key = str(request_id)
+                if req_key not in self.ends_by_requests:
+                    self.ends_by_requests[req_key] = sum(
                         1 for being_used in self.workers_being_used.values() if being_used
                     )
-                self.ends_by_requests[request_id] -= 1
+                self.ends_by_requests[req_key] -= 1
                 self.worker_states[worker_type][replica_id] = {"state": "END", "request_id": request_id}
                 self._save_state()
-                if self.ends_by_requests.get(request_id, 0) > 0:
-                    logging.debug(f"[WSM] Aún quedan {self.ends_by_requests[request_id]} workers procesando {request_id}")
+                if self.ends_by_requests.get(req_key, 0) > 0:
+                    logging.debug(f"[WSM] Aún quedan {self.ends_by_requests[req_key]} workers procesando {request_id}")
                     return False
                 logging.debug(f"[WSM] Todos los workers terminaron de procesar {request_id}")
             return True
@@ -805,16 +807,17 @@ class WorkerStateManager:
         with self.lock:
             self.worker_states.setdefault(worker_type, {})
             self.workers_being_used.setdefault(worker_type, True)
+            req_key = str(request_id)
             
-            if request_id not in self.data_ends_by_requests:
-                self.data_ends_by_requests[request_id] = sum(
+            if req_key not in self.data_ends_by_requests:
+                self.data_ends_by_requests[req_key] = sum(
                     1 for being_used in self.workers_being_used.values() if being_used
                 )
-                logging.info(f"[WSM] Initialized data_end_by_requests[{request_id}] = {self.data_ends_by_requests[request_id]}")
-            self.data_ends_by_requests[request_id] -= 1
+                logging.info(f"[WSM] Initialized data_end_by_requests[{request_id}] = {self.data_ends_by_requests[req_key]}")
+            self.data_ends_by_requests[req_key] -= 1
             self.worker_states[worker_type][replica_id] = {"state": "DATA_END", "request_id": request_id}
             self._save_state()
-            remaining = self.data_ends_by_requests.get(request_id, 0)
+            remaining = self.data_ends_by_requests.get(req_key, 0)
             if remaining > 0:
                 logging.info(f"[WSM] Still {remaining} worker types pending DATA_END for request_id={request_id}")
                 return False
