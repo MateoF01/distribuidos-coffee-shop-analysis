@@ -405,6 +405,7 @@ class Worker(ABC):
                 os.fsync(f.fileno())
             
             os.rename(temp_path, target_file)
+            os.chmod(target_file, 0o644)
             
             dir_fd = os.open(target_dir, os.O_RDONLY)
             try:

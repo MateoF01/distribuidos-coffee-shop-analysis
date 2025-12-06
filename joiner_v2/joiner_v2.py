@@ -591,28 +591,24 @@ class Joiner_v2(Worker):
         logging.debug(f"Loaded {len(users_lookup)} user mappings")
 
         processed_rows = []
-        processed_positions = set()
+        processed_row_keys = set()  # Track (position, store_id, user_id) to deduplicate
         main_path = os.path.join(temp_dir, 'resultados_groupby_q4/')
         for file in (Path(main_path).rglob("*.csv")):
             if os.path.exists(file):
                 file_position = None
                 with open(file, 'r', encoding='utf-8') as f:
                     reader = csv.reader(f); next(reader, None)
-                    first_row = next(reader, None)
-                    if first_row and len(first_row) >= 4:
-                        file_position = first_row[0]
-                
-                if file_position and file_position in processed_positions:
-                    continue
-                
-                if file_position:
-                    processed_positions.add(file_position)
-                
-                with open(file, 'r', encoding='utf-8') as f:
-                    reader = csv.reader(f); next(reader, None)
                     for row in reader:
                         if len(row) >= 4:
+                            position = row[0]
                             store_id, user_id, _purchase_qty = row[1], row[2], row[3]
+                            
+                            # Skip duplicate rows (same position + store + user)
+                            row_key = (position, store_id, user_id)
+                            if row_key in processed_row_keys:
+                                continue
+                            processed_row_keys.add(row_key)
+                            
                             store_name = stores_lookup.get(store_id, store_id)
                             birthdate = users_lookup.get(user_id, user_id)
                             processed_rows.append([store_name, birthdate])
@@ -665,28 +661,24 @@ class Joiner_v2(Worker):
         rows_quantity = []
         rows_subtotal = []
         rows_all = []
-        processed_positions = set()
+        processed_rows = set()  # Track (position, month_year, quantity_or_subtotal, item_id) to deduplicate
         main_path = os.path.join(temp_dir, 'resultados_groupby_q2/')
         for file in (Path(main_path).rglob("*.csv")):
             if os.path.exists(file):
                 file_position = None
                 with open(file, 'r', encoding='utf-8') as f:
                     reader = csv.reader(f); next(reader, None)
-                    first_row = next(reader, None)
-                    if first_row and len(first_row) >= 6:
-                        file_position = first_row[0]
-                
-                if file_position and file_position in processed_positions:
-                    continue
-                
-                if file_position:
-                    processed_positions.add(file_position)
-                
-                with open(file, 'r', encoding='utf-8') as f:
-                    reader = csv.reader(f); next(reader, None)
                     for row in reader:
                         if len(row) >= 6:
+                            position = row[0]
                             month_year, quantity_or_subtotal, item_id, quantity, subtotal = row[1], row[2], row[3], row[4], row[5]
+                            
+                            # Skip duplicate rows (same position + month + type + item)
+                            row_key = (position, month_year, quantity_or_subtotal, item_id)
+                            if row_key in processed_rows:
+                                continue
+                            processed_rows.add(row_key)
+                            
                             item_name = items_lookup.get(item_id, item_id)
                             if quantity_or_subtotal == 'quantity':
                                 rows_quantity.append([month_year, item_name, quantity])
@@ -754,7 +746,7 @@ class Joiner_v2(Worker):
         logging.info(f"Loaded {len(stores_lookup)} store mappings")
 
         processed_rows = []
-        processed_positions = set()
+        processed_row_keys = set()  # Track (position, year_half, store_id) to deduplicate
 
         main_path = os.path.join(temp_dir, 'resultados_groupby_q3/')
         for file in (Path(main_path).rglob("*.csv")):
@@ -762,21 +754,17 @@ class Joiner_v2(Worker):
                 file_position = None
                 with open(file, 'r', encoding='utf-8') as f:
                     reader = csv.reader(f); next(reader, None)
-                    first_row = next(reader, None)
-                    if first_row and len(first_row) >= 4:
-                        file_position = first_row[0]
-                
-                if file_position and file_position in processed_positions:
-                    continue
-                
-                if file_position:
-                    processed_positions.add(file_position)
-                
-                with open(file, 'r', encoding='utf-8') as f:
-                    reader = csv.reader(f); next(reader, None)
                     for row in reader:
                         if len(row) >= 4:
+                            position = row[0]
                             year_half, store_id, tpv = row[1], row[2], row[3]
+                            
+                            # Skip duplicate rows (same position + year_half + store)
+                            row_key = (position, year_half, store_id)
+                            if row_key in processed_row_keys:
+                                continue
+                            processed_row_keys.add(row_key)
+                            
                             store_name = stores_lookup.get(store_id, store_id)
                             processed_rows.append([year_half, store_name, tpv])
 

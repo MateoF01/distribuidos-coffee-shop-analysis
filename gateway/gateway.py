@@ -20,6 +20,7 @@ HOST = os.environ.get('GATEWAY_HOST', '0.0.0.0')
 PORT = int(os.environ.get('GATEWAY_PORT', 5000))
 RESULTS_QUEUE = os.environ.get('QUEUE_IN', 'results')
 OUTPUT_GATEWAY_DIR = os.environ.get('GATEWAY_OUTPUT_DIR', 'output_gateway')
+CLEANUP_ON_SUCCESS = os.environ.get('CLEANUP_ON_SUCCESS', 'false').lower() == 'true'
 
 
 data_type_names = {
@@ -205,7 +206,7 @@ class Server:
         except Exception as e:
             logging.warning(f"[GATEWAY PERSISTENCE] Failed to save active request {request_id}: {e}")
 
-    def _cleanup_active_request(self, request_id, queues=None):
+    def _cleanup_active_request(self, request_id, queues=None, send_cleanup_signals=True):
         """
         Remove the .active persistence file when a request completes successfully.
         
@@ -219,6 +220,8 @@ class Server:
                                      IMPORTANT: When called from a subprocess, pass the subprocess's
                                      own queue connections to avoid corrupting the main process's
                                      RabbitMQ connections.
+            send_cleanup_signals (bool, optional): Whether to send DATA_END signals to worker queues.
+                                                   Defaults to True. Set to False to skip worker cleanup.
         
         Example:
             >>> server._save_active_request(42)
@@ -238,18 +241,56 @@ class Server:
         # Use provided queues or fall back to self.queues (main process only!)
         queues_to_use = queues if queues is not None else self.queues
         
-        for queue_name in queue_names.values():
-            try:
-                message = protocol.create_end_message(protocol.DATA_END, request_id, 1)
-                queues_to_use[queue_name].send(message)
-            except Exception as e:
-                logging.error(f"[GATEWAY CLEANUP] Failed to send END to {queue_name} for request_id={request_id}: {e}")
+        if send_cleanup_signals:
+            for queue_name in queue_names.values():
+                try:
+                    message = protocol.create_end_message(protocol.DATA_END, request_id, 1)
+                    queues_to_use[queue_name].send(message)
+                except Exception as e:
+                    logging.error(f"[GATEWAY CLEANUP] Failed to send END to {queue_name} for request_id={request_id}: {e}")
         
         try:
             os.remove(active_file)
             logging.info(f"[GATEWAY PERSISTENCE] Deleted active request: request_id={request_id}")
         except Exception as e:
             logging.warning(f"[GATEWAY PERSISTENCE] Failed to cleanup active request {request_id}: {e}")
+
+    def _mark_request_completed(self, request_id):
+        """
+        Mark a request as successfully completed by creating a .completed file.
+        
+        This marker is used by _handle_client_connection to distinguish between
+        intentional client disconnects (after receiving all results) and error disconnects.
+        """
+        self._ensure_output_dir()
+        completed_file = os.path.join(OUTPUT_GATEWAY_DIR, f"request_{request_id}.completed")
+        try:
+            with open(completed_file, 'w') as f:
+                f.write(str(request_id))
+            logging.debug(f"[GATEWAY] Marked request_id={request_id} as completed")
+        except Exception as e:
+            logging.warning(f"[GATEWAY] Failed to mark request {request_id} as completed: {e}")
+
+    def _is_request_completed(self, request_id):
+        """
+        Check if a request was successfully completed.
+        
+        Returns True if the .completed marker file exists for this request_id.
+        """
+        completed_file = os.path.join(OUTPUT_GATEWAY_DIR, f"request_{request_id}.completed")
+        return os.path.exists(completed_file)
+
+    def _remove_completed_marker(self, request_id):
+        """
+        Remove the .completed marker file after handling the disconnect.
+        """
+        completed_file = os.path.join(OUTPUT_GATEWAY_DIR, f"request_{request_id}.completed")
+        try:
+            if os.path.exists(completed_file):
+                os.remove(completed_file)
+                logging.debug(f"[GATEWAY] Removed completed marker for request_id={request_id}")
+        except Exception as e:
+            logging.warning(f"[GATEWAY] Failed to remove completed marker for request {request_id}: {e}")
 
     def _recover_abandoned_requests(self, queues):
         """
@@ -515,19 +556,22 @@ class Server:
                     if data_end_counts[request_id] == data_end_expected:
                         send_success = False
                         try:
+                            self._mark_request_completed(request_id)
                             protocol.send_message(target_conn, protocol.MSG_TYPE_END, protocol.DATA_END, b"", 1, request_id=request_id)
                             logging.info(f"[GATEWAY ROUTER] Sent final DATA_END to client for request_id={request_id}")
                             send_success = True
+                            self._cleanup_active_request(request_id, send_cleanup_signals=CLEANUP_ON_SUCCESS)
                         except Exception as e:
                             logging.warning(f"[GATEWAY ROUTER] Failed to send final DATA_END to request_id={request_id}: {e}")
+                            send_success = False
+                            self._remove_completed_marker(request_id)
+                            self._cleanup_active_request(request_id)
                         
                         completed_requests.add(request_id)
                         if request_id in self.requests:
                             del self.requests[request_id]
                         if request_id in data_end_counts:
                             del data_end_counts[request_id]
-                        
-                        self._cleanup_active_request(request_id)
                         
                         elapsed = time.time() - message_log[request_id]['first_seen']
                         if send_success:
@@ -719,15 +763,23 @@ class Server:
         except ConnectionError as e:
             logging.warning(f"Connection closed with {addr}: {e}")
             if current_request_id is not None:
-                logging.info(f"[GATEWAY DISCONNECT] Cleaning up abandoned request_id={current_request_id} due to connection error")
-                self._cleanup_active_request(current_request_id, queues=queues)
+                if self._is_request_completed(current_request_id):
+                    logging.info(f"[GATEWAY DISCONNECT] Client {addr} disconnected after successful completion of request_id={current_request_id}")
+                    self._remove_completed_marker(current_request_id)
+                else:
+                    logging.info(f"[GATEWAY DISCONNECT] Cleaning up abandoned request_id={current_request_id} due to connection error")
+                    self._cleanup_active_request(current_request_id, queues=queues)
         except Exception as e:
             logging.error(f"Error in connection with {addr}: {type(e).__name__}: {e}")
             import traceback
             logging.debug(f"Traceback: {traceback.format_exc()}")
             if current_request_id is not None:
-                logging.info(f"[GATEWAY DISCONNECT] Cleaning up abandoned request_id={current_request_id} due to error")
-                self._cleanup_active_request(current_request_id, queues=queues)
+                if self._is_request_completed(current_request_id):
+                    logging.info(f"[GATEWAY DISCONNECT] Client {addr} disconnected after successful completion of request_id={current_request_id}")
+                    self._remove_completed_marker(current_request_id)
+                else:
+                    logging.info(f"[GATEWAY DISCONNECT] Cleaning up abandoned request_id={current_request_id} due to error")
+                    self._cleanup_active_request(current_request_id, queues=queues)
         finally:
             to_remove = [rid for rid, c in self.requests.items() if c == conn]
             for rid in to_remove:
