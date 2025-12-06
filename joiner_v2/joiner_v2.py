@@ -595,23 +595,16 @@ class Joiner_v2(Worker):
         main_path = os.path.join(temp_dir, 'resultados_groupby_q4/')
         for file in (Path(main_path).rglob("*.csv")):
             if os.path.exists(file):
-                file_position = None
-                with open(file, 'r', encoding='utf-8') as f:
-                    reader = csv.reader(f); next(reader, None)
-                    first_row = next(reader, None)
-                    if first_row and len(first_row) >= 4:
-                        file_position = first_row[0]
-                
-                if file_position and file_position in processed_positions:
-                    continue
-                
-                if file_position:
-                    processed_positions.add(file_position)
-                
                 with open(file, 'r', encoding='utf-8') as f:
                     reader = csv.reader(f); next(reader, None)
                     for row in reader:
                         if len(row) >= 4:
+                            position = row[0]
+                            # Skip duplicate positions (from crash recovery or multiple replicas)
+                            if position in processed_positions:
+                                continue
+                            processed_positions.add(position)
+                            
                             store_id, user_id, _purchase_qty = row[1], row[2], row[3]
                             store_name = stores_lookup.get(store_id, store_id)
                             birthdate = users_lookup.get(user_id, user_id)
@@ -669,23 +662,16 @@ class Joiner_v2(Worker):
         main_path = os.path.join(temp_dir, 'resultados_groupby_q2/')
         for file in (Path(main_path).rglob("*.csv")):
             if os.path.exists(file):
-                file_position = None
-                with open(file, 'r', encoding='utf-8') as f:
-                    reader = csv.reader(f); next(reader, None)
-                    first_row = next(reader, None)
-                    if first_row and len(first_row) >= 6:
-                        file_position = first_row[0]
-                
-                if file_position and file_position in processed_positions:
-                    continue
-                
-                if file_position:
-                    processed_positions.add(file_position)
-                
                 with open(file, 'r', encoding='utf-8') as f:
                     reader = csv.reader(f); next(reader, None)
                     for row in reader:
                         if len(row) >= 6:
+                            position = row[0]
+                            # Skip duplicate positions (from crash recovery or multiple replicas)
+                            if position in processed_positions:
+                                continue
+                            processed_positions.add(position)
+                            
                             month_year, quantity_or_subtotal, item_id, quantity, subtotal = row[1], row[2], row[3], row[4], row[5]
                             item_name = items_lookup.get(item_id, item_id)
                             if quantity_or_subtotal == 'quantity':
@@ -759,23 +745,16 @@ class Joiner_v2(Worker):
         main_path = os.path.join(temp_dir, 'resultados_groupby_q3/')
         for file in (Path(main_path).rglob("*.csv")):
             if os.path.exists(file):
-                file_position = None
-                with open(file, 'r', encoding='utf-8') as f:
-                    reader = csv.reader(f); next(reader, None)
-                    first_row = next(reader, None)
-                    if first_row and len(first_row) >= 4:
-                        file_position = first_row[0]
-                
-                if file_position and file_position in processed_positions:
-                    continue
-                
-                if file_position:
-                    processed_positions.add(file_position)
-                
                 with open(file, 'r', encoding='utf-8') as f:
                     reader = csv.reader(f); next(reader, None)
                     for row in reader:
                         if len(row) >= 4:
+                            position = row[0]
+                            # Skip duplicate positions (from crash recovery or multiple replicas)
+                            if position in processed_positions:
+                                continue
+                            processed_positions.add(position)
+                            
                             year_half, store_id, tpv = row[1], row[2], row[3]
                             store_name = stores_lookup.get(store_id, store_id)
                             processed_rows.append([year_half, store_name, tpv])
