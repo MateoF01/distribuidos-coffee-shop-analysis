@@ -99,7 +99,8 @@ class SplitterQ1(StreamProcessingWorker):
             replica_id=replica_id,
             host=wsm_host,
             port=wsm_port,
-            nodes=wsm_nodes
+            nodes=wsm_nodes,
+            wsm_sync=False
         )
 
         logging.info(f"[SplitterQ1:{self.replica_id}] init - in={queue_in}, out={queue_out}, chunk_size={self.chunk_size}")

@@ -91,11 +91,12 @@ class Cleaner(StreamProcessingWorker):
         wsm_host = os.environ.get("WSM_HOST", "wsm")
         wsm_port = int(os.environ.get("WSM_PORT", "9000"))
         self.wsm_client = WSMClient(
-            worker_type="cleaner",
+            worker_type=service_name,
             replica_id=replica_id,
             host=wsm_host,
             port=wsm_port,
             nodes=wsm_nodes,
+            wsm_sync=False
         )
 
         logging.info(f"[Cleaner:{replica_id}] Inicializado - input: {queue_in}, output: {queue_out}")

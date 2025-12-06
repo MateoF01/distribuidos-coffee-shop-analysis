@@ -41,7 +41,7 @@ class SorterV2(SignalProcessingWorker):
         Sends: Completion notification to downstream worker
     """
 
-    def __init__(self, queue_in, queue_out, rabbitmq_host, base_temp_root, sort_columns="0"):
+    def __init__(self, queue_in, queue_out, rabbitmq_host, base_temp_root, sort_columns="0", wsm_sync=True):
         """
         Initialize sorter with directories and sort configuration.
         
@@ -51,6 +51,7 @@ class SorterV2(SignalProcessingWorker):
             rabbitmq_host (str): RabbitMQ server hostname.
             base_temp_root (str): Base directory for temporary files.
             sort_columns (str, optional): Comma-separated column indices. Defaults to "0".
+            wsm_sync (bool): Whether to synchronize END with WSM (default True for SorterV2? No, False).
         
         Example:
             >>> sorter = SorterV2(
@@ -61,7 +62,7 @@ class SorterV2(SignalProcessingWorker):
             ...     sort_columns='0,1'
             ... )
         """
-        super().__init__(queue_in, queue_out, rabbitmq_host)
+        super().__init__(queue_in, queue_out, rabbitmq_host, wsm_sync=wsm_sync)
         self.base_temp_root = base_temp_root
         self.sort_columns = [int(x) for x in sort_columns.split(",")]
         os.makedirs(self.base_temp_root, exist_ok=True)
@@ -176,6 +177,6 @@ if __name__ == "__main__":
         if not queue_in or not queue_out:
             raise ValueError("QUEUE_IN y COMPLETION_QUEUE son requeridos")
 
-        return SorterV2(queue_in, queue_out, rabbitmq_host, base_temp_root, sort_columns)
+        return SorterV2(queue_in, queue_out, rabbitmq_host, base_temp_root, sort_columns, wsm_sync=False)
 
     SorterV2.run_worker_main(create_sorter_v2)

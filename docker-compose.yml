@@ -41,7 +41,7 @@ services:
       GATEWAY_PORT: 5000
       QUEUE_IN: results
       REQUESTS_PER_CLIENT: 1
-      GATEWAY_MAX_PROCESSES: 2
+      GATEWAY_MAX_PROCESSES: 1
     volumes:
     - ./output_gateway:/app/output_gateway
     networks:
@@ -69,7 +69,7 @@ services:
       SERVER_ADDRESS: gateway:5000
       BATCH_MAX_AMOUNT: 5000
       REQUESTS_PER_CLIENT: 1
-      INITIAL_CLIENT_COUNT: 2
+      INITIAL_CLIENT_COUNT: 1
     volumes:
     - ./data:/app/.data
     - ./client/results:/app/client/results
@@ -84,37 +84,40 @@ services:
         condition: service_healthy
       gateway:
         condition: service_started
-      wsm_transactions:
+      wsm:
         condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_USER: admin
       RABBITMQ_PASS: secretpassword
-      WSM_HOST: wsm_transactions
+      WSM_HOST: wsm
       WSM_PORT: 9000
       QUEUE_IN: transactions_queue
       QUEUE_OUT: transactions_coord_cleaned
       DATA_TYPE: transactions
     networks:
     - coffee-net
-  wsm_transactions:
+  wsm:
     build:
       context: .
       dockerfile: WSM/Dockerfile
     environment:
       PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/worker_states_transactions.json
+      STATE_FILE_PATH: /app/output/worker_states.json
       HOST: 0.0.0.0
-      PORT: 9501
+      PORT: 9000
+      USING_END_SYNC: 1
       WSM_CONTROL_BASE_PORT: 9100
-      WSM_NAME: wsm_transactions
+      WSM_NAME: wsm
       WSM_ID: 1
+      WSM_REPLICAS: 3
     volumes:
-    - ./output_wsm/worker_states_transactions:/app/output
+    - ./output_wsm:/app/output
+    - /var/run/docker.sock:/var/run/docker.sock
     networks:
     - coffee-net
-    container_name: wsm_transactions
+    container_name: wsm
   coordinator_cleaner_transactions:
     build:
       context: .
@@ -143,37 +146,20 @@ services:
         condition: service_healthy
       gateway:
         condition: service_started
-      wsm_transaction_items:
+      wsm:
         condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_USER: admin
       RABBITMQ_PASS: secretpassword
-      WSM_HOST: wsm_transaction_items
-      WSM_PORT: 9001
+      WSM_HOST: wsm
+      WSM_PORT: 9000
       QUEUE_IN: transaction_items_queue
       QUEUE_OUT: transaction_items_coord_cleaned
       DATA_TYPE: transaction_items
     networks:
     - coffee-net
-  wsm_transaction_items:
-    build:
-      context: .
-      dockerfile: WSM/Dockerfile
-    environment:
-      PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/worker_states_transaction_items.json
-      HOST: 0.0.0.0
-      PORT: 9511
-      WSM_CONTROL_BASE_PORT: 9110
-      WSM_NAME: wsm_transaction_items
-      WSM_ID: 1
-    volumes:
-    - ./output_wsm/worker_states_transaction_items:/app/output
-    networks:
-    - coffee-net
-    container_name: wsm_transaction_items
   coordinator_cleaner_transaction_items:
     build:
       context: .
@@ -202,37 +188,20 @@ services:
         condition: service_healthy
       gateway:
         condition: service_started
-      wsm_users:
+      wsm:
         condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_USER: admin
       RABBITMQ_PASS: secretpassword
-      WSM_HOST: wsm_users
-      WSM_PORT: 9002
+      WSM_HOST: wsm
+      WSM_PORT: 9000
       QUEUE_IN: users_queue
       QUEUE_OUT: users_coord_cleaned
       DATA_TYPE: users
     networks:
     - coffee-net
-  wsm_users:
-    build:
-      context: .
-      dockerfile: WSM/Dockerfile
-    environment:
-      PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/worker_states_users.json
-      HOST: 0.0.0.0
-      PORT: 9521
-      WSM_CONTROL_BASE_PORT: 9120
-      WSM_NAME: wsm_users
-      WSM_ID: 1
-    volumes:
-    - ./output_wsm/worker_states_users:/app/output
-    networks:
-    - coffee-net
-    container_name: wsm_users
   coordinator_cleaner_users:
     build:
       context: .
@@ -261,37 +230,20 @@ services:
         condition: service_healthy
       gateway:
         condition: service_started
-      wsm_stores:
+      wsm:
         condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_USER: admin
       RABBITMQ_PASS: secretpassword
-      WSM_HOST: wsm_stores
-      WSM_PORT: 9003
+      WSM_HOST: wsm
+      WSM_PORT: 9000
       QUEUE_IN: stores_queue
       QUEUE_OUT: stores_coord_cleaned
       DATA_TYPE: stores
     networks:
     - coffee-net
-  wsm_stores:
-    build:
-      context: .
-      dockerfile: WSM/Dockerfile
-    environment:
-      PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/worker_states_stores.json
-      HOST: 0.0.0.0
-      PORT: 9531
-      WSM_CONTROL_BASE_PORT: 9130
-      WSM_NAME: wsm_stores
-      WSM_ID: 1
-    volumes:
-    - ./output_wsm/worker_states_stores:/app/output
-    networks:
-    - coffee-net
-    container_name: wsm_stores
   coordinator_cleaner_stores:
     build:
       context: .
@@ -320,37 +272,20 @@ services:
         condition: service_healthy
       gateway:
         condition: service_started
-      wsm_menu_items:
+      wsm:
         condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_USER: admin
       RABBITMQ_PASS: secretpassword
-      WSM_HOST: wsm_menu_items
-      WSM_PORT: 9004
+      WSM_HOST: wsm
+      WSM_PORT: 9000
       QUEUE_IN: menu_items_queue
       QUEUE_OUT: menu_items_coord_cleaned
       DATA_TYPE: menu_items
     networks:
     - coffee-net
-  wsm_menu_items:
-    build:
-      context: .
-      dockerfile: WSM/Dockerfile
-    environment:
-      PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/worker_states_menu_items.json
-      HOST: 0.0.0.0
-      PORT: 9541
-      WSM_CONTROL_BASE_PORT: 9140
-      WSM_NAME: wsm_menu_items
-      WSM_ID: 1
-    volumes:
-    - ./output_wsm/worker_states_menu_items:/app/output
-    networks:
-    - coffee-net
-    container_name: wsm_menu_items
   coordinator_cleaner_menu_items:
     build:
       context: .
@@ -379,37 +314,20 @@ services:
         condition: service_healthy
       coordinator_temporal_filter_transactions_q4:
         condition: service_started
-      wsm_transactions_q4:
+      wsm:
         condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_USER: admin
       RABBITMQ_PASS: secretpassword
-      WSM_HOST: wsm_transactions_q4
-      WSM_PORT: 9005
+      WSM_HOST: wsm
+      WSM_PORT: 9000
       QUEUE_IN: transactions_filtered_Q4
       QUEUE_OUT: transactions_coord_cleaned_Q4
       DATA_TYPE: transactions_q4
     networks:
     - coffee-net
-  wsm_transactions_q4:
-    build:
-      context: .
-      dockerfile: WSM/Dockerfile
-    environment:
-      PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/worker_states_transactions_q4.json
-      HOST: 0.0.0.0
-      PORT: 9551
-      WSM_CONTROL_BASE_PORT: 9150
-      WSM_NAME: wsm_transactions_q4
-      WSM_ID: 1
-    volumes:
-    - ./output_wsm/worker_states_transactions_q4:/app/output
-    networks:
-    - coffee-net
-    container_name: wsm_transactions_q4
   coordinator_cleaner_transactions_q4:
     build:
       context: .
@@ -438,7 +356,7 @@ services:
         condition: service_healthy
       coordinator_cleaner_transactions:
         condition: service_started
-      wsm_temporal_filter_transactions:
+      wsm:
         condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
@@ -447,29 +365,12 @@ services:
       RABBITMQ_PASS: secretpassword
       QUEUE_IN: transactions_cleaned
       QUEUE_OUT: transactions_coord_filtered_Q1,transactions_coord_filtered_Q3,transactions_coord_filtered_Q4
-      DATA_TYPE: transactions
+      DATA_TYPE: transactions_filtered
       FILTER_TYPE: temporal
-      WSM_HOST: wsm_temporal_filter_transactions
-      WSM_PORT: 9009
+      WSM_HOST: wsm
+      WSM_PORT: 9000
     networks:
     - coffee-net
-  wsm_temporal_filter_transactions:
-    build:
-      context: .
-      dockerfile: WSM/Dockerfile
-    environment:
-      PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/worker_states_temporal_filter_transactions.json
-      HOST: 0.0.0.0
-      PORT: 9561
-      WSM_CONTROL_BASE_PORT: 9160
-      WSM_NAME: wsm_temporal_filter_transactions
-      WSM_ID: 1
-    volumes:
-    - ./output_wsm/worker_states_temporal_filter_transactions:/app/output
-    networks:
-    - coffee-net
-    container_name: wsm_temporal_filter_transactions
   coordinator_temporal_filter_transactions_q1:
     build:
       context: .
@@ -536,7 +437,7 @@ services:
         condition: service_healthy
       coordinator_cleaner_transaction_items:
         condition: service_started
-      wsm_temporal_filter_transaction_items:
+      wsm:
         condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
@@ -547,27 +448,10 @@ services:
       QUEUE_OUT: transaction_items_coord_filtered_Q2
       DATA_TYPE: transaction_items
       FILTER_TYPE: temporal
-      WSM_HOST: wsm_temporal_filter_transaction_items
-      WSM_PORT: 9010
+      WSM_HOST: wsm
+      WSM_PORT: 9000
     networks:
     - coffee-net
-  wsm_temporal_filter_transaction_items:
-    build:
-      context: .
-      dockerfile: WSM/Dockerfile
-    environment:
-      PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/worker_states_temporal_filter_transaction_items.json
-      HOST: 0.0.0.0
-      PORT: 9571
-      WSM_CONTROL_BASE_PORT: 9170
-      WSM_NAME: wsm_temporal_filter_transaction_items
-      WSM_ID: 1
-    volumes:
-    - ./output_wsm/worker_states_temporal_filter_transaction_items:/app/output
-    networks:
-    - coffee-net
-    container_name: wsm_temporal_filter_transaction_items
   coordinator_temporal_filter_transaction_items:
     build:
       context: .
@@ -596,7 +480,7 @@ services:
         condition: service_healthy
       coordinator_temporal_filter_transactions_q1:
         condition: service_started
-      wsm_amount_filter_transactions:
+      wsm:
         condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
@@ -605,30 +489,13 @@ services:
       RABBITMQ_PASS: secretpassword
       QUEUE_IN: transactions_filtered_Q1
       QUEUE_OUT: transactions_coord_filtered_Q1_b
-      DATA_TYPE: transactions
+      DATA_TYPE: transactions_filtered
       FILTER_TYPE: amount
       MIN_AMOUNT: 75
-      WSM_HOST: wsm_amount_filter_transactions
-      WSM_PORT: 9011
+      WSM_HOST: wsm
+      WSM_PORT: 9000
     networks:
     - coffee-net
-  wsm_amount_filter_transactions:
-    build:
-      context: .
-      dockerfile: WSM/Dockerfile
-    environment:
-      PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/worker_states_amount_filter_transactions.json
-      HOST: 0.0.0.0
-      PORT: 9581
-      WSM_CONTROL_BASE_PORT: 9180
-      WSM_NAME: wsm_amount_filter_transactions
-      WSM_ID: 1
-    volumes:
-    - ./output_wsm/worker_states_amount_filter_transactions:/app/output
-    networks:
-    - coffee-net
-    container_name: wsm_amount_filter_transactions
   coordinator_amount_filter_transactions:
     build:
       context: .
@@ -657,7 +524,7 @@ services:
         condition: service_healthy
       coordinator_temporal_filter_transaction_items:
         condition: service_started
-      wsm_grouper_q2:
+      wsm:
         condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
@@ -667,29 +534,12 @@ services:
       QUEUE_IN: transaction_items_filtered_Q2
       COMPLETION_QUEUE: reducer_q2_signal
       GROUPER_MODE: q2
-      WSM_HOST: wsm_grouper_q2
-      WSM_PORT: 9006
+      WSM_HOST: wsm
+      WSM_PORT: 9000
     volumes:
     - ./grouper_v2/temp/q2:/app/temp/grouper_v2_q2
     networks:
     - coffee-net
-  wsm_grouper_q2:
-    build:
-      context: .
-      dockerfile: WSM/Dockerfile
-    environment:
-      PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/worker_states_grouper_q2.json
-      HOST: 0.0.0.0
-      PORT: 9591
-      WSM_CONTROL_BASE_PORT: 9190
-      WSM_NAME: wsm_grouper_q2
-      WSM_ID: 1
-    volumes:
-    - ./output_wsm/worker_states_grouper_q2:/app/output
-    networks:
-    - coffee-net
-    container_name: wsm_grouper_q2
   reducer_q2:
     build:
       context: .
@@ -773,7 +623,7 @@ services:
         condition: service_healthy
       coordinator_temporal_filter_transactions_q3:
         condition: service_started
-      wsm_grouper_q3:
+      wsm:
         condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
@@ -783,29 +633,12 @@ services:
       QUEUE_IN: transactions_filtered_Q3
       COMPLETION_QUEUE: reducer_q3_signal
       GROUPER_MODE: q3
-      WSM_HOST: wsm_grouper_q3
-      WSM_PORT: 9007
+      WSM_HOST: wsm
+      WSM_PORT: 9000
     volumes:
     - ./grouper_v2/temp/q3:/app/temp/grouper_v2_q3
     networks:
     - coffee-net
-  wsm_grouper_q3:
-    build:
-      context: .
-      dockerfile: WSM/Dockerfile
-    environment:
-      PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/worker_states_grouper_q3.json
-      HOST: 0.0.0.0
-      PORT: 9601
-      WSM_CONTROL_BASE_PORT: 9200
-      WSM_NAME: wsm_grouper_q3
-      WSM_ID: 1
-    volumes:
-    - ./output_wsm/worker_states_grouper_q3:/app/output
-    networks:
-    - coffee-net
-    container_name: wsm_grouper_q3
   reducer_q3:
     build:
       context: .
@@ -889,7 +722,7 @@ services:
         condition: service_healthy
       coordinator_cleaner_transactions_q4:
         condition: service_started
-      wsm_grouper_q4:
+      wsm:
         condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
@@ -899,29 +732,12 @@ services:
       QUEUE_IN: transactions_cleaned_Q4
       COMPLETION_QUEUE: reducer_q4_signal
       GROUPER_MODE: q4
-      WSM_HOST: wsm_grouper_q4
-      WSM_PORT: 9008
+      WSM_HOST: wsm
+      WSM_PORT: 9000
     volumes:
     - ./grouper_v2/temp/q4:/app/temp/grouper_v2_q4
     networks:
     - coffee-net
-  wsm_grouper_q4:
-    build:
-      context: .
-      dockerfile: WSM/Dockerfile
-    environment:
-      PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/worker_states_grouper_q4.json
-      HOST: 0.0.0.0
-      PORT: 9611
-      WSM_CONTROL_BASE_PORT: 9210
-      WSM_NAME: wsm_grouper_q4
-      WSM_ID: 1
-    volumes:
-    - ./output_wsm/worker_states_grouper_q4:/app/output
-    networks:
-    - coffee-net
-    container_name: wsm_grouper_q4
   reducer_q4:
     build:
       context: .
@@ -1005,7 +821,7 @@ services:
         condition: service_healthy
       coordinator_amount_filter_transactions:
         condition: service_started
-      wsm_splitter_q1:
+      wsm:
         condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
@@ -1014,31 +830,14 @@ services:
       RABBITMQ_PASS: secretpassword
       QUEUE_IN: transactions_filtered_Q1_b
       COMPLETION_QUEUE: sorter_q1_v2_signal
-      WSM_HOST: wsm_splitter_q1
-      WSM_PORT: 9020
+      WSM_HOST: wsm
+      WSM_PORT: 9000
       CHUNK_SIZE: 1000
       BASE_TEMP_DIR: /app/temp/splitter_q1
     volumes:
     - ./splitter/temp:/app/temp
     networks:
     - coffee-net
-  wsm_splitter_q1:
-    build:
-      context: .
-      dockerfile: WSM/Dockerfile
-    environment:
-      PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/worker_states_splitter_q1.json
-      HOST: 0.0.0.0
-      PORT: 9621
-      WSM_CONTROL_BASE_PORT: 9220
-      WSM_NAME: wsm_splitter_q1
-      WSM_ID: 1
-    volumes:
-    - ./output_wsm/worker_states_splitter_q1:/app/output
-    networks:
-    - coffee-net
-    container_name: wsm_splitter_q1
   sorter_q1_v2:
     build:
       context: .
@@ -1097,7 +896,7 @@ services:
         condition: service_started
       sender_grouper_q2:
         condition: service_started
-      wsm_q2:
+      wsm:
         condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
@@ -1108,30 +907,12 @@ services:
       QUEUE_OUT: sender_q2_a_signal, sender_q2_b_signal
       OUTPUT_FILE: /app/output/q2_a.csv, /app/output/q2_b.csv
       QUERY_TYPE: q2
-      WSM_HOST: wsm_q2
-      WSM_PORT: 9050
+      WSM_HOST: wsm
+      WSM_PORT: 9000
     volumes:
     - ./output:/app/output
     networks:
     - coffee-net
-  wsm_q2:
-    build:
-      context: .
-      dockerfile: WSM/Dockerfile
-    environment:
-      PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/joiner_states_q2.json
-      HOST: 0.0.0.0
-      PORT: 9631
-      WSM_CONTROL_BASE_PORT: 9230
-      WSM_NAME: wsm_q2
-      USING_END_SYNC: 1
-      WSM_ID: 1
-    volumes:
-    - ./output_wsm/joiner_states_q2:/app/output
-    networks:
-    - coffee-net
-    container_name: wsm_q2
   sender_q2_a:
     build:
       context: .
@@ -1191,7 +972,7 @@ services:
         condition: service_started
       sender_grouper_q3:
         condition: service_started
-      wsm_q3:
+      wsm:
         condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
@@ -1202,30 +983,12 @@ services:
       QUEUE_OUT: sort_q3_request
       OUTPUT_FILE: /app/output/q3_unsorted.csv
       QUERY_TYPE: q3
-      WSM_HOST: wsm_q3
-      WSM_PORT: 9052
+      WSM_HOST: wsm
+      WSM_PORT: 9000
     volumes:
     - ./output:/app/output
     networks:
     - coffee-net
-  wsm_q3:
-    build:
-      context: .
-      dockerfile: WSM/Dockerfile
-    environment:
-      PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/joiner_states_q3.json
-      HOST: 0.0.0.0
-      PORT: 9641
-      WSM_CONTROL_BASE_PORT: 9240
-      WSM_NAME: wsm_q3
-      USING_END_SYNC: 1
-      WSM_ID: 1
-    volumes:
-    - ./output_wsm/joiner_states_q3:/app/output
-    networks:
-    - coffee-net
-    container_name: wsm_q3
   sorter_q3:
     build:
       context: .
@@ -1287,7 +1050,7 @@ services:
         condition: service_started
       sender_grouper_q4:
         condition: service_started
-      wsm_q4:
+      wsm:
         condition: service_started
     environment:
       PYTHONUNBUFFERED: 1
@@ -1298,30 +1061,12 @@ services:
       QUEUE_OUT: sort_q4_request
       OUTPUT_FILE: /app/output/q4_unsorted.csv
       QUERY_TYPE: q4
-      WSM_HOST: wsm_q4
-      WSM_PORT: 9051
+      WSM_HOST: wsm
+      WSM_PORT: 9000
     volumes:
     - ./output:/app/output
     networks:
     - coffee-net
-  wsm_q4:
-    build:
-      context: .
-      dockerfile: WSM/Dockerfile
-    environment:
-      PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/joiner_states_q4.json
-      HOST: 0.0.0.0
-      PORT: 9651
-      WSM_CONTROL_BASE_PORT: 9250
-      WSM_NAME: wsm_q4
-      USING_END_SYNC: 1
-      WSM_ID: 1
-    volumes:
-    - ./output_wsm/joiner_states_q4:/app/output
-    networks:
-    - coffee-net
-    container_name: wsm_q4
   sorter_q4:
     build:
       context: .
@@ -1370,620 +1115,54 @@ services:
     - ./output:/app/output
     networks:
     - coffee-net
-  wsm_transactions_2:
+  wsm_2:
     build:
       context: .
       dockerfile: WSM/Dockerfile
     environment:
       PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/worker_states_transactions.json
+      STATE_FILE_PATH: /app/output/worker_states.json
       HOST: 0.0.0.0
-      PORT: 9502
+      PORT: 9001
+      USING_END_SYNC: 1
       WSM_CONTROL_BASE_PORT: 9100
-      WSM_NAME: wsm_transactions
+      WSM_NAME: wsm
       WSM_ID: 2
+      WSM_REPLICAS: 3
     volumes:
-    - ./output_wsm/worker_states_transactions:/app/output
+    - ./output_wsm:/app/output
+    - /var/run/docker.sock:/var/run/docker.sock
     networks:
     - coffee-net
-    container_name: wsm_transactions_2
+    container_name: wsm_2
+    ports:
+    - 9001:9001
     depends_on:
-    - wsm_transactions
-  wsm_transactions_3:
+    - wsm
+  wsm_3:
     build:
       context: .
       dockerfile: WSM/Dockerfile
     environment:
       PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/worker_states_transactions.json
+      STATE_FILE_PATH: /app/output/worker_states.json
       HOST: 0.0.0.0
-      PORT: 9503
+      PORT: 9002
+      USING_END_SYNC: 1
       WSM_CONTROL_BASE_PORT: 9100
-      WSM_NAME: wsm_transactions
+      WSM_NAME: wsm
       WSM_ID: 3
+      WSM_REPLICAS: 3
     volumes:
-    - ./output_wsm/worker_states_transactions:/app/output
+    - ./output_wsm:/app/output
+    - /var/run/docker.sock:/var/run/docker.sock
     networks:
     - coffee-net
-    container_name: wsm_transactions_3
+    container_name: wsm_3
+    ports:
+    - 9002:9002
     depends_on:
-    - wsm_transactions_2
-  wsm_transaction_items_2:
-    build:
-      context: .
-      dockerfile: WSM/Dockerfile
-    environment:
-      PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/worker_states_transaction_items.json
-      HOST: 0.0.0.0
-      PORT: 9512
-      WSM_CONTROL_BASE_PORT: 9110
-      WSM_NAME: wsm_transaction_items
-      WSM_ID: 2
-    volumes:
-    - ./output_wsm/worker_states_transaction_items:/app/output
-    networks:
-    - coffee-net
-    container_name: wsm_transaction_items_2
-    depends_on:
-    - wsm_transaction_items
-  wsm_transaction_items_3:
-    build:
-      context: .
-      dockerfile: WSM/Dockerfile
-    environment:
-      PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/worker_states_transaction_items.json
-      HOST: 0.0.0.0
-      PORT: 9513
-      WSM_CONTROL_BASE_PORT: 9110
-      WSM_NAME: wsm_transaction_items
-      WSM_ID: 3
-    volumes:
-    - ./output_wsm/worker_states_transaction_items:/app/output
-    networks:
-    - coffee-net
-    container_name: wsm_transaction_items_3
-    depends_on:
-    - wsm_transaction_items_2
-  wsm_users_2:
-    build:
-      context: .
-      dockerfile: WSM/Dockerfile
-    environment:
-      PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/worker_states_users.json
-      HOST: 0.0.0.0
-      PORT: 9522
-      WSM_CONTROL_BASE_PORT: 9120
-      WSM_NAME: wsm_users
-      WSM_ID: 2
-    volumes:
-    - ./output_wsm/worker_states_users:/app/output
-    networks:
-    - coffee-net
-    container_name: wsm_users_2
-    depends_on:
-    - wsm_users
-  wsm_users_3:
-    build:
-      context: .
-      dockerfile: WSM/Dockerfile
-    environment:
-      PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/worker_states_users.json
-      HOST: 0.0.0.0
-      PORT: 9523
-      WSM_CONTROL_BASE_PORT: 9120
-      WSM_NAME: wsm_users
-      WSM_ID: 3
-    volumes:
-    - ./output_wsm/worker_states_users:/app/output
-    networks:
-    - coffee-net
-    container_name: wsm_users_3
-    depends_on:
-    - wsm_users_2
-  wsm_stores_2:
-    build:
-      context: .
-      dockerfile: WSM/Dockerfile
-    environment:
-      PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/worker_states_stores.json
-      HOST: 0.0.0.0
-      PORT: 9532
-      WSM_CONTROL_BASE_PORT: 9130
-      WSM_NAME: wsm_stores
-      WSM_ID: 2
-    volumes:
-    - ./output_wsm/worker_states_stores:/app/output
-    networks:
-    - coffee-net
-    container_name: wsm_stores_2
-    depends_on:
-    - wsm_stores
-  wsm_stores_3:
-    build:
-      context: .
-      dockerfile: WSM/Dockerfile
-    environment:
-      PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/worker_states_stores.json
-      HOST: 0.0.0.0
-      PORT: 9533
-      WSM_CONTROL_BASE_PORT: 9130
-      WSM_NAME: wsm_stores
-      WSM_ID: 3
-    volumes:
-    - ./output_wsm/worker_states_stores:/app/output
-    networks:
-    - coffee-net
-    container_name: wsm_stores_3
-    depends_on:
-    - wsm_stores_2
-  wsm_menu_items_2:
-    build:
-      context: .
-      dockerfile: WSM/Dockerfile
-    environment:
-      PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/worker_states_menu_items.json
-      HOST: 0.0.0.0
-      PORT: 9542
-      WSM_CONTROL_BASE_PORT: 9140
-      WSM_NAME: wsm_menu_items
-      WSM_ID: 2
-    volumes:
-    - ./output_wsm/worker_states_menu_items:/app/output
-    networks:
-    - coffee-net
-    container_name: wsm_menu_items_2
-    depends_on:
-    - wsm_menu_items
-  wsm_menu_items_3:
-    build:
-      context: .
-      dockerfile: WSM/Dockerfile
-    environment:
-      PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/worker_states_menu_items.json
-      HOST: 0.0.0.0
-      PORT: 9543
-      WSM_CONTROL_BASE_PORT: 9140
-      WSM_NAME: wsm_menu_items
-      WSM_ID: 3
-    volumes:
-    - ./output_wsm/worker_states_menu_items:/app/output
-    networks:
-    - coffee-net
-    container_name: wsm_menu_items_3
-    depends_on:
-    - wsm_menu_items_2
-  wsm_transactions_q4_2:
-    build:
-      context: .
-      dockerfile: WSM/Dockerfile
-    environment:
-      PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/worker_states_transactions_q4.json
-      HOST: 0.0.0.0
-      PORT: 9552
-      WSM_CONTROL_BASE_PORT: 9150
-      WSM_NAME: wsm_transactions_q4
-      WSM_ID: 2
-    volumes:
-    - ./output_wsm/worker_states_transactions_q4:/app/output
-    networks:
-    - coffee-net
-    container_name: wsm_transactions_q4_2
-    depends_on:
-    - wsm_transactions_q4
-  wsm_transactions_q4_3:
-    build:
-      context: .
-      dockerfile: WSM/Dockerfile
-    environment:
-      PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/worker_states_transactions_q4.json
-      HOST: 0.0.0.0
-      PORT: 9553
-      WSM_CONTROL_BASE_PORT: 9150
-      WSM_NAME: wsm_transactions_q4
-      WSM_ID: 3
-    volumes:
-    - ./output_wsm/worker_states_transactions_q4:/app/output
-    networks:
-    - coffee-net
-    container_name: wsm_transactions_q4_3
-    depends_on:
-    - wsm_transactions_q4_2
-  wsm_temporal_filter_transactions_2:
-    build:
-      context: .
-      dockerfile: WSM/Dockerfile
-    environment:
-      PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/worker_states_temporal_filter_transactions.json
-      HOST: 0.0.0.0
-      PORT: 9562
-      WSM_CONTROL_BASE_PORT: 9160
-      WSM_NAME: wsm_temporal_filter_transactions
-      WSM_ID: 2
-    volumes:
-    - ./output_wsm/worker_states_temporal_filter_transactions:/app/output
-    networks:
-    - coffee-net
-    container_name: wsm_temporal_filter_transactions_2
-    depends_on:
-    - wsm_temporal_filter_transactions
-  wsm_temporal_filter_transactions_3:
-    build:
-      context: .
-      dockerfile: WSM/Dockerfile
-    environment:
-      PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/worker_states_temporal_filter_transactions.json
-      HOST: 0.0.0.0
-      PORT: 9563
-      WSM_CONTROL_BASE_PORT: 9160
-      WSM_NAME: wsm_temporal_filter_transactions
-      WSM_ID: 3
-    volumes:
-    - ./output_wsm/worker_states_temporal_filter_transactions:/app/output
-    networks:
-    - coffee-net
-    container_name: wsm_temporal_filter_transactions_3
-    depends_on:
-    - wsm_temporal_filter_transactions_2
-  wsm_temporal_filter_transaction_items_2:
-    build:
-      context: .
-      dockerfile: WSM/Dockerfile
-    environment:
-      PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/worker_states_temporal_filter_transaction_items.json
-      HOST: 0.0.0.0
-      PORT: 9572
-      WSM_CONTROL_BASE_PORT: 9170
-      WSM_NAME: wsm_temporal_filter_transaction_items
-      WSM_ID: 2
-    volumes:
-    - ./output_wsm/worker_states_temporal_filter_transaction_items:/app/output
-    networks:
-    - coffee-net
-    container_name: wsm_temporal_filter_transaction_items_2
-    depends_on:
-    - wsm_temporal_filter_transaction_items
-  wsm_temporal_filter_transaction_items_3:
-    build:
-      context: .
-      dockerfile: WSM/Dockerfile
-    environment:
-      PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/worker_states_temporal_filter_transaction_items.json
-      HOST: 0.0.0.0
-      PORT: 9573
-      WSM_CONTROL_BASE_PORT: 9170
-      WSM_NAME: wsm_temporal_filter_transaction_items
-      WSM_ID: 3
-    volumes:
-    - ./output_wsm/worker_states_temporal_filter_transaction_items:/app/output
-    networks:
-    - coffee-net
-    container_name: wsm_temporal_filter_transaction_items_3
-    depends_on:
-    - wsm_temporal_filter_transaction_items_2
-  wsm_amount_filter_transactions_2:
-    build:
-      context: .
-      dockerfile: WSM/Dockerfile
-    environment:
-      PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/worker_states_amount_filter_transactions.json
-      HOST: 0.0.0.0
-      PORT: 9582
-      WSM_CONTROL_BASE_PORT: 9180
-      WSM_NAME: wsm_amount_filter_transactions
-      WSM_ID: 2
-    volumes:
-    - ./output_wsm/worker_states_amount_filter_transactions:/app/output
-    networks:
-    - coffee-net
-    container_name: wsm_amount_filter_transactions_2
-    depends_on:
-    - wsm_amount_filter_transactions
-  wsm_amount_filter_transactions_3:
-    build:
-      context: .
-      dockerfile: WSM/Dockerfile
-    environment:
-      PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/worker_states_amount_filter_transactions.json
-      HOST: 0.0.0.0
-      PORT: 9583
-      WSM_CONTROL_BASE_PORT: 9180
-      WSM_NAME: wsm_amount_filter_transactions
-      WSM_ID: 3
-    volumes:
-    - ./output_wsm/worker_states_amount_filter_transactions:/app/output
-    networks:
-    - coffee-net
-    container_name: wsm_amount_filter_transactions_3
-    depends_on:
-    - wsm_amount_filter_transactions_2
-  wsm_grouper_q2_2:
-    build:
-      context: .
-      dockerfile: WSM/Dockerfile
-    environment:
-      PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/worker_states_grouper_q2.json
-      HOST: 0.0.0.0
-      PORT: 9592
-      WSM_CONTROL_BASE_PORT: 9190
-      WSM_NAME: wsm_grouper_q2
-      WSM_ID: 2
-    volumes:
-    - ./output_wsm/worker_states_grouper_q2:/app/output
-    networks:
-    - coffee-net
-    container_name: wsm_grouper_q2_2
-    depends_on:
-    - wsm_grouper_q2
-  wsm_grouper_q2_3:
-    build:
-      context: .
-      dockerfile: WSM/Dockerfile
-    environment:
-      PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/worker_states_grouper_q2.json
-      HOST: 0.0.0.0
-      PORT: 9593
-      WSM_CONTROL_BASE_PORT: 9190
-      WSM_NAME: wsm_grouper_q2
-      WSM_ID: 3
-    volumes:
-    - ./output_wsm/worker_states_grouper_q2:/app/output
-    networks:
-    - coffee-net
-    container_name: wsm_grouper_q2_3
-    depends_on:
-    - wsm_grouper_q2_2
-  wsm_grouper_q3_2:
-    build:
-      context: .
-      dockerfile: WSM/Dockerfile
-    environment:
-      PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/worker_states_grouper_q3.json
-      HOST: 0.0.0.0
-      PORT: 9602
-      WSM_CONTROL_BASE_PORT: 9200
-      WSM_NAME: wsm_grouper_q3
-      WSM_ID: 2
-    volumes:
-    - ./output_wsm/worker_states_grouper_q3:/app/output
-    networks:
-    - coffee-net
-    container_name: wsm_grouper_q3_2
-    depends_on:
-    - wsm_grouper_q3
-  wsm_grouper_q3_3:
-    build:
-      context: .
-      dockerfile: WSM/Dockerfile
-    environment:
-      PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/worker_states_grouper_q3.json
-      HOST: 0.0.0.0
-      PORT: 9603
-      WSM_CONTROL_BASE_PORT: 9200
-      WSM_NAME: wsm_grouper_q3
-      WSM_ID: 3
-    volumes:
-    - ./output_wsm/worker_states_grouper_q3:/app/output
-    networks:
-    - coffee-net
-    container_name: wsm_grouper_q3_3
-    depends_on:
-    - wsm_grouper_q3_2
-  wsm_grouper_q4_2:
-    build:
-      context: .
-      dockerfile: WSM/Dockerfile
-    environment:
-      PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/worker_states_grouper_q4.json
-      HOST: 0.0.0.0
-      PORT: 9612
-      WSM_CONTROL_BASE_PORT: 9210
-      WSM_NAME: wsm_grouper_q4
-      WSM_ID: 2
-    volumes:
-    - ./output_wsm/worker_states_grouper_q4:/app/output
-    networks:
-    - coffee-net
-    container_name: wsm_grouper_q4_2
-    depends_on:
-    - wsm_grouper_q4
-  wsm_grouper_q4_3:
-    build:
-      context: .
-      dockerfile: WSM/Dockerfile
-    environment:
-      PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/worker_states_grouper_q4.json
-      HOST: 0.0.0.0
-      PORT: 9613
-      WSM_CONTROL_BASE_PORT: 9210
-      WSM_NAME: wsm_grouper_q4
-      WSM_ID: 3
-    volumes:
-    - ./output_wsm/worker_states_grouper_q4:/app/output
-    networks:
-    - coffee-net
-    container_name: wsm_grouper_q4_3
-    depends_on:
-    - wsm_grouper_q4_2
-  wsm_splitter_q1_2:
-    build:
-      context: .
-      dockerfile: WSM/Dockerfile
-    environment:
-      PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/worker_states_splitter_q1.json
-      HOST: 0.0.0.0
-      PORT: 9622
-      WSM_CONTROL_BASE_PORT: 9220
-      WSM_NAME: wsm_splitter_q1
-      WSM_ID: 2
-    volumes:
-    - ./output_wsm/worker_states_splitter_q1:/app/output
-    networks:
-    - coffee-net
-    container_name: wsm_splitter_q1_2
-    depends_on:
-    - wsm_splitter_q1
-  wsm_splitter_q1_3:
-    build:
-      context: .
-      dockerfile: WSM/Dockerfile
-    environment:
-      PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/worker_states_splitter_q1.json
-      HOST: 0.0.0.0
-      PORT: 9623
-      WSM_CONTROL_BASE_PORT: 9220
-      WSM_NAME: wsm_splitter_q1
-      WSM_ID: 3
-    volumes:
-    - ./output_wsm/worker_states_splitter_q1:/app/output
-    networks:
-    - coffee-net
-    container_name: wsm_splitter_q1_3
-    depends_on:
-    - wsm_splitter_q1_2
-  wsm_q2_2:
-    build:
-      context: .
-      dockerfile: WSM/Dockerfile
-    environment:
-      PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/joiner_states_q2.json
-      HOST: 0.0.0.0
-      PORT: 9632
-      WSM_CONTROL_BASE_PORT: 9230
-      WSM_NAME: wsm_q2
-      USING_END_SYNC: 1
-      WSM_ID: 2
-    volumes:
-    - ./output_wsm/joiner_states_q2:/app/output
-    networks:
-    - coffee-net
-    container_name: wsm_q2_2
-    depends_on:
-    - wsm_q2
-  wsm_q2_3:
-    build:
-      context: .
-      dockerfile: WSM/Dockerfile
-    environment:
-      PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/joiner_states_q2.json
-      HOST: 0.0.0.0
-      PORT: 9633
-      WSM_CONTROL_BASE_PORT: 9230
-      WSM_NAME: wsm_q2
-      USING_END_SYNC: 1
-      WSM_ID: 3
-    volumes:
-    - ./output_wsm/joiner_states_q2:/app/output
-    networks:
-    - coffee-net
-    container_name: wsm_q2_3
-    depends_on:
-    - wsm_q2_2
-  wsm_q3_2:
-    build:
-      context: .
-      dockerfile: WSM/Dockerfile
-    environment:
-      PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/joiner_states_q3.json
-      HOST: 0.0.0.0
-      PORT: 9642
-      WSM_CONTROL_BASE_PORT: 9240
-      WSM_NAME: wsm_q3
-      USING_END_SYNC: 1
-      WSM_ID: 2
-    volumes:
-    - ./output_wsm/joiner_states_q3:/app/output
-    networks:
-    - coffee-net
-    container_name: wsm_q3_2
-    depends_on:
-    - wsm_q3
-  wsm_q3_3:
-    build:
-      context: .
-      dockerfile: WSM/Dockerfile
-    environment:
-      PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/joiner_states_q3.json
-      HOST: 0.0.0.0
-      PORT: 9643
-      WSM_CONTROL_BASE_PORT: 9240
-      WSM_NAME: wsm_q3
-      USING_END_SYNC: 1
-      WSM_ID: 3
-    volumes:
-    - ./output_wsm/joiner_states_q3:/app/output
-    networks:
-    - coffee-net
-    container_name: wsm_q3_3
-    depends_on:
-    - wsm_q3_2
-  wsm_q4_2:
-    build:
-      context: .
-      dockerfile: WSM/Dockerfile
-    environment:
-      PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/joiner_states_q4.json
-      HOST: 0.0.0.0
-      PORT: 9652
-      WSM_CONTROL_BASE_PORT: 9250
-      WSM_NAME: wsm_q4
-      USING_END_SYNC: 1
-      WSM_ID: 2
-    volumes:
-    - ./output_wsm/joiner_states_q4:/app/output
-    networks:
-    - coffee-net
-    container_name: wsm_q4_2
-    depends_on:
-    - wsm_q4
-  wsm_q4_3:
-    build:
-      context: .
-      dockerfile: WSM/Dockerfile
-    environment:
-      PYTHONUNBUFFERED: 1
-      STATE_FILE_PATH: /app/output/joiner_states_q4.json
-      HOST: 0.0.0.0
-      PORT: 9653
-      WSM_CONTROL_BASE_PORT: 9250
-      WSM_NAME: wsm_q4
-      USING_END_SYNC: 1
-      WSM_ID: 3
-    volumes:
-    - ./output_wsm/joiner_states_q4:/app/output
-    networks:
-    - coffee-net
-    container_name: wsm_q4_3
-    depends_on:
-    - wsm_q4_2
+    - wsm_2
 networks:
   coffee-net:
     driver: bridge

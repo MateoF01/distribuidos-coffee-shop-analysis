@@ -68,6 +68,7 @@ class WSMClient:
         port: int = 9000,
         nodes: Optional[List[Tuple[str, int]]] = None,
         probe_interval: float = 1.0,
+        wsm_sync: bool = True
     ):
         """
         Initialize WSM client with automatic leader discovery.
@@ -79,6 +80,7 @@ class WSMClient:
             port: Default port (used if nodes=None).
             nodes: List of (host, port) for all WSM nodes.
             probe_interval: Seconds between leader discovery attempts.
+            wsm_sync: Whether this worker participates in global END synchronization.
         
         Example:
             ```python
@@ -96,6 +98,7 @@ class WSMClient:
         self.worker_type = worker_type
         self.replica_id = replica_id
         self.probe_interval = probe_interval
+        self.wsm_sync = wsm_sync
 
         # Lista de nodos disponibles (líder + backups)
         if nodes is None:
@@ -280,7 +283,8 @@ class WSMClient:
         msg = {
             "action": "register",
             "worker_type": self.worker_type,
-            "replica_id": self.replica_id
+            "replica_id": self.replica_id,
+            "sync": self.wsm_sync
         }
         try:
             self._safe_request(msg)

@@ -175,11 +175,12 @@ class GrouperV2(StreamProcessingWorker):
         wsm_host = os.environ.get("WSM_HOST", "wsm")
         wsm_port = int(os.environ.get("WSM_PORT", "9000"))
         self.wsm_client = WSMClient(
-            worker_type="grouper",
+            worker_type=service_name,
             replica_id=replica_id,
             host=wsm_host,
             port=wsm_port,
-            nodes=wsm_nodes
+            nodes=wsm_nodes,
+            wsm_sync=False
         )
 
         logging.info(f"[GrouperV2:{self.grouper_mode}:{replica_id}] Inicializado - input: {queue_in}, output: {queue_out}")
@@ -700,6 +701,8 @@ class GrouperV2(StreamProcessingWorker):
             # File contains only: user123,1
             # Empty/whitespace users skipped
         """
+    def _q4_agg(self, rows, temp_dir):
+        # ... existing config ...
         idx_store, idx_user = 3, 4
         grouped = {}
         for row in rows:

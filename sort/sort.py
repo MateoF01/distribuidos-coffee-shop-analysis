@@ -276,6 +276,16 @@ class Sorter(FileProcessingWorker):
         """
         temp_files = self._temp_files_by_request.get(request_id, [])
         if not temp_files:
+            # If no temp files, it means we have no data rows (only header or nothing).
+            # We must still create the output file (with header) so downstream workers don't fail.
+            if header:
+                def write_header_only(output_path):
+                    with open(output_path, 'w', newline=self.config.newline_mode, encoding=self.config.encoding) as output_file:
+                        writer = csv.writer(output_file)
+                        writer.writerow(header)
+                
+                FileProcessingWorker.atomic_write(self.output_file, write_header_only)
+                print(f"Created output file {self.output_file} with only header (no data rows)")
             return
 
         try:

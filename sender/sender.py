@@ -136,6 +136,8 @@ class Sender(FileProcessingWorker):
             print(f"[ERROR] Input file {self.input_file} does not exist")
             return
         
+
+        
         try:
             rows_sent = 0
             batch = []

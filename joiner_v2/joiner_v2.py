@@ -108,7 +108,8 @@ class Joiner_v2(Worker):
                 replica_id=self.replica_id,
                 host=wsm_host,
                 port=wsm_port,
-                nodes=wsm_nodes
+                nodes=wsm_nodes,
+                wsm_sync=self.wsm_sync
             )
 
         if isinstance(output_file, str):
@@ -317,6 +318,22 @@ class Joiner_v2(Worker):
             logging.info(f"[Joiner:{self.query_type}] Sent sort request and marked as WAITING for request_id={request_id}")
             return
 
+        # --- Explicit Sequence Barrier ---
+        # Ensure all previous data messages (positions 1 to N-1) are processed.
+        # This prevents race conditions where END (pos N) is processed by Replica A
+        # while Data (pos K < N) is still being processed by Replica B.
+        backoff = self.backoff_start
+        for prev_pos in range(1, position):
+             waited_for_pos = 0.0
+             while not wsm_client.is_position_processed(request_id, prev_pos):
+                 if waited_for_pos >= self.backoff_max * 2: # Give it some time but don't hang forever if possible
+                     logging.warning(f"[Joiner:{self.query_type}] Waiting for missing position {prev_pos} (request_id={request_id}) from {queue_name}...")
+                     waited_for_pos = 0.0 # reset logs to avoid spamming too fast but keep waiting
+                 
+                 time.sleep(backoff)
+                 waited_for_pos += backoff
+        # ---------------------------------
+
         backoff = self.backoff_start
         total_wait = 0.0
         while not wsm_client.can_send_end(request_id, position):
@@ -479,6 +496,7 @@ class Joiner_v2(Worker):
             logging.debug(f"Atomically saved {len(rows_data)} rows to temp file: {temp_file}")
         except Exception as e:
             logging.error(f"Error saving to temp file {temp_file}: {e}")
+            raise
 
     def _send_sort_request(self, request_id, outputs):
         """
@@ -533,6 +551,23 @@ class Joiner_v2(Worker):
             raise ValueError(f"Unsupported query_type: {self.query_type}")
         self.strategies[self.query_type](request_id, temp_dir, outputs)
 
+    def _find_files_with_retry(self, path, pattern="*.csv", retries=5, delay=1.0):
+        """Helper to find files with retries for eventual consistency on mounted volumes."""
+        for attempt in range(retries):
+            files = list(Path(path).rglob(pattern))
+            if files:
+                return files
+            # Check if directory exists but is empty
+            try:
+                if os.path.exists(path) and not os.listdir(path):
+                    logging.debug(f"Directory {path} exists but is empty. Attempt {attempt+1}/{retries}")
+                elif not os.path.exists(path):
+                     logging.debug(f"Directory {path} does not exist. Attempt {attempt+1}/{retries}")
+            except Exception:
+                pass
+            time.sleep(delay)
+        return []
+
     def _process_q4(self, request_id, temp_dir, outputs):
         """
         Q4 join strategy: stores + users + visit counts.
@@ -559,7 +594,8 @@ class Joiner_v2(Worker):
 
         # Stores
         stores_path = os.path.join(temp_dir, 'stores_cleaned_q4/')
-        for file in (Path(stores_path).rglob("*.csv")):
+        pk_files = self._find_files_with_retry(stores_path)
+        for file in pk_files:
             if os.path.exists(file):
                 with open(file, 'r', encoding='utf-8') as f:
                     reader = csv.reader(f); next(reader, None)  # Skip header
@@ -567,24 +603,36 @@ class Joiner_v2(Worker):
                         # Row format: [position, store_id, store_name]
                         if len(row) >= 3:
                             stores_lookup[row[1]] = row[2]
-        logging.debug(f"Loaded {len(stores_lookup)} store mappings")
-
-        # Users
+        logging.info(f"[DEBUG_JOINER_Q4] Loaded {len(stores_lookup)} store mappings")
+        
+        # [NEW] Load Users (Missing in previous snippet but implied by context)
         users_path = os.path.join(temp_dir, 'users_cleaned/')
-        for file in (Path(users_path).rglob("*.csv")):
+        user_files = self._find_files_with_retry(users_path)
+        for file in user_files:
             if os.path.exists(file):
                 with open(file, 'r', encoding='utf-8') as f:
-                    reader = csv.reader(f); next(reader, None)  # Skip header
+                    reader = csv.reader(f); next(reader, None)
                     for row in reader:
-                        # Row format: [position, user_id, birthdate]
-                        if len(row) >= 3:
-                            users_lookup[row[1]] = row[2]
-        logging.debug(f"Loaded {len(users_lookup)} user mappings")
+                        # Row format: [position, user_id, birthdate/email]
+                        if len(row) >= 3: 
+                             users_lookup[row[1]] = row[2]
+
+        logging.info(f"[DEBUG_JOINER_Q4] Loaded {len(users_lookup)} user mappings")
 
         processed_rows = []
         processed_positions = set()
         main_path = os.path.join(temp_dir, 'resultados_groupby_q4/')
-        for file in (Path(main_path).rglob("*.csv")):
+        
+        # [DEBUG] Inspect directory contents
+        try:
+            logging.info(f"[DEBUG_JOINER_Q4] Contents of {main_path}: {os.listdir(main_path)}")
+        except Exception as e:
+            logging.error(f"[DEBUG_JOINER_Q4] Could not list {main_path}: {e}")
+
+        main_files = self._find_files_with_retry(main_path)
+        logging.info(f"[DEBUG_JOINER_Q4] Found {len(main_files)} input files in {main_path}")
+        
+        for file in main_files:
             if os.path.exists(file):
                 file_position = None
                 with open(file, 'r', encoding='utf-8') as f:
@@ -594,11 +642,13 @@ class Joiner_v2(Worker):
                         file_position = first_row[0]
                 
                 if file_position and file_position in processed_positions:
+                    logging.info(f"[DEBUG_JOINER_Q4] Skipping duplicate file position {file_position}")
                     continue
                 
                 if file_position:
                     processed_positions.add(file_position)
                 
+                rows_in_file = 0
                 with open(file, 'r', encoding='utf-8') as f:
                     reader = csv.reader(f); next(reader, None)
                     for row in reader:
@@ -607,9 +657,13 @@ class Joiner_v2(Worker):
                             store_name = stores_lookup.get(store_id, store_id)
                             birthdate = users_lookup.get(user_id, user_id)
                             processed_rows.append([store_name, birthdate])
+                            rows_in_file += 1
+                logging.info(f"[DEBUG_JOINER_Q4] Processed file {file}, found {rows_in_file} rows")
 
-        if processed_rows:
-            self._write_rows_to_csv_all(processed_rows, request_id, outputs)
+        logging.info(f"[DEBUG_JOINER_Q4] Total processed rows: {len(processed_rows)}")
+        
+        # Always write to ensure file creation (even if empty)
+        self._write_rows_to_csv_all(processed_rows, request_id, outputs)
 
         self._send_sort_request(request_id, outputs)
         logging.info(f"Q4 join complete. {len(processed_rows)} rows written across {len(outputs)} output(s).")
@@ -687,21 +741,18 @@ class Joiner_v2(Worker):
                                 rows_all.append([month_year, item_name, subtotal])
 
         out_count = len(outputs)
-        if out_count == 0:
-            logging.error("No outputs configured; skipping CSV write.")
-        elif out_count == 1:
-            if rows_all:
-                self._write_rows_to_csv_idx(0, rows_all, request_id, outputs)
-        else:
-            if rows_quantity:
-                q2a_headers = ['year_month_created_at', 'item_name', 'sellings_qty']
-                self._write_rows_to_csv_idx(0, rows_quantity, request_id, outputs, q2a_headers)
-            if rows_subtotal and out_count >= 2:
-                q2b_headers = ['year_month_created_at', 'item_name', 'profit_sum']
-                self._write_rows_to_csv_idx(1, rows_subtotal, request_id, outputs, q2b_headers)
-            if out_count > 2 and rows_all:
-                for i in range(2, out_count):
-                    self._write_rows_to_csv_idx(i, rows_all, request_id, outputs)
+        # Always write to ensure file creation (even if empty)
+        if out_count > 0:
+            q2a_headers = ['year_month_created_at', 'item_name', 'sellings_qty']
+            self._write_rows_to_csv_idx(0, rows_quantity, request_id, outputs, q2a_headers)
+            
+        if out_count >= 2:
+            q2b_headers = ['year_month_created_at', 'item_name', 'profit_sum']
+            self._write_rows_to_csv_idx(1, rows_subtotal, request_id, outputs, q2b_headers)
+
+        if out_count > 2 and rows_all:
+            for i in range(2, out_count):
+                self._write_rows_to_csv_idx(i, rows_all, request_id, outputs)
 
         self._send_sort_request(request_id, outputs)
         logging.info(f"Q2 join complete. "
@@ -771,8 +822,8 @@ class Joiner_v2(Worker):
                             store_name = stores_lookup.get(store_id, store_id)
                             processed_rows.append([year_half, store_name, tpv])
 
-        if processed_rows:
-            self._write_rows_to_csv_all(processed_rows, request_id, outputs)
+        # Always write to ensure file creation (even if empty)
+        self._write_rows_to_csv_all(processed_rows, request_id, outputs)
 
         self._send_sort_request(request_id, outputs)
         logging.info(f"Q3 join complete. {len(processed_rows)} rows written across {len(outputs)} output(s).")

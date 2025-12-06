@@ -42,7 +42,7 @@ def main():
     wsm_services = {
         name: svc
         for name, svc in services.items()
-        if name.startswith("wsm_")
+        if name.startswith("wsm_") or name == "wsm"
         and not name == "wsm_base"
     }
 
@@ -54,9 +54,11 @@ def main():
         # Réplica 1
         base_env["WSM_ID"] = 1
         base_env["WSM_NAME"] = base_name
-        base_env["PORT"] = container_port_base + 1
-        base_service["container_name"] = base_name
+        base_env["WSM_REPLICAS"] = WSM_REPLICAS
+        # Use base PORT if set, else assume offset
+        base_env["PORT"] = container_port_base
 
+        base_service["container_name"] = base_name
         base_service.pop("depends_on", None)
 
         previous = base_name
@@ -71,7 +73,15 @@ def main():
 
             replica_env["WSM_ID"] = i
             replica_env["WSM_NAME"] = base_name
-            replica_env["PORT"] = container_port_base + i
+            # Port calculation: Base + (i-1). Example: 9000 + (2-1) = 9001
+            new_port = container_port_base + (i - 1)
+            replica_env["PORT"] = new_port
+            replica_env["WSM_REPLICAS"] = WSM_REPLICAS
+
+            # CRITICAL: Update the exposed ports mapping in docker-compose
+            # Assumes format "HOST:CONTAINER", and since we use host networking or direct mapping
+            # we want "NEW_PORT:NEW_PORT" to avoid conflict on host binding
+            replica_service["ports"] = [f"{new_port}:{new_port}"]
 
             replica_service["container_name"] = replica_name
             replica_service["depends_on"] = [previous]

@@ -378,7 +378,7 @@ class WorkerStateManager:
             expected += 1
         return expected
 
-    def register_worker(self, worker_type, replica_id):
+    def register_worker(self, worker_type, replica_id, sync=True):
         """
         Register worker replica with initial WAITING state.
         
@@ -388,25 +388,18 @@ class WorkerStateManager:
         Args:
             worker_type (str): Worker type identifier.
             replica_id (str): Replica identifier.
+            sync (bool): Whether to include in global END barrier.
         
         Example:
             ```python
-            wsm.register_worker('cleaner', 'cleaner-1')
-            wsm.register_worker('cleaner', 'cleaner-2')
-            
-            # State after:
-            # worker_states = {
-            #   'cleaner': {
-            #     'cleaner-1': {'state': 'WAITING', 'request_id': None},
-            #     'cleaner-2': {'state': 'WAITING', 'request_id': None}
-            #   }
-            # }
+            wsm.register_worker('cleaner', 'cleaner-1', sync=True)
+            wsm.register_worker('topper', 'topper-1', sync=False)
             ```
         """
         with self.lock:
             self.worker_states.setdefault(worker_type, {})
             if replica_id not in self.worker_states[worker_type]:
-                if self.using_end_sync:
+                if self.using_end_sync and sync:
                     self.workers_being_used.setdefault(worker_type, True)
                 self.worker_states[worker_type][replica_id] = {"state": "WAITING", "request_id": None}
                 self._save_state()
@@ -784,12 +777,11 @@ class WSMServer:
         worker_type = msg.get("worker_type")
         replica_id = msg.get("replica_id")
 
-        print("Recibo mensaje: ", msg)
-
         if action != "is_leader" and self.role != "LEADER":
             return "NOT_LEADER"
         if action == "register":
-            self.manager.register_worker(worker_type, replica_id)
+            sync = msg.get("sync", True)
+            self.manager.register_worker(worker_type, replica_id, sync=sync)
             return "OK"
         elif action == "update_state":
             self.manager.update_state(worker_type, replica_id, msg.get("state"), msg.get("request_id"), msg.get("position"))

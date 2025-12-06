@@ -81,7 +81,7 @@ class Topper(Worker):
         ```
     """
 
-    def __init__(self, queue_in, input_dir, output_file, rabbitmq_host, top_n, topper_mode, completion_queue):
+    def __init__(self, queue_in, input_dir, output_file, rabbitmq_host, top_n, topper_mode, completion_queue, wsm_sync=True):
         """
         Initialize Topper with query configuration.
         
@@ -93,21 +93,14 @@ class Topper(Worker):
             top_n (int): Number of top entries to select.
             topper_mode (str): Query mode ('Q2', 'Q3', 'Q4').
             completion_queue (str): Output notification queue.
+            wsm_sync (bool): Whether to synchronize END with WSM (default False for Topper).
         
         Example:
             ```python
-            topper = Topper(
-                'topper_q2_signal',
-                '/app/temp/reducer_q2',
-                '/app/output/q2_top3.csv',
-                'rabbitmq',
-                3,
-                'Q2',
-                'joiner_signal'
-            )
+            topper = Topper(..., wsm_sync=False)
             ```
         """
-        super().__init__(queue_in, completion_queue, rabbitmq_host)
+        super().__init__(queue_in, completion_queue, rabbitmq_host, wsm_sync=wsm_sync)
         self.input_dir = input_dir
         self.top_n = top_n
         self.completion_queue_name = completion_queue
@@ -606,7 +599,7 @@ if __name__ == '__main__':
         rabbitmq_host = os.environ.get('RABBITMQ_HOST', 'rabbitmq')
         completion_queue = os.environ.get('COMPLETION_QUEUE')
 
-        return Topper(queue_in, input_dir, output_file, rabbitmq_host, top_n, topper_mode, completion_queue)
+        return Topper(queue_in, input_dir, output_file, rabbitmq_host, top_n, topper_mode, completion_queue, wsm_sync=False)
     
     config_path = os.path.join(os.path.dirname(__file__), 'config.ini')
     Topper.run_worker_main(create_topper, config_path)

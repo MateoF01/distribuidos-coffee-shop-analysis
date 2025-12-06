@@ -1,7 +1,4 @@
+
 WSM_NODES = {
-    "q1": [
-        ("wsm_splitter_q1", 9621),
-        ("wsm_splitter_q1_2", 9622),
-        ("wsm_splitter_q1_3", 9623),
-    ],
+    "q1": [("wsm", 9000), ("wsm_2", 9001), ("wsm_3", 9002)],
 }
