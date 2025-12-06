@@ -245,7 +245,7 @@ class WSMClient:
 
             host, port = leader
             try:
-                self.sock = socket.create_connection((host, port), timeout=5)
+                self.sock = socket.create_connection((host, port), timeout=20)
                 self.current_node = leader
                 logging.info(f"[WSMClient] Conectado al líder {host}:{port}")
                 return

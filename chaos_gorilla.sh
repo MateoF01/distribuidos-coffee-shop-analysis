@@ -3,7 +3,7 @@
 # 🦍 CHAOS GORILLA - RANDOM KILLER (NO RABBIT, NO CLIENTS ANYWHERE)
 # -----------------------------------------------------------
 
-INTERVAL=5
+INTERVAL=6
 CHAOTIC=true
 
 echo ""

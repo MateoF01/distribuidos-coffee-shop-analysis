@@ -1355,6 +1355,8 @@ services:
       OUTPUT_FILE: /app/output/q3.csv
       COMPLETION_QUEUE: sender_q3_signal
       DATA_TYPE: q3
+      WSM_HOST: wsm_coordinator
+      WSM_PORT: 7027
     volumes:
     - ./output:/app/output
     networks:
@@ -1457,6 +1459,8 @@ services:
       OUTPUT_FILE: /app/output/q4.csv
       COMPLETION_QUEUE: sender_q4_signal
       DATA_TYPE: q4
+      WSM_HOST: wsm_coordinator
+      WSM_PORT: 7028
     volumes:
     - ./output:/app/output
     networks:
