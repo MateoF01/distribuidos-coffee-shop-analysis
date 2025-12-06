@@ -51,7 +51,7 @@ class SplitterQ1(StreamProcessingWorker):
         - Downstream sorter receives single notification
     """
 
-    def __init__(self, queue_in, queue_out, rabbitmq_host, chunk_size, replica_id, backoff_start=0.1, backoff_max=3.0, wsm_nodes = None):
+    def __init__(self, queue_in, queue_out, rabbitmq_host, chunk_size, replica_id, backoff_start=0.1, backoff_max=3.0, wsm_nodes=None, service_name=None):
         """
         Initialize splitter with chunk configuration and WSM coordination.
         
@@ -64,6 +64,7 @@ class SplitterQ1(StreamProcessingWorker):
             backoff_start (float, optional): Initial backoff seconds. Defaults to 0.1.
             backoff_max (float, optional): Maximum backoff seconds. Defaults to 3.0.
             wsm_nodes (list, optional): WSM node endpoints.
+            service_name (str, optional): Service name for crash detection.
         
         Example:
             >>> splitter = SplitterQ1(
@@ -72,10 +73,11 @@ class SplitterQ1(StreamProcessingWorker):
             ...     rabbitmq_host='rabbitmq',
             ...     chunk_size=10000,
             ...     replica_id='splitter-q1-1',
-            ...     wsm_nodes=['wsm:9000', 'wsm:9001', 'wsm:9002']
+            ...     wsm_nodes=['wsm:9000', 'wsm:9001', 'wsm:9002'],
+            ...     service_name='splitter_q1'
             ... )
         """
-        super().__init__(queue_in, queue_out, rabbitmq_host)
+        super().__init__(queue_in, queue_out, rabbitmq_host, service_name=service_name)
         self.replica_id = replica_id
         self.chunk_size = int(chunk_size)
         self.backoff_start = backoff_start
@@ -265,6 +267,9 @@ class SplitterQ1(StreamProcessingWorker):
 
         super()._process_message(message, msg_type, data_type, request_id, position, payload, queue_name)
 
+        # IF IT DIES HERE, IT WILL WRITE THE MESSAGE TO DISC TWICE
+        self.simulate_crash(queue_name, request_id)
+
         self.wsm_client.update_state("WAITING", request_id, position)
 
     def _process_rows(self, rows, queue_name=None):
@@ -446,6 +451,6 @@ if __name__ == '__main__':
         wsm_nodes = WSM_NODES[key]
         print("WSM NODES: ", wsm_nodes)
 
-        return SplitterQ1(queue_in, queue_out, rabbitmq_host, chunk_size, replica_id, backoff_start, backoff_max, wsm_nodes)
+        return SplitterQ1(queue_in, queue_out, rabbitmq_host, chunk_size, replica_id, backoff_start, backoff_max, wsm_nodes, service_name="splitter_q1")
 
     SplitterQ1.run_worker_main(create_splitter)
