@@ -1,6 +1,6 @@
 #!/bin/bash
 # -----------------------------------------------------------
-# 🦍 CHAOS GORILLA - RANDOM KILLER (INFINITE LOOP EDITION)
+# 🦍 CHAOS GORILLA - RANDOM KILLER (NO RABBIT, NO CLIENTS)
 # -----------------------------------------------------------
 
 INTERVAL=5        # cada cuántos segundos matar un contenedor
@@ -8,18 +8,22 @@ CHAOTIC=true      # true → docker kill, false → docker stop --time 0
 
 echo ""
 echo "💥💥💥  CHAOS GORILLA ACTIVADO  💥💥💥"
-echo "Cada $INTERVAL segundos se matará *un contenedor al azar*."
+echo "Cada $INTERVAL segundos se matará *un contenedor al azar*"
+echo "(excepto: rabbitmq, clientes)."
 echo "Cortar con CTRL+C."
 echo ""
 
 while true; do
     # ---------------------------------------------
     # 1) Obtener contenedores en ejecución del compose
+    #    Filtrando los que NO deben ser tocados
     # ---------------------------------------------
-    CONTAINERS=($(docker ps --format '{{.Names}}'))
+    CONTAINERS=($(docker ps --format '{{.Names}}' \
+        | grep -v '^rabbitmq$' \
+        | grep -Ev '^client'))
 
     if [ ${#CONTAINERS[@]} -eq 0 ]; then
-        echo "⚠️  No hay contenedores corriendo. Reintentando..."
+        echo "⚠️  No hay contenedores elegibles para matar. Reintentando..."
         sleep "$INTERVAL"
         continue
     fi
