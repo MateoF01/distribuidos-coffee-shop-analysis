@@ -1,102 +1,51 @@
 #!/bin/bash
 # -----------------------------------------------------------
-# 🦍 CHAOS GORILLA - KILL RANDOM COMPONENTS OF THE PIPELINE
+# 🦍 CHAOS GORILLA - RANDOM KILLER (INFINITE LOOP EDITION)
 # -----------------------------------------------------------
 
-MAKEFILE="Makefile"
-CHAOTIC=true          # true → docker kill, false → docker stop --time 0
-KILL_COUNT=5          # cantidad de contenedores a matar
-
-# ───────────────────────────────────────────────────────────
-# 1) Extraer contenedores según el Makefile (workers)
-# ───────────────────────────────────────────────────────────
-
-REPLICA_LINES=$(grep -E '^[A-Z0-9_]+_REPLICAS[[:space:]]*\?=' "$MAKEFILE")
-CONTAINERS=()
-
-while IFS=' ?= ' read -r VAR _ VALUE; do
-  [ -z "$VAR" ] && continue
-  [ -z "$VALUE" ] && continue
-
-  NAME=$(echo "$VAR" | sed -E 's/_REPLICAS$//' | tr '[:upper:]' '[:lower:]')
-  COUNT=$(echo "$VALUE" | tr -d ' ')
-
-  for ((i=1; i<=COUNT; i++)); do
-    CONTAINERS+=("coffee-shop-22-${NAME}-${i}")
-  done
-done <<< "$REPLICA_LINES"
-
-
-# ───────────────────────────────────────────────────────────
-# 2) Opción: Incluir WSMs (deshabilitado por defecto para que
-#    puedan revivir a los workers muertos)
-# ───────────────────────────────────────────────────────────
-
-INCLUDE_WSM=false  # Cambiar a true para matar WSMs también
-
-if [ "$INCLUDE_WSM" = true ]; then
-  WSM_CONTAINERS=$(docker ps --format '{{.Names}}' | grep '^wsm_' || true)
-
-  while IFS= read -r WSM; do
-    [ -z "$WSM" ] && continue
-    CONTAINERS+=("$WSM")
-  done <<< "$WSM_CONTAINERS"
-fi
-
-
-# ───────────────────────────────────────────────────────────
-# 3) Validación
-# ───────────────────────────────────────────────────────────
-
-TOTAL=${#CONTAINERS[@]}
-if [ "$TOTAL" -eq 0 ]; then
-  echo "⚠️  No se encontraron contenedores para matar."
-  exit 0
-fi
-
-if [ "$KILL_COUNT" -gt "$TOTAL" ]; then
-  KILL_COUNT=$TOTAL
-fi
-
-
-# ───────────────────────────────────────────────────────────
-# 4) Seleccionar víctimas aleatorias
-# ───────────────────────────────────────────────────────────
-
-TO_KILL=()
-
-while [ "${#TO_KILL[@]}" -lt "$KILL_COUNT" ]; do
-  IDX=$((RANDOM % TOTAL))
-  CANDIDATE="${CONTAINERS[$IDX]}"
-  
-  if [[ ! " ${TO_KILL[*]} " =~ " ${CANDIDATE} " ]]; then
-    TO_KILL+=("$CANDIDATE")
-  fi
-done
-
-
-# ───────────────────────────────────────────────────────────
-# 5) Ejecutar el caos
-# ───────────────────────────────────────────────────────────
+INTERVAL=5        # cada cuántos segundos matar un contenedor
+CHAOTIC=true      # true → docker kill, false → docker stop --time 0
 
 echo ""
 echo "💥💥💥  CHAOS GORILLA ACTIVADO  💥💥💥"
-echo "Matando $KILL_COUNT de $TOTAL contenedores posibles:"
+echo "Cada $INTERVAL segundos se matará *un contenedor al azar*."
+echo "Cortar con CTRL+C."
 echo ""
 
-for C in "${TO_KILL[@]}"; do
-  echo "🧨 Eliminando:  $C"
-  if [ "$CHAOTIC" = true ]; then
-    docker kill "$C" >/dev/null 2>&1 \
-      && echo "   ☠️  $C murió (kill)" \
-      || echo "   ⚠️  No se pudo matar $C"
-  else
-    docker stop "$C" --time 0 >/dev/null 2>&1 \
-      && echo "   ☠️  $C murió (stop)" \
-      || echo "   ⚠️  No se pudo matar $C"
-  fi
-  echo ""
+while true; do
+    # ---------------------------------------------
+    # 1) Obtener contenedores en ejecución del compose
+    # ---------------------------------------------
+    CONTAINERS=($(docker ps --format '{{.Names}}'))
+
+    if [ ${#CONTAINERS[@]} -eq 0 ]; then
+        echo "⚠️  No hay contenedores corriendo. Reintentando..."
+        sleep "$INTERVAL"
+        continue
+    fi
+
+    # ---------------------------------------------
+    # 2) Elegir uno al azar
+    # ---------------------------------------------
+    RANDOM_INDEX=$((RANDOM % ${#CONTAINERS[@]}))
+    VICTIM=${CONTAINERS[$RANDOM_INDEX]}
+
+    echo "🧨 Matando contenedor al azar:  $VICTIM"
+
+    # ---------------------------------------------
+    # 3) Ejecutar el caos
+    # ---------------------------------------------
+    if [ "$CHAOTIC" = true ]; then
+        docker kill "$VICTIM" >/dev/null 2>&1 \
+            && echo "   ☠️  $VICTIM murió (kill)" \
+            || echo "   ⚠️  No se pudo matar $VICTIM"
+    else
+        docker stop "$VICTIM" --time 0 >/dev/null 2>&1 \
+            && echo "   ☠️  $VICTIM murió (stop)" \
+            || echo "   ⚠️  No se pudo matar $VICTIM"
+    fi
+
+    echo "⏳ Esperando $INTERVAL segundos..."
+    echo ""
+    sleep "$INTERVAL"
 done
-
-echo "✅ Fin del caos."
-echo ""
