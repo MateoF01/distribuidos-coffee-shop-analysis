@@ -99,6 +99,8 @@ class WorkerStateManager:
         self.data_ends_by_requests = {}
         self.lock = threading.Lock()
         self._load_state()
+        self.connected_workers = {}
+
         logging.info(f"[WSM] Archivo de estado: {self.state_file}")
         logging.info(f"[WSM] Directorio base de salida: {self.output_base_dir}")
 
@@ -320,6 +322,7 @@ class WorkerStateManager:
             ```
         """
         print("COMIENZO LOAD STATE...")
+
         if os.path.exists(self.state_file):
             try:
                 with open(self.state_file, "r", encoding="utf-8") as f:
@@ -330,7 +333,9 @@ class WorkerStateManager:
                     self.workers_being_used = data.get("workers_being_used", {})
                     self.ends_by_requests = data.get("ends_by_requests", {})
                     self.data_ends_by_requests = data.get("data_ends_by_requests", {})
+                    self.connected_workers = data.get("connected_workers", {})
                     logging.info(f"[WSM] Estado cargado desde {self.state_file}")
+
                 else:
                     logging.error(f"[WSM] Formato de estado inválido en {self.state_file}")
             except Exception as e:
@@ -349,12 +354,14 @@ class WorkerStateManager:
             # Writes to /app/output/worker_states.json
             ```
         """
+        
         try:
             payload = {
                 "worker_states": self.worker_states,
                 "workers_being_used": self.workers_being_used,
                 "ends_by_requests": self.ends_by_requests,
                 "data_ends_by_requests": self.data_ends_by_requests,
+                "connected_workers": self.connected_workers
             }
             with open(self.state_file, "w", encoding="utf-8") as f:
                 json.dump(payload, f, indent=2, ensure_ascii=False)
@@ -623,21 +630,27 @@ class WorkerStateManager:
             return processed
 
     def handle_heartbeat(self, worker_type, replica_id):
-        """
-        Update last heartbeat timestamp for a worker replica.
-        """
         with self.lock:
             self.last_heartbeat[replica_id] = time.time()
-            # Ensure worker is registered if we receive a heartbeat
+
+            # Ensure worker type exists
             self.worker_states.setdefault(worker_type, {})
+
+            # Ensure type list exists in persistent connected_workers
+            self.connected_workers.setdefault(worker_type, [])
+
+            # Register worker if missing
             if replica_id not in self.worker_states[worker_type]:
-                 self.register_worker(worker_type, replica_id)
+                self.register_worker(worker_type, replica_id)
+
+            # persist worker existence if not recorded
+            if replica_id not in self.connected_workers[worker_type]:
+                self.connected_workers[worker_type].append(replica_id)
+                self._save_state()   # Persist to disk
+
 
     def check_dead_workers(self):
-        """
-        Periodically check for workers that haven't sent a heartbeat.
-        """
-        HEARTBEAT_TIMEOUT = 7.0  # seconds
+        HEARTBEAT_TIMEOUT = 7.0
         CHECK_INTERVAL = 3.0
 
         logging.info("[WSM] Starting dead worker check loop...")
@@ -648,19 +661,30 @@ class WorkerStateManager:
                 dead_workers = []
 
                 with self.lock:
-                    for replica_id, last_time in self.last_heartbeat.items():
-                        if current_time - last_time > HEARTBEAT_TIMEOUT:
-                            dead_workers.append(replica_id)
-                
+                    for worker_type, replicas in self.connected_workers.items():
+                        for replica_id in replicas:
+                            last_time = self.last_heartbeat.get(replica_id)
+                            
+                            # no heartbeat ever received → treat as dead
+                            if last_time is None:
+                                dead_workers.append(replica_id)
+                                continue
+
+                            # timeout case
+                            if current_time - last_time > HEARTBEAT_TIMEOUT:
+                                dead_workers.append(replica_id)
+
                 for replica_id in dead_workers:
-                    logging.warning(f"[WSM] Worker {replica_id} detected DEAD (timeout). Restarting...")
+                    logging.warning(f"[WSM] Worker {replica_id} detected DEAD. Restarting...")
                     self.restart_worker(replica_id)
-                    # Remove from tracking until it comes back
+
+                    # Reset heartbeat to force fresh start
                     with self.lock:
                         self.last_heartbeat.pop(replica_id, None)
 
             except Exception as e:
                 logging.error(f"[WSM] Error in check_dead_workers loop: {e}")
+
 
     def restart_worker(self, replica_id):
         """
