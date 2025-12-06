@@ -401,7 +401,16 @@ class Worker(ABC):
             
             write_func(temp_path)
             
+            with open(temp_path, 'rb') as f:
+                os.fsync(f.fileno())
+            
             os.rename(temp_path, target_file)
+            
+            dir_fd = os.open(target_dir, os.O_RDONLY)
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
             
             logging.debug(f"[atomic_write] Successfully wrote to {target_file}")
             
