@@ -6,3 +6,5 @@ client/results/
 temp/
 output/
 output_wsm/
+output_gateway/
+docker-compose.override.yml

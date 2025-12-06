@@ -115,7 +115,7 @@ services:
       WSM_NAME: wsm_transactions
       WSM_CLEANUP_BACKOFF_START: 0.1
       WSM_CLEANUP_BACKOFF_MAX: 5.0
-      WSM_CLEANUP_MAX_WAIT: 30.0
+      WSM_CLEANUP_MAX_WAIT: 5.0
       WSM_ID: 1
     volumes:
     - ./output_wsm/worker_states_transactions:/app/output
@@ -180,7 +180,7 @@ services:
       WSM_NAME: wsm_transaction_items
       WSM_CLEANUP_BACKOFF_START: 0.1
       WSM_CLEANUP_BACKOFF_MAX: 5.0
-      WSM_CLEANUP_MAX_WAIT: 30.0
+      WSM_CLEANUP_MAX_WAIT: 5.0
       WSM_ID: 1
     volumes:
     - ./output_wsm/worker_states_transaction_items:/app/output
@@ -245,7 +245,7 @@ services:
       WSM_NAME: wsm_users
       WSM_CLEANUP_BACKOFF_START: 0.1
       WSM_CLEANUP_BACKOFF_MAX: 5.0
-      WSM_CLEANUP_MAX_WAIT: 30.0
+      WSM_CLEANUP_MAX_WAIT: 5.0
       WSM_ID: 1
     volumes:
     - ./output_wsm/worker_states_users:/app/output
@@ -310,7 +310,7 @@ services:
       WSM_NAME: wsm_stores
       WSM_CLEANUP_BACKOFF_START: 0.1
       WSM_CLEANUP_BACKOFF_MAX: 5.0
-      WSM_CLEANUP_MAX_WAIT: 30.0
+      WSM_CLEANUP_MAX_WAIT: 5.0
       WSM_ID: 1
     volumes:
     - ./output_wsm/worker_states_stores:/app/output
@@ -375,7 +375,7 @@ services:
       WSM_NAME: wsm_menu_items
       WSM_CLEANUP_BACKOFF_START: 0.1
       WSM_CLEANUP_BACKOFF_MAX: 5.0
-      WSM_CLEANUP_MAX_WAIT: 30.0
+      WSM_CLEANUP_MAX_WAIT: 5.0
       WSM_ID: 1
     volumes:
     - ./output_wsm/worker_states_menu_items:/app/output
@@ -440,7 +440,7 @@ services:
       WSM_NAME: wsm_transactions_q4
       WSM_CLEANUP_BACKOFF_START: 0.1
       WSM_CLEANUP_BACKOFF_MAX: 5.0
-      WSM_CLEANUP_MAX_WAIT: 30.0
+      WSM_CLEANUP_MAX_WAIT: 5.0
       WSM_ID: 1
     volumes:
     - ./output_wsm/worker_states_transactions_q4:/app/output
@@ -506,7 +506,7 @@ services:
       WSM_NAME: wsm_temporal_filter_transactions
       WSM_CLEANUP_BACKOFF_START: 0.1
       WSM_CLEANUP_BACKOFF_MAX: 5.0
-      WSM_CLEANUP_MAX_WAIT: 30.0
+      WSM_CLEANUP_MAX_WAIT: 5.0
       WSM_ID: 1
     volumes:
     - ./output_wsm/worker_states_temporal_filter_transactions:/app/output
@@ -614,7 +614,7 @@ services:
       WSM_NAME: wsm_temporal_filter_transaction_items
       WSM_CLEANUP_BACKOFF_START: 0.1
       WSM_CLEANUP_BACKOFF_MAX: 5.0
-      WSM_CLEANUP_MAX_WAIT: 30.0
+      WSM_CLEANUP_MAX_WAIT: 5.0
       WSM_ID: 1
     volumes:
     - ./output_wsm/worker_states_temporal_filter_transaction_items:/app/output
@@ -681,7 +681,7 @@ services:
       WSM_NAME: wsm_amount_filter_transactions
       WSM_CLEANUP_BACKOFF_START: 0.1
       WSM_CLEANUP_BACKOFF_MAX: 5.0
-      WSM_CLEANUP_MAX_WAIT: 30.0
+      WSM_CLEANUP_MAX_WAIT: 5.0
       WSM_ID: 1
     volumes:
     - ./output_wsm/worker_states_amount_filter_transactions:/app/output
@@ -748,7 +748,7 @@ services:
       WSM_NAME: wsm_grouper_q2
       WSM_CLEANUP_BACKOFF_START: 0.1
       WSM_CLEANUP_BACKOFF_MAX: 5.0
-      WSM_CLEANUP_MAX_WAIT: 30.0
+      WSM_CLEANUP_MAX_WAIT: 5.0
       WSM_ID: 1
     volumes:
     - ./output_wsm/worker_states_grouper_q2:/app/output
@@ -873,7 +873,7 @@ services:
       WSM_NAME: wsm_grouper_q3
       WSM_CLEANUP_BACKOFF_START: 0.1
       WSM_CLEANUP_BACKOFF_MAX: 5.0
-      WSM_CLEANUP_MAX_WAIT: 30.0
+      WSM_CLEANUP_MAX_WAIT: 5.0
       WSM_ID: 1
     volumes:
     - ./output_wsm/worker_states_grouper_q3:/app/output
@@ -998,7 +998,7 @@ services:
       WSM_NAME: wsm_grouper_q4
       WSM_CLEANUP_BACKOFF_START: 0.1
       WSM_CLEANUP_BACKOFF_MAX: 5.0
-      WSM_CLEANUP_MAX_WAIT: 30.0
+      WSM_CLEANUP_MAX_WAIT: 5.0
       WSM_ID: 1
     volumes:
     - ./output_wsm/worker_states_grouper_q4:/app/output
@@ -1124,7 +1124,7 @@ services:
       WSM_NAME: wsm_splitter_q1
       WSM_CLEANUP_BACKOFF_START: 0.1
       WSM_CLEANUP_BACKOFF_MAX: 5.0
-      WSM_CLEANUP_MAX_WAIT: 30.0
+      WSM_CLEANUP_MAX_WAIT: 5.0
       WSM_ID: 1
     volumes:
     - ./output_wsm/worker_states_splitter_q1:/app/output
@@ -1225,7 +1225,7 @@ services:
       USING_END_SYNC: 1
       WSM_CLEANUP_BACKOFF_START: 0.1
       WSM_CLEANUP_BACKOFF_MAX: 5.0
-      WSM_CLEANUP_MAX_WAIT: 30.0
+      WSM_CLEANUP_MAX_WAIT: 5.0
       WSM_ID: 1
     volumes:
     - ./output_wsm/joiner_states_q2:/app/output
@@ -1327,7 +1327,7 @@ services:
       USING_END_SYNC: 1
       WSM_CLEANUP_BACKOFF_START: 0.1
       WSM_CLEANUP_BACKOFF_MAX: 5.0
-      WSM_CLEANUP_MAX_WAIT: 30.0
+      WSM_CLEANUP_MAX_WAIT: 5.0
       WSM_ID: 1
     volumes:
     - ./output_wsm/joiner_states_q3:/app/output
@@ -1429,7 +1429,7 @@ services:
       USING_END_SYNC: 1
       WSM_CLEANUP_BACKOFF_START: 0.1
       WSM_CLEANUP_BACKOFF_MAX: 5.0
-      WSM_CLEANUP_MAX_WAIT: 30.0
+      WSM_CLEANUP_MAX_WAIT: 5.0
       WSM_ID: 1
     volumes:
     - ./output_wsm/joiner_states_q4:/app/output
@@ -1518,7 +1518,7 @@ services:
       WSM_NAME: wsm_transactions
       WSM_CLEANUP_BACKOFF_START: 0.1
       WSM_CLEANUP_BACKOFF_MAX: 5.0
-      WSM_CLEANUP_MAX_WAIT: 30.0
+      WSM_CLEANUP_MAX_WAIT: 5.0
       WSM_ID: 2
     volumes:
     - ./output_wsm/worker_states_transactions:/app/output
@@ -1541,7 +1541,7 @@ services:
       WSM_NAME: wsm_transactions
       WSM_CLEANUP_BACKOFF_START: 0.1
       WSM_CLEANUP_BACKOFF_MAX: 5.0
-      WSM_CLEANUP_MAX_WAIT: 30.0
+      WSM_CLEANUP_MAX_WAIT: 5.0
       WSM_ID: 3
     volumes:
     - ./output_wsm/worker_states_transactions:/app/output
@@ -1564,7 +1564,7 @@ services:
       WSM_NAME: wsm_transaction_items
       WSM_CLEANUP_BACKOFF_START: 0.1
       WSM_CLEANUP_BACKOFF_MAX: 5.0
-      WSM_CLEANUP_MAX_WAIT: 30.0
+      WSM_CLEANUP_MAX_WAIT: 5.0
       WSM_ID: 2
     volumes:
     - ./output_wsm/worker_states_transaction_items:/app/output
@@ -1587,7 +1587,7 @@ services:
       WSM_NAME: wsm_transaction_items
       WSM_CLEANUP_BACKOFF_START: 0.1
       WSM_CLEANUP_BACKOFF_MAX: 5.0
-      WSM_CLEANUP_MAX_WAIT: 30.0
+      WSM_CLEANUP_MAX_WAIT: 5.0
       WSM_ID: 3
     volumes:
     - ./output_wsm/worker_states_transaction_items:/app/output
@@ -1610,7 +1610,7 @@ services:
       WSM_NAME: wsm_users
       WSM_CLEANUP_BACKOFF_START: 0.1
       WSM_CLEANUP_BACKOFF_MAX: 5.0
-      WSM_CLEANUP_MAX_WAIT: 30.0
+      WSM_CLEANUP_MAX_WAIT: 5.0
       WSM_ID: 2
     volumes:
     - ./output_wsm/worker_states_users:/app/output
@@ -1633,7 +1633,7 @@ services:
       WSM_NAME: wsm_users
       WSM_CLEANUP_BACKOFF_START: 0.1
       WSM_CLEANUP_BACKOFF_MAX: 5.0
-      WSM_CLEANUP_MAX_WAIT: 30.0
+      WSM_CLEANUP_MAX_WAIT: 5.0
       WSM_ID: 3
     volumes:
     - ./output_wsm/worker_states_users:/app/output
@@ -1656,7 +1656,7 @@ services:
       WSM_NAME: wsm_stores
       WSM_CLEANUP_BACKOFF_START: 0.1
       WSM_CLEANUP_BACKOFF_MAX: 5.0
-      WSM_CLEANUP_MAX_WAIT: 30.0
+      WSM_CLEANUP_MAX_WAIT: 5.0
       WSM_ID: 2
     volumes:
     - ./output_wsm/worker_states_stores:/app/output
@@ -1679,7 +1679,7 @@ services:
       WSM_NAME: wsm_stores
       WSM_CLEANUP_BACKOFF_START: 0.1
       WSM_CLEANUP_BACKOFF_MAX: 5.0
-      WSM_CLEANUP_MAX_WAIT: 30.0
+      WSM_CLEANUP_MAX_WAIT: 5.0
       WSM_ID: 3
     volumes:
     - ./output_wsm/worker_states_stores:/app/output
@@ -1702,7 +1702,7 @@ services:
       WSM_NAME: wsm_menu_items
       WSM_CLEANUP_BACKOFF_START: 0.1
       WSM_CLEANUP_BACKOFF_MAX: 5.0
-      WSM_CLEANUP_MAX_WAIT: 30.0
+      WSM_CLEANUP_MAX_WAIT: 5.0
       WSM_ID: 2
     volumes:
     - ./output_wsm/worker_states_menu_items:/app/output
@@ -1725,7 +1725,7 @@ services:
       WSM_NAME: wsm_menu_items
       WSM_CLEANUP_BACKOFF_START: 0.1
       WSM_CLEANUP_BACKOFF_MAX: 5.0
-      WSM_CLEANUP_MAX_WAIT: 30.0
+      WSM_CLEANUP_MAX_WAIT: 5.0
       WSM_ID: 3
     volumes:
     - ./output_wsm/worker_states_menu_items:/app/output
@@ -1748,7 +1748,7 @@ services:
       WSM_NAME: wsm_transactions_q4
       WSM_CLEANUP_BACKOFF_START: 0.1
       WSM_CLEANUP_BACKOFF_MAX: 5.0
-      WSM_CLEANUP_MAX_WAIT: 30.0
+      WSM_CLEANUP_MAX_WAIT: 5.0
       WSM_ID: 2
     volumes:
     - ./output_wsm/worker_states_transactions_q4:/app/output
@@ -1771,7 +1771,7 @@ services:
       WSM_NAME: wsm_transactions_q4
       WSM_CLEANUP_BACKOFF_START: 0.1
       WSM_CLEANUP_BACKOFF_MAX: 5.0
-      WSM_CLEANUP_MAX_WAIT: 30.0
+      WSM_CLEANUP_MAX_WAIT: 5.0
       WSM_ID: 3
     volumes:
     - ./output_wsm/worker_states_transactions_q4:/app/output
@@ -1794,7 +1794,7 @@ services:
       WSM_NAME: wsm_temporal_filter_transactions
       WSM_CLEANUP_BACKOFF_START: 0.1
       WSM_CLEANUP_BACKOFF_MAX: 5.0
-      WSM_CLEANUP_MAX_WAIT: 30.0
+      WSM_CLEANUP_MAX_WAIT: 5.0
       WSM_ID: 2
     volumes:
     - ./output_wsm/worker_states_temporal_filter_transactions:/app/output
@@ -1817,7 +1817,7 @@ services:
       WSM_NAME: wsm_temporal_filter_transactions
       WSM_CLEANUP_BACKOFF_START: 0.1
       WSM_CLEANUP_BACKOFF_MAX: 5.0
-      WSM_CLEANUP_MAX_WAIT: 30.0
+      WSM_CLEANUP_MAX_WAIT: 5.0
       WSM_ID: 3
     volumes:
     - ./output_wsm/worker_states_temporal_filter_transactions:/app/output
@@ -1840,7 +1840,7 @@ services:
       WSM_NAME: wsm_temporal_filter_transaction_items
       WSM_CLEANUP_BACKOFF_START: 0.1
       WSM_CLEANUP_BACKOFF_MAX: 5.0
-      WSM_CLEANUP_MAX_WAIT: 30.0
+      WSM_CLEANUP_MAX_WAIT: 5.0
       WSM_ID: 2
     volumes:
     - ./output_wsm/worker_states_temporal_filter_transaction_items:/app/output
@@ -1863,7 +1863,7 @@ services:
       WSM_NAME: wsm_temporal_filter_transaction_items
       WSM_CLEANUP_BACKOFF_START: 0.1
       WSM_CLEANUP_BACKOFF_MAX: 5.0
-      WSM_CLEANUP_MAX_WAIT: 30.0
+      WSM_CLEANUP_MAX_WAIT: 5.0
       WSM_ID: 3
     volumes:
     - ./output_wsm/worker_states_temporal_filter_transaction_items:/app/output
@@ -1886,7 +1886,7 @@ services:
       WSM_NAME: wsm_amount_filter_transactions
       WSM_CLEANUP_BACKOFF_START: 0.1
       WSM_CLEANUP_BACKOFF_MAX: 5.0
-      WSM_CLEANUP_MAX_WAIT: 30.0
+      WSM_CLEANUP_MAX_WAIT: 5.0
       WSM_ID: 2
     volumes:
     - ./output_wsm/worker_states_amount_filter_transactions:/app/output
@@ -1909,7 +1909,7 @@ services:
       WSM_NAME: wsm_amount_filter_transactions
       WSM_CLEANUP_BACKOFF_START: 0.1
       WSM_CLEANUP_BACKOFF_MAX: 5.0
-      WSM_CLEANUP_MAX_WAIT: 30.0
+      WSM_CLEANUP_MAX_WAIT: 5.0
       WSM_ID: 3
     volumes:
     - ./output_wsm/worker_states_amount_filter_transactions:/app/output
@@ -1932,7 +1932,7 @@ services:
       WSM_NAME: wsm_grouper_q2
       WSM_CLEANUP_BACKOFF_START: 0.1
       WSM_CLEANUP_BACKOFF_MAX: 5.0
-      WSM_CLEANUP_MAX_WAIT: 30.0
+      WSM_CLEANUP_MAX_WAIT: 5.0
       WSM_ID: 2
     volumes:
     - ./output_wsm/worker_states_grouper_q2:/app/output
@@ -1955,7 +1955,7 @@ services:
       WSM_NAME: wsm_grouper_q2
       WSM_CLEANUP_BACKOFF_START: 0.1
       WSM_CLEANUP_BACKOFF_MAX: 5.0
-      WSM_CLEANUP_MAX_WAIT: 30.0
+      WSM_CLEANUP_MAX_WAIT: 5.0
       WSM_ID: 3
     volumes:
     - ./output_wsm/worker_states_grouper_q2:/app/output
@@ -1978,7 +1978,7 @@ services:
       WSM_NAME: wsm_grouper_q3
       WSM_CLEANUP_BACKOFF_START: 0.1
       WSM_CLEANUP_BACKOFF_MAX: 5.0
-      WSM_CLEANUP_MAX_WAIT: 30.0
+      WSM_CLEANUP_MAX_WAIT: 5.0
       WSM_ID: 2
     volumes:
     - ./output_wsm/worker_states_grouper_q3:/app/output
@@ -2001,7 +2001,7 @@ services:
       WSM_NAME: wsm_grouper_q3
       WSM_CLEANUP_BACKOFF_START: 0.1
       WSM_CLEANUP_BACKOFF_MAX: 5.0
-      WSM_CLEANUP_MAX_WAIT: 30.0
+      WSM_CLEANUP_MAX_WAIT: 5.0
       WSM_ID: 3
     volumes:
     - ./output_wsm/worker_states_grouper_q3:/app/output
@@ -2024,7 +2024,7 @@ services:
       WSM_NAME: wsm_grouper_q4
       WSM_CLEANUP_BACKOFF_START: 0.1
       WSM_CLEANUP_BACKOFF_MAX: 5.0
-      WSM_CLEANUP_MAX_WAIT: 30.0
+      WSM_CLEANUP_MAX_WAIT: 5.0
       WSM_ID: 2
     volumes:
     - ./output_wsm/worker_states_grouper_q4:/app/output
@@ -2047,7 +2047,7 @@ services:
       WSM_NAME: wsm_grouper_q4
       WSM_CLEANUP_BACKOFF_START: 0.1
       WSM_CLEANUP_BACKOFF_MAX: 5.0
-      WSM_CLEANUP_MAX_WAIT: 30.0
+      WSM_CLEANUP_MAX_WAIT: 5.0
       WSM_ID: 3
     volumes:
     - ./output_wsm/worker_states_grouper_q4:/app/output
@@ -2070,7 +2070,7 @@ services:
       WSM_NAME: wsm_splitter_q1
       WSM_CLEANUP_BACKOFF_START: 0.1
       WSM_CLEANUP_BACKOFF_MAX: 5.0
-      WSM_CLEANUP_MAX_WAIT: 30.0
+      WSM_CLEANUP_MAX_WAIT: 5.0
       WSM_ID: 2
     volumes:
     - ./output_wsm/worker_states_splitter_q1:/app/output
@@ -2093,7 +2093,7 @@ services:
       WSM_NAME: wsm_splitter_q1
       WSM_CLEANUP_BACKOFF_START: 0.1
       WSM_CLEANUP_BACKOFF_MAX: 5.0
-      WSM_CLEANUP_MAX_WAIT: 30.0
+      WSM_CLEANUP_MAX_WAIT: 5.0
       WSM_ID: 3
     volumes:
     - ./output_wsm/worker_states_splitter_q1:/app/output
@@ -2117,7 +2117,7 @@ services:
       USING_END_SYNC: 1
       WSM_CLEANUP_BACKOFF_START: 0.1
       WSM_CLEANUP_BACKOFF_MAX: 5.0
-      WSM_CLEANUP_MAX_WAIT: 30.0
+      WSM_CLEANUP_MAX_WAIT: 5.0
       WSM_ID: 2
     volumes:
     - ./output_wsm/joiner_states_q2:/app/output
@@ -2141,7 +2141,7 @@ services:
       USING_END_SYNC: 1
       WSM_CLEANUP_BACKOFF_START: 0.1
       WSM_CLEANUP_BACKOFF_MAX: 5.0
-      WSM_CLEANUP_MAX_WAIT: 30.0
+      WSM_CLEANUP_MAX_WAIT: 5.0
       WSM_ID: 3
     volumes:
     - ./output_wsm/joiner_states_q2:/app/output
@@ -2165,7 +2165,7 @@ services:
       USING_END_SYNC: 1
       WSM_CLEANUP_BACKOFF_START: 0.1
       WSM_CLEANUP_BACKOFF_MAX: 5.0
-      WSM_CLEANUP_MAX_WAIT: 30.0
+      WSM_CLEANUP_MAX_WAIT: 5.0
       WSM_ID: 2
     volumes:
     - ./output_wsm/joiner_states_q3:/app/output
@@ -2189,7 +2189,7 @@ services:
       USING_END_SYNC: 1
       WSM_CLEANUP_BACKOFF_START: 0.1
       WSM_CLEANUP_BACKOFF_MAX: 5.0
-      WSM_CLEANUP_MAX_WAIT: 30.0
+      WSM_CLEANUP_MAX_WAIT: 5.0
       WSM_ID: 3
     volumes:
     - ./output_wsm/joiner_states_q3:/app/output
@@ -2213,7 +2213,7 @@ services:
       USING_END_SYNC: 1
       WSM_CLEANUP_BACKOFF_START: 0.1
       WSM_CLEANUP_BACKOFF_MAX: 5.0
-      WSM_CLEANUP_MAX_WAIT: 30.0
+      WSM_CLEANUP_MAX_WAIT: 5.0
       WSM_ID: 2
     volumes:
     - ./output_wsm/joiner_states_q4:/app/output
@@ -2237,7 +2237,7 @@ services:
       USING_END_SYNC: 1
       WSM_CLEANUP_BACKOFF_START: 0.1
       WSM_CLEANUP_BACKOFF_MAX: 5.0
-      WSM_CLEANUP_MAX_WAIT: 30.0
+      WSM_CLEANUP_MAX_WAIT: 5.0
       WSM_ID: 3
     volumes:
     - ./output_wsm/joiner_states_q4:/app/output
