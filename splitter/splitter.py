@@ -3,6 +3,7 @@ import socket
 import time
 import logging
 import configparser
+import glob
 from collections import defaultdict
 from shared import protocol
 from shared.worker import StreamProcessingWorker
@@ -125,7 +126,22 @@ class SplitterQ1(StreamProcessingWorker):
         req_dir = os.path.join(self.base_temp_root, str(request_id), self.replica_id)
         os.makedirs(req_dir, exist_ok=True)
         buf["dir"] = req_dir
-        logging.info(f"[SplitterQ1:{self.replica_id}] dir ready for request {request_id}: {req_dir}")
+        
+        # Recover correct chunk_idx from disk
+        existing_chunks = glob.glob(os.path.join(req_dir, "chunk_*.csv"))
+        max_idx = 0
+        if existing_chunks:
+            for c in existing_chunks:
+                try:
+                    # chunk_5.csv -> 5
+                    idx = int(os.path.basename(c).replace("chunk_", "").replace(".csv", ""))
+                    if idx > max_idx:
+                        max_idx = idx
+                except ValueError:
+                    pass
+        
+        buf["chunk_idx"] = max_idx
+        logging.info(f"[SplitterQ1:{self.replica_id}] dir ready & recovered for request {request_id}: {req_dir} (start_chunk={max_idx})")
         return req_dir
 
     def _write_chunk(self, request_id, new_rows=None):
@@ -163,18 +179,21 @@ class SplitterQ1(StreamProcessingWorker):
         if new_rows:
             existing_rows.extend(new_rows)
 
+        # Deduplicate based on GUID (first column) to ensure idempotency
+        # If crash happens after write but before ACK, redelivery will bring duplicates.
+        unique_rows = {}
+        for row in existing_rows:
+            parts = row.split(',')
+            if len(parts) > 0:
+                guid = parts[0]
+                unique_rows[guid] = row
+        
+        # Convert back to list
+        existing_rows = list(unique_rows.values())
+
         if len(existing_rows) > self.chunk_size:
             to_write = existing_rows[:self.chunk_size]
             remaining = existing_rows[self.chunk_size:]
-
-            to_write.sort(key=lambda ln: ln.split(",")[0])
-            
-            def write_chunk_func(temp_path):
-                with open(temp_path, "w", encoding="utf-8", newline="") as f:
-                    for ln in to_write:
-                        f.write(ln + "\n")
-            
-            StreamProcessingWorker.atomic_write(path, write_chunk_func)
 
             buf["chunk_idx"] += 1
             new_filename = f"chunk_{buf['chunk_idx']}.csv"
@@ -188,6 +207,15 @@ class SplitterQ1(StreamProcessingWorker):
                         f.write(ln + "\n")
             
             StreamProcessingWorker.atomic_write(new_path, write_remaining_func)
+
+            to_write.sort(key=lambda ln: ln.split(",")[0])
+            
+            def write_chunk_func(temp_path):
+                with open(temp_path, "w", encoding="utf-8", newline="") as f:
+                    for ln in to_write:
+                        f.write(ln + "\n")
+            
+            StreamProcessingWorker.atomic_write(path, write_chunk_func)
 
         else:
             existing_rows.sort(key=lambda ln: ln.split(",")[0])

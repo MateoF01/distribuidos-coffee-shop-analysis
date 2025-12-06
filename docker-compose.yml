@@ -114,7 +114,7 @@ services:
       WSM_CONTROL_BASE_PORT: 9100
       WSM_NAME: wsm_transactions
       WSM_CLEANUP_BACKOFF_START: 0.1
-      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_BACKOFF_MAX: 3.0
       WSM_CLEANUP_MAX_WAIT: 5.0
       WSM_ID: 1
     volumes:
@@ -1521,7 +1521,7 @@ services:
       WSM_CONTROL_BASE_PORT: 9100
       WSM_NAME: wsm_transactions
       WSM_CLEANUP_BACKOFF_START: 0.1
-      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_BACKOFF_MAX: 3.0
       WSM_CLEANUP_MAX_WAIT: 5.0
       WSM_ID: 2
     volumes:
@@ -1544,7 +1544,7 @@ services:
       WSM_CONTROL_BASE_PORT: 9100
       WSM_NAME: wsm_transactions
       WSM_CLEANUP_BACKOFF_START: 0.1
-      WSM_CLEANUP_BACKOFF_MAX: 5.0
+      WSM_CLEANUP_BACKOFF_MAX: 3.0
       WSM_CLEANUP_MAX_WAIT: 5.0
       WSM_ID: 3
     volumes:

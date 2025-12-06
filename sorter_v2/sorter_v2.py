@@ -166,9 +166,16 @@ class SorterV2(SignalProcessingWorker):
                 
                 writer.writerow(['transaction_id', 'final_amount'])
 
+                last_written_key = None
+
                 while heap:
                     key, idx, row, reader = heapq.heappop(heap)
-                    writer.writerow(row)
+                    
+                    # Deduplication logic (handle cross-replica duplicates)
+                    if key != last_written_key:
+                        writer.writerow(row)
+                        last_written_key = key
+                    
                     try:
                         nxt = next(reader)
                         nxt_key = tuple(nxt[c] for c in self.sort_columns)

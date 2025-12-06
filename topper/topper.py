@@ -283,7 +283,11 @@ class Topper(Worker):
 
         try:
             all_files = os.listdir(directory)
-            csv_files = [f for f in all_files if f.lower().endswith('.csv')]
+            # Filter .csv files AND exclude hidden/temp files (starting with .)
+            csv_files = [
+                f for f in all_files 
+                if f.lower().endswith('.csv') and not f.startswith('.')
+            ]
         except OSError as e:
             print(f"[Topper] Error reading directory {directory}: {e}")
             return []
@@ -294,7 +298,8 @@ class Topper(Worker):
 
         def numeric_sort_key(filename):
             try:
-                return int(os.path.splitext(filename)[0])
+                # Return tuple to be consistent with the exception block
+                return int(os.path.splitext(filename)[0]), filename
             except ValueError:
                 return float('inf'), filename
 

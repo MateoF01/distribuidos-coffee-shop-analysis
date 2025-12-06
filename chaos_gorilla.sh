@@ -44,6 +44,7 @@ while true; do
 
 CONTAINERS=($(docker ps --format '{{.Names}}' \
     | grep -v 'rabbitmq' \
+    | grep -v 'gateway' \
     | grep -vi 'client'))
 
 # Opcionalmente excluir WSMs
