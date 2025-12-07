@@ -5,6 +5,11 @@ from collections import defaultdict
 from shared.worker import Worker
 from shared import protocol
 
+from WSM.wsm_client import WSMClient
+from wsm_config import WSM_NODES
+import socket
+
+
 class Coordinator(Worker):
   """
   Message coordinator that reorders distributed worker outputs into sequential positions.
@@ -81,8 +86,36 @@ class Coordinator(Worker):
         ...     rabbitmq_host='rabbitmq'
         ... )
     """
+
+
+
+    
     service_name = f"coordinator_{os.environ.get('DATA_TYPE', '')}"
     super().__init__(queue_in, queue_out, rabbitmq_host, service_name=service_name)
+
+    # --- WSM Heartbeat Integration ----
+    self.replica_id = socket.gethostname()
+
+    worker_type_key = "coordinator"
+
+    # Read WSM host/port (OPTIONAL for single-node; required if you specify wsm host in compose)
+    wsm_host = os.environ.get("WSM_HOST", None)
+    wsm_port = int(os.environ.get("WSM_PORT", "0")) if os.environ.get("WSM_PORT") else None
+
+    # Load multi-node config if exists
+    wsm_nodes = WSM_NODES.get(worker_type_key)
+
+    # Create client in heartbeat-only mode
+    self.wsm_client = WSMClient(
+        worker_type=worker_type_key,
+        replica_id=self.replica_id,
+        host=wsm_host,
+        port=wsm_port,
+        nodes=wsm_nodes
+    )
+
+    logging.info(f"[Coordinator] Heartbeat WSM client ready for {worker_type_key}, replica={self.replica_id}")
+
 
     self.messages_by_request_id_counter = defaultdict(int)
     self.end_messages_received = defaultdict(int)  
@@ -194,7 +227,7 @@ class Coordinator(Worker):
       
       try:
         Worker.atomic_write(positions_file, write_all_positions)
-        logging.info(f"Persisted input position: request_id={request_id}, position={position}")
+        #logging.info(f"Persisted input position: request_id={request_id}, position={position}")
         return True
       except Exception as e:
         logging.error(f"Error persisting position for request_id={request_id}, position={position}: {e}")
@@ -226,10 +259,55 @@ class Coordinator(Worker):
     
     try:
       Worker.atomic_write(assigned_file, write_assigned)
-      logging.debug(f"Persisted assigned position: request_id={request_id}, new_position={new_position}")
+      #logging.debug(f"Persisted assigned position: request_id={request_id}, new_position={new_position}")
     except Exception as e:
       logging.error(f"Error persisting assigned position for request_id={request_id}, new_position={new_position}: {e}")
       raise
+
+  def _cleanup_request_state(self, request_id):
+    """
+    Clean up all persistent state files for a completed request.
+    
+    Removes both the input positions file and assigned position file for the
+    given request_id, freeing disk space and preventing stale data accumulation.
+    
+    Args:
+        request_id (str): Unique request identifier to clean up.
+    
+    Example:
+        >>> coordinator._cleanup_request_state('req-123')
+        [COORDINATOR CLEANUP] Removed positions file for request_id=req-123
+        [COORDINATOR CLEANUP] Removed assigned file for request_id=req-123
+        [COORDINATOR CLEANUP] Removed in-memory state for request_id=req-123
+    """
+    with self.lock:
+      # Remove input positions file
+      positions_file = os.path.join(self.positions_dir, f'{request_id}.txt')
+      if os.path.exists(positions_file):
+        try:
+          os.remove(positions_file)
+          logging.info(f"[COORDINATOR CLEANUP] Removed positions file for request_id={request_id}")
+        except Exception as e:
+          logging.warning(f"[COORDINATOR CLEANUP] Failed to remove positions file for request_id={request_id}: {e}")
+      
+      # Remove assigned positions file
+      assigned_file = os.path.join(self.assigned_dir, f'{request_id}.txt')
+      if os.path.exists(assigned_file):
+        try:
+          os.remove(assigned_file)
+          logging.info(f"[COORDINATOR CLEANUP] Removed assigned file for request_id={request_id}")
+        except Exception as e:
+          logging.warning(f"[COORDINATOR CLEANUP] Failed to remove assigned file for request_id={request_id}: {e}")
+      
+      # Remove in-memory state
+      if request_id in self.messages_by_request_id_counter:
+        del self.messages_by_request_id_counter[request_id]
+      if request_id in self.end_messages_received:
+        del self.end_messages_received[request_id]
+      if request_id in self.data_messages_count:
+        del self.data_messages_count[request_id]
+      
+      logging.info(f"[COORDINATOR CLEANUP] Cleaned up all state for request_id={request_id}")
 
   def _process_message(self, message, msg_type, data_type, request_id, position, payload, queue_name=None):
     """
@@ -276,23 +354,80 @@ class Coordinator(Worker):
         Duplicate position received: request_id=req-123, position=1
         Discarding duplicate message: request_id=req-123, position=1, msg_type=1
     """
+    print("COMIENZO A PROCESAR")
+
     self._load_assigned_position_for_request(request_id)
     
-    if not self._check_and_persist_input_position(request_id, position):
-      logging.warning(f"Discarding duplicate message: request_id={request_id}, position={position}, msg_type={msg_type}")
-      return
-    
+    if not self._check_input_position(request_id, position):
+        logging.warning(
+            f"[COORD] DESCARTANDO mensaje duplicado: req={request_id}, pos={position}, msg_type={msg_type}"
+        )
+        return
+
     self.messages_by_request_id_counter[request_id] = self.messages_by_request_id_counter.get(request_id, 0) + 1
     new_position = self.messages_by_request_id_counter[request_id]
     
     self._forward_message(msg_type, data_type, request_id, new_position, payload)
 
-    # TEST-CASE: Completar
     # Aca duplicariamos el mensaje pero no haria la deduplication el coordinator
-    #self.simulate_crash(queue_name, request_id)
 
+    print("ANTES DE PERSISTIR")
+
+    self._persist_input_position(request_id, position)
     self._persist_assigned_position(request_id, new_position)
+
+    print("TERMINO")
+    print("")
+
     
+  def _check_input_position(self, request_id, position):
+    
+      positions_file = os.path.join(self.positions_dir, f"{request_id}.txt")
+
+      if not os.path.exists(positions_file):
+          return True
+
+      try:
+          with open(positions_file, "r") as f:
+              for line in f:
+                  if line.strip() == str(position):
+                      return False  # ya existe, descartar
+      except Exception as e:
+          logging.error(f"[COORD] Error leyendo positions file {positions_file}: {e}")
+          # Ante error, preferimos procesar (para no perderlo)
+          return True
+
+      return True
+
+
+  def _persist_input_position(self, request_id, position):
+      positions_file = os.path.join(self.positions_dir, f"{request_id}.txt")
+
+      with self.lock:
+          current_positions = set()
+          
+          if os.path.exists(positions_file):
+              try:
+                  with open(positions_file, "r") as f:
+                      for line in f:
+                          line = line.strip()
+                          if line:
+                              current_positions.add(int(line))
+              except Exception as e:
+                  logging.error(f"[COORD] Error leyendo positions file para {request_id}: {e}")
+
+          current_positions.add(position)
+
+          def write_all(path):
+              with open(path, "w") as f:
+                  for p in sorted(current_positions):
+                      f.write(f"{p}\n")
+
+          try:
+              Worker.atomic_write(positions_file, write_all)
+          except Exception as e:
+              logging.error(f"[COORD] Error persistiendo pos {position} para {request_id}: {e}")
+
 
   def _handle_end_signal(self, message, msg_type, data_type, request_id, position, queue_name=None):
     """
@@ -301,6 +436,9 @@ class Coordinator(Worker):
     Similar to _process_message, but specifically for END signals. Ensures
     that END signals also receive sequential positions and duplicate END
     signals are properly detected and discarded.
+    
+    Special handling for DATA_END: Cleans up all persistent state for the request
+    before forwarding the signal.
     
     Args:
         message (bytes): Raw END message.
@@ -321,6 +459,13 @@ class Coordinator(Worker):
         Persisted assigned position: request_id=req-123, new_position=100
         Forwarded message (msg_type: 2, data_type: users, request_id: req-123, position: 100)
     """
+    # Special handling for DATA_END: cleanup request state and forward
+    if data_type == protocol.DATA_END:
+      logging.info(f"[COORDINATOR] Received DATA_END for request_id={request_id}, cleaning up state")
+      self._cleanup_request_state(request_id)
+      self._forward_message(msg_type, data_type, request_id, position, b'')
+      return
+    
     self._load_assigned_position_for_request(request_id)
     
     if not self._check_and_persist_input_position(request_id, position):
@@ -379,10 +524,10 @@ class Coordinator(Worker):
       new_message = protocol.create_notification_message(data_type, payload, request_id, position)
 
     for q in self.out_queues:
-      logging.info(f"Sending to queue: {q.queue_name}")
+      #logging.info(f"Sending to queue: {q.queue_name}")
       q.send(new_message)
 
-    logging.info(f"Forwarded message (msg_type: {msg_type}, data_type: {data_type}, request_id: {request_id}, position: {position}, payload_size: {len(payload)} bytes)")
+    #logging.info(f"Forwarded message (msg_type: {msg_type}, data_type: {data_type}, request_id: {request_id}, position: {position}, payload_size: {len(payload)} bytes)")
 
   def _process_rows(self, rows, queue_name=None):
     """

@@ -8,6 +8,10 @@ from collections import defaultdict
 from shared.worker import SignalProcessingWorker
 
 
+from WSM.wsm_client import WSMClient
+from wsm_config import WSM_NODES
+import socket
+
 class ReducerV2(SignalProcessingWorker):
     """
     Distributed reducer for combining partial aggregation results.
@@ -72,6 +76,32 @@ class ReducerV2(SignalProcessingWorker):
             ... )
         """
         super().__init__(queue_in, queue_out, rabbitmq_host)
+
+        # --- WSM Heartbeat Integration ----
+        self.replica_id = socket.gethostname()
+
+        worker_type_key = "coordinator"
+
+        # Read WSM host/port (OPTIONAL for single-node; required if you specify wsm host in compose)
+        wsm_host = os.environ.get("WSM_HOST", None)
+        wsm_port = int(os.environ.get("WSM_PORT", "0")) if os.environ.get("WSM_PORT") else None
+
+        # Load multi-node config if exists
+        wsm_nodes = WSM_NODES.get(worker_type_key)
+
+        # Create client in heartbeat-only mode
+        self.wsm_client = WSMClient(
+            worker_type=worker_type_key,
+            replica_id=self.replica_id,
+            host=wsm_host,
+            port=wsm_port,
+            nodes=wsm_nodes
+        )
+
+        logging.info(f"[Coordinator] Heartbeat WSM client ready for {worker_type_key}, replica={self.replica_id}")
+
+
+
         self.input_dir = input_dir
         self.output_dir = output_dir
         self.reducer_mode = reducer_mode.lower()
@@ -79,7 +109,7 @@ class ReducerV2(SignalProcessingWorker):
 
         os.makedirs(self.output_dir, exist_ok=True)
 
-    def _process_signal(self, request_id):
+    def _process_signal(self, request_id, data_type):
         """
         Process notification signal by combining partial results from all replicas.
         
@@ -88,6 +118,7 @@ class ReducerV2(SignalProcessingWorker):
         
         Args:
             request_id (str): Request identifier.
+            data_type (int): Data type constant from the notification message.
         
         Example:
             Input: Notification signal for req-123
@@ -107,6 +138,16 @@ class ReducerV2(SignalProcessingWorker):
                 2024-01.csv
                 2024-02.csv
         """
+        
+        if data_type == protocol.DATA_END:
+            logging.info(f"[Reducer {self.reducer_mode.upper()}] Manejo de DATA_END para request {request_id}")
+            self._cleanup_request_files(request_id, self.output_dir)
+            cleanup_message = protocol.create_notification_message(protocol.DATA_END, b"", request_id)
+            for q in self.out_queues:
+                q.send(cleanup_message)
+            logging.info(f"[Reducer {self.reducer_mode.upper()}] Forwarded DATA_END notification for request {request_id}")
+            return
+        
         base_input = self.input_dir
         base_output = self.output_dir
 
@@ -141,17 +182,13 @@ class ReducerV2(SignalProcessingWorker):
 
         logging.info(f"[Reducer {self.reducer_mode.upper()}] Se encontraron {len(groups)} grupos para combinar.")
 
-        DATA_TYPE = ''
         for prefix, filepaths in groups.items():
             if self.reducer_mode == "q2":
                 combined = self._reduce_q2(filepaths)
-                DATA_TYPE = protocol.DATA_TRANSACTION_ITEMS
             elif self.reducer_mode == "q3":
                 combined = self._reduce_q3(filepaths)
-                DATA_TYPE = protocol.DATA_TRANSACTIONS
             elif self.reducer_mode == "q4":
                 combined = self._reduce_q4(filepaths)
-                DATA_TYPE = protocol.DATA_TRANSACTIONS
             else:
                 logging.error(f"[Reducer] Modo desconocido: {self.reducer_mode}")
                 return
@@ -169,37 +206,44 @@ class ReducerV2(SignalProcessingWorker):
 
         gc.collect()
         logging.info(f"[Reducer {self.reducer_mode.upper()}] Reducción completa para request_id={request_id}.")
-        self._notify_completion(DATA_TYPE, request_id)
+        self._notify_completion(data_type, request_id)
 
     def _reduce_q2(self, filepaths):
         """
-        Q2 reduction: sum quantity and subtotal by item_id.
+        Q2 reduction: sum quantity and subtotal by item_id with deduplication.
         
         Args:
             filepaths (list): List of partial CSV file paths.
         
         Returns:
             list: List of tuples (item_id, total_quantity, total_subtotal).
-        
-        Example:
-            Input files:
-            - file1.csv: item1,10,50.0\nitem2,5,25.0
-            - file2.csv: item1,12,60.0\nitem3,8,40.0
-            
-            Output:
-            [(item1, 22, 110.0), (item2, 5, 25.0), (item3, 8, 40.0)]
         """
         combined = defaultdict(lambda: [0, 0.0])
+        # Track seen positions PER KEY to ignore duplicates
+        # Actually tracked as (item_id, position) tuples
+        seen = set()
+
         for fpath in filepaths:
             try:
                 with open(fpath, "r") as f:
                     reader = csv.reader(f)
                     for row in reader:
-                        if len(row) != 3:
+                        # item_id, qty, subtotal, position
+                        if len(row) < 4:
                             continue
-                        item_id, qty, subtotal = row
-                        combined[item_id][0] += int(qty)
-                        combined[item_id][1] += float(subtotal)
+                        
+                        item_id = row[0]
+                        qty = int(row[1])
+                        subtotal = float(row[2])
+                        pos = row[3]
+                        
+                        unique_key = (item_id, pos)
+                        if unique_key in seen:
+                            continue
+                        
+                        seen.add(unique_key)
+                        combined[item_id][0] += qty
+                        combined[item_id][1] += subtotal
             except Exception as e:
                 logging.error(f"[Reducer Q2] Error leyendo {fpath}: {e}")
 
@@ -207,44 +251,52 @@ class ReducerV2(SignalProcessingWorker):
 
     def _reduce_q3(self, filepaths):
         """
-        Q3 reduction: sum all partial TPV values with precision rounding.
-        
-        Each file contains a single numeric value (partial TPV). Sums all values
-        and rounds to 2 decimal places if needed to avoid floating-point errors.
+        Q3 reduction: sum all partial TPV values with deduplication.
         
         Args:
             filepaths (list): List of partial CSV file paths.
         
         Returns:
             list: Single-row list containing the total TPV [[total]].
-        
-        Example:
-            Input files:
-            - file1.csv: 1234.56
-            - file2.csv: 789.12
-            - file3.csv: 456.78
-            
-            Output:
-            [[2480.46]]
         """
         total = 0.0
+        # Track seen positions to ignore duplicate batches
+        seen_positions = set()
 
         for fpath in filepaths:
             try:
                 with open(fpath, "r") as f:
                     reader = csv.reader(f)
                     for row in reader:
-                        if not row:
+                        # value, position
+                        if not row or len(row) < 2:
                             continue
-                        total += float(row[0])
+                        
+                        val = float(row[0])
+                        pos = row[1]
+                        
+                        # Since Q3 splits files by Key (Semester_Store), 
+                        # duplicate Position means duplicate batch for this key.
+                        # Note: Different replicas might process DIFFERENT messages for the same key.
+                        # BUT they are processing a SERIAL STREAM of messages.
+                        # Wait, replicas share the queue.
+                        # Message 1 (Pos 5) -> Replica 1 -> Writes (Val, 5)
+                        # Message 2 (Pos 6) -> Replica 2 -> Writes (Val, 6)
+                        # Message 1 (Pos 5) -> RETRY Replica 2 -> Writes (Val, 5)
+                        # Deduplication by Position is correct because Position is unique 
+                        # identifier of the INPUT MESSAGE in the stream.
+                        
+                        if pos in seen_positions:
+                            continue
+                        
+                        seen_positions.add(pos)
+                        total += val
             except Exception as e:
                 logging.error(f"[Reducer Q3] Error leyendo {fpath}: {e}")
 
-        logging.info(f"[Reducer Q3] Total combinado: {total}")
         s = f"{total:.10f}".rstrip('0').rstrip('.')
         if '.' in s and len(s.split('.')[1]) > 2:
             total = int(total * 100 + 0.5) / 100.0
-        logging.info(f"[Reducer Q3] Total redondeado: {total}")
 
         return [[total]]
 
@@ -252,36 +304,70 @@ class ReducerV2(SignalProcessingWorker):
 
     def _reduce_q4(self, filepaths):
         """
-        Q4 reduction: sum visit counts by user_id.
+        Q4 reduction: sum visit counts by user_id with deduplication.
         
         Args:
             filepaths (list): List of partial CSV file paths.
         
         Returns:
             list: List of tuples (user_id, total_count).
-        
-        Example:
-            Input files:
-            - file1.csv: user1,5\nuser2,3
-            - file2.csv: user1,7\nuser3,2
-            
-            Output:
-            [(user1, 12), (user2, 3), (user3, 2)]
         """
         combined = defaultdict(int)
+        # Track seen (user_id, position)
+        seen = set()
+
         for fpath in filepaths:
             try:
                 with open(fpath, "r") as f:
                     reader = csv.reader(f)
                     for row in reader:
-                        if len(row) != 2:
+                        # user_id, count, position
+                        if len(row) < 3:
                             continue
-                        user_id, count = row
-                        combined[user_id] += int(count)
+                        
+                        user_id = row[0]
+                        count = int(row[1])
+                        pos = row[2]
+                        
+                        unique_key = (user_id, pos)
+                        if unique_key in seen:
+                            continue
+                            
+                        seen.add(unique_key)
+                        combined[user_id] += count
             except Exception as e:
                 logging.error(f"[Reducer Q4] Error leyendo {fpath}: {e}")
 
         return [(user_id, count) for user_id, count in combined.items()]
+
+    def _cleanup_request_files(self, request_id, base_dir):
+        """
+        Clean up temporary files for a completed request.
+        
+        Removes the entire request directory tree containing aggregation files.
+        This prevents disk space accumulation after requests are completed.
+        
+        Args:
+            request_id (str): Request identifier to clean up.
+            base_dir (str): Base directory (input_dir or output_dir).
+        
+        Example:
+            >>> reducer._cleanup_request_files('req-123', '/app/temp/reduced_q2')
+            # Removes: /app/temp/reduced_q2/req-123/
+            [Reducer Q2] Cleaned up files for request_id=req-123 at /app/temp/reduced_q2/req-123
+        """
+        import shutil
+        
+        request_dir = os.path.join(base_dir, str(request_id))
+        
+        if os.path.exists(request_dir):
+            try:
+                shutil.rmtree(request_dir)
+                logging.info(f"[Reducer {self.reducer_mode.upper()}] Cleaned up files for request_id={request_id} at {request_dir}")
+            except Exception as e:
+                logging.error(f"[Reducer {self.reducer_mode.upper()}] Error cleaning up files for request_id={request_id} at {request_dir}: {e}")
+        else:
+            logging.debug(f"[Reducer {self.reducer_mode.upper()}] No files found for request_id={request_id} at {request_dir}")
 
 
 if __name__ == "__main__":

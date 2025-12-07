@@ -2,6 +2,7 @@ import socket
 import json
 import logging
 import time
+import threading
 from typing import List, Tuple, Optional
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -105,10 +106,80 @@ class WSMClient:
 
         self.sock: Optional[socket.socket] = None
         self.current_node: Optional[Tuple[str, int]] = None
+        
+        # Lock for thread-safe socket access (main thread + heartbeat thread)
+        self._lock = threading.Lock()
 
         # Conectar y registrar la réplica
         self._connect_to_leader()
         self._register()
+
+        # Start heartbeat loop
+        threading.Thread(target=self._heartbeat_loop, daemon=True).start()
+
+
+    def _safe_request(self, msg: dict):
+        """
+        Send request with automatic retry and failover.
+        
+        Handles:
+        - Connection loss → reconnect to new LEADER and retry
+        - NOT_LEADER response → discover new LEADER and retry
+        - Network errors → discover new LEADER and retry
+        
+        Args:
+            msg (dict): Request message.
+        
+        Returns:
+            Any: Response payload.
+        
+        Example:
+            ```python
+            # Normal operation
+            response = client._safe_request({
+                'action': 'update_state',
+                'worker_type': 'cleaner',
+                'replica_id': 'cleaner-1',
+                'state': 'PROCESSING',
+                'request_id': 123,
+                'position': 1
+            })
+            # Returns: 'OK'
+            
+            # LEADER fails during request
+            # - Connection error caught
+            # - Discovers new LEADER
+            # - Retries same request
+            # - Returns: 'OK' from new LEADER
+            ```
+        """
+        payload = json.dumps(msg).encode("utf-8")
+
+        with self._lock:
+            while True:
+
+                # Asegurarse de estar conectado a algún líder
+                if self.sock is None:
+                    self._connect_to_leader()
+
+                try:
+                    self.sock.sendall(payload)
+                    data = self.sock.recv(4096)
+                    if not data:
+                        raise ConnectionError("WSM cerró la conexión")
+
+                    response = json.loads(data.decode("utf-8")).get("response")
+
+                    if response == "NOT_LEADER":
+                        logging.warning("[WSMClient] Nodo actual dejó de ser líder, redescubriendo líder...")
+                        self._reset_connection()
+                        continue  # vuelve al while, encuentra nuevo líder y reenvía
+
+                    return response
+
+                except Exception as e:
+                    logging.warning(f"[WSMClient] Error de conexión con el líder ({e}), buscando nuevo líder...")
+                    self._reset_connection()
 
     def _find_leader_once(self) -> Optional[Tuple[str, int]]:
         """
@@ -174,7 +245,7 @@ class WSMClient:
 
             host, port = leader
             try:
-                self.sock = socket.create_connection((host, port), timeout=5)
+                self.sock = socket.create_connection((host, port), timeout=20)
                 self.current_node = leader
                 logging.info(f"[WSMClient] Conectado al líder {host}:{port}")
                 return
@@ -204,68 +275,6 @@ class WSMClient:
                 pass
         self.sock = None
         self.current_node = None
-
-    def _safe_request(self, msg: dict):
-        """
-        Send request with automatic retry and failover.
-        
-        Handles:
-        - Connection loss → reconnect to new LEADER and retry
-        - NOT_LEADER response → discover new LEADER and retry
-        - Network errors → discover new LEADER and retry
-        
-        Args:
-            msg (dict): Request message.
-        
-        Returns:
-            Any: Response payload.
-        
-        Example:
-            ```python
-            # Normal operation
-            response = client._safe_request({
-                'action': 'update_state',
-                'worker_type': 'cleaner',
-                'replica_id': 'cleaner-1',
-                'state': 'PROCESSING',
-                'request_id': 123,
-                'position': 1
-            })
-            # Returns: 'OK'
-            
-            # LEADER fails during request
-            # - Connection error caught
-            # - Discovers new LEADER
-            # - Retries same request
-            # - Returns: 'OK' from new LEADER
-            ```
-        """
-        payload = json.dumps(msg).encode("utf-8")
-
-        while True:
-
-            # Asegurarse de estar conectado a algún líder
-            if self.sock is None:
-                self._connect_to_leader()
-
-            try:
-                self.sock.sendall(payload)
-                data = self.sock.recv(4096)
-                if not data:
-                    raise ConnectionError("WSM cerró la conexión")
-
-                response = json.loads(data.decode("utf-8")).get("response")
-
-                if response == "NOT_LEADER":
-                    logging.warning("[WSMClient] Nodo actual dejó de ser líder, redescubriendo líder...")
-                    self._reset_connection()
-                    continue  # vuelve al while, encuentra nuevo líder y reenvía
-
-                return response
-
-            except Exception as e:
-                logging.warning(f"[WSMClient] Error de conexión con el líder ({e}), buscando nuevo líder...")
-                self._reset_connection()
 
     def _register(self):
         """
@@ -406,3 +415,86 @@ class WSMClient:
             "position": position
         }
         return self._safe_request(msg) is True
+
+    def _heartbeat_loop(self):
+        """
+        Periodically send heartbeat to WSM leader.
+        """
+        HEARTBEAT_INTERVAL = 3.0
+        while True:
+            try:
+                self.send_heartbeat()
+            except Exception as e:
+                logging.debug(f"[WSMClient] Error sending heartbeat: {e}")
+            time.sleep(HEARTBEAT_INTERVAL)
+
+    def send_heartbeat(self):
+        """
+        Send heartbeat signal to WSM.
+        """
+        msg = {
+            "action": "heartbeat",
+            "worker_type": self.worker_type,
+            "replica_id": self.replica_id
+        }
+        # Use _safe_request to handle leader failover automatically
+        self._safe_request(msg)
+
+    def cleanup_request(self, request_id):
+        """
+        Clean up all position files and state for a completed or abandoned request.
+        
+        Removes position files across all worker types and cleans up tracking state
+        for the given request_id. Should be called by gateway when a request completes
+        or is abandoned to free resources.
+        
+        Args:
+            request_id (int): Request identifier to clean up.
+        
+        Returns:
+            str: 'OK'
+        
+        Example:
+            ```python
+            # Request completed successfully
+            client.cleanup_request(123)
+            
+            # Request abandoned due to client disconnect
+            client.cleanup_request(456)
+            ```
+        """
+        msg = {
+            "action": "cleanup_request",
+            "request_id": request_id
+        }
+        return self._safe_request(msg)
+
+    def can_send_last_data_end(self, request_id):
+        """
+        Check if this is the last worker type to receive DATA_END.
+        
+        Used by multi-queue workers (like joiner) to coordinate DATA_END across
+        different input queues.
+        
+        Args:
+            request_id (int): Request identifier.
+        
+        Returns:
+            bool: True if all worker types received DATA_END.
+        
+        Example:
+            ```python
+            # Joiner checking if all input queues received DATA_END
+            can_send = client.can_send_last_data_end(123)
+            if can_send:
+                # All queues done, can clean up and forward
+                pass
+            ```
+        """
+        msg = {
+            "action": "can_send_last_data_end",
+            "worker_type": self.worker_type,
+            "replica_id": self.replica_id,
+            "request_id": request_id
+        }
+        return self._safe_request(msg) == "OK"

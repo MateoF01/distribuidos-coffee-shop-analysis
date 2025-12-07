@@ -6,6 +6,11 @@ import time
 from shared.worker import FileProcessingWorker
 from shared import protocol
 
+from WSM.wsm_client import WSMClient
+from wsm_config import WSM_NODES
+import socket
+import logging
+
 class SorterConfig:
     """
     Configuration container for Sorter.
@@ -162,6 +167,33 @@ class Sorter(FileProcessingWorker):
         """
         queue_out = completion_queue if completion_queue else None
         super().__init__(queue_in, queue_out, rabbitmq_host, input_file=input_file, output_file=output_file)
+        
+        # --- WSM Heartbeat Integration ----
+        self.replica_id = socket.gethostname()
+
+        worker_type_key = "coordinator"
+
+        # Read WSM host/port (OPTIONAL for single-node; required if you specify wsm host in compose)
+        wsm_host = os.environ.get("WSM_HOST", None)
+        wsm_port = int(os.environ.get("WSM_PORT", "0")) if os.environ.get("WSM_PORT") else None
+
+        # Load multi-node config if exists
+        wsm_nodes = WSM_NODES.get(worker_type_key)
+
+        # Create client in heartbeat-only mode
+        self.wsm_client = WSMClient(
+            worker_type=worker_type_key,
+            replica_id=self.replica_id,
+            host=wsm_host,
+            port=wsm_port,
+            nodes=wsm_nodes
+        )
+
+        logging.info(f"[Coordinator] Heartbeat WSM client ready for {worker_type_key}, replica={self.replica_id}")
+
+        
+        
+        
         self.sort_column_index = config.sort_column_index
         self.config = config
         self.completion_queue_name = completion_queue
@@ -404,6 +436,7 @@ class Sorter(FileProcessingWorker):
     def _process_message(self, message, msg_type, data_type, request_id, position, payload, queue_name=None):
         """
         Process sort signal to trigger file sorting.
+        Handles DATA_END for cleanup during abnormal termination.
         
         Args:
             message (bytes): Raw message.
@@ -414,6 +447,15 @@ class Sorter(FileProcessingWorker):
             payload (bytes): Message payload.
             queue_name (str, optional): Source queue name.
         """
+        if msg_type == self.config.sort_signal_type and data_type == protocol.DATA_END:
+            print(f"[Sorter] Received DATA_END for request_id={request_id}")
+            self._cleanup_request_files(request_id)
+            cleanup_message = protocol.create_notification_message(protocol.DATA_END, b"", request_id)
+            for q in self.out_queues:
+                q.send(cleanup_message)
+            print(f"[Sorter] Forwarded DATA_END notification for request_id={request_id}")
+            return
+        
         if msg_type == self.config.sort_signal_type:
             if request_id in self._processed_requests:
                 print(f'Sort signal for request_id={request_id} already processed, ignoring duplicate')
@@ -431,6 +473,29 @@ class Sorter(FileProcessingWorker):
         else:
             print(f"Received unexpected message type: {msg_type}/{data_type}")
     
+    def _cleanup_request_files(self, request_id):
+        """
+        Clean up tracking data structures for a request during abnormal termination.
+        
+        Note: File cleanup is handled by the upstream joiner, which shares the same
+        output directory (/app/output/<request_id>/) and removes it when receiving DATA_END.
+        This prevents redundant cleanup and race conditions.
+        
+        Args:
+            request_id (str): Request identifier to clean up.
+        """
+        # Clean up tracking data
+        if request_id in self._temp_files_by_request:
+            del self._temp_files_by_request[request_id]
+        
+        if request_id in self._processed_requests:
+            self._processed_requests.discard(request_id)
+        
+        if hasattr(self, "_initialized_requests") and request_id in self._initialized_requests:
+            self._initialized_requests.discard(request_id)
+        
+        print(f"[Sorter] Cleared tracking data for request_id={request_id}")
+
     def _validate_message(self, message):
         """
         Validate message format and size.

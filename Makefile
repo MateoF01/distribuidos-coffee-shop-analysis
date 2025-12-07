@@ -2,33 +2,40 @@ SHELL := /bin/bash
 PWD := $(shell pwd)
 
 # 🧩 Replica configuration (default values)
-CLEANER_TRANSACTIONS_REPLICAS ?= 2
-CLEANER_TRANSACTION_ITEMS_REPLICAS ?= 2
-CLEANER_USERS_REPLICAS ?= 2
+CLEANER_TRANSACTIONS_REPLICAS ?= 4
+CLEANER_TRANSACTION_ITEMS_REPLICAS ?= 4
+CLEANER_USERS_REPLICAS ?= 3
 CLEANER_STORES_REPLICAS ?= 2
 CLEANER_MENU_ITEMS_REPLICAS ?= 2
-CLEANER_TRANSACTIONS_REPLICAS_Q4 ?= 2
+CLEANER_TRANSACTIONS_REPLICAS_Q4 ?= 3
 
-GROUPER_Q2_V2_REPLICAS ?= 2
-GROUPER_Q3_V2_REPLICAS ?= 2
-GROUPER_Q4_V2_REPLICAS ?= 2
+GROUPER_Q2_V2_REPLICAS ?= 3
+GROUPER_Q3_V2_REPLICAS ?= 3
+GROUPER_Q4_V2_REPLICAS ?= 3
 
 REDUCER_Q2_REPLICAS ?= 2
 REDUCER_Q3_REPLICAS ?= 2
 REDUCER_Q4_REPLICAS ?= 2
 
-TEMPORAL_FILTER_TRANSACTIONS_REPLICAS ?= 2
-TEMPORAL_FILTER_TRANSACTION_ITEMS_REPLICAS ?= 2
-AMOUNT_FILTER_TRANSACTIONS_REPLICAS ?= 2
+TOPPER_Q2_REPLICAS ?= 2
+TOPPER_Q3_REPLICAS ?= 2
+TOPPER_Q4_REPLICAS ?= 2
 
-SPLITTER_Q1_REPLICAS ?= 2
-SORTER_Q1_V2_REPLICAS ?= 2
+TEMPORAL_FILTER_TRANSACTIONS_REPLICAS ?= 3
+TEMPORAL_FILTER_TRANSACTION_ITEMS_REPLICAS ?= 3
+AMOUNT_FILTER_TRANSACTIONS_REPLICAS ?= 3
 
-JOINER_V2_Q2_REPLICAS ?= 2
-JOINER_V2_Q3_REPLICAS ?= 2
-JOINER_V2_Q4_REPLICAS ?= 2
+SPLITTER_Q1_REPLICAS ?= 3
+SORTER_Q1_V2_REPLICAS ?= 1
+
+JOINER_V2_Q2_REPLICAS ?= 3
+JOINER_V2_Q3_REPLICAS ?= 3
+JOINER_V2_Q4_REPLICAS ?= 3
 
 CLIENT_REPLICAS ?= 1
+REQUESTS_PER_CLIENT ?= 1
+GATEWAY_MAX_PROCESSES ?= 5
+CLEANUP_ON_SUCCESS ?= true
 
 default: help
 
@@ -61,16 +68,32 @@ help:
 	@echo "  amount_filter_transactions: $(AMOUNT_FILTER_TRANSACTIONS)"
 	@echo "  splitter_q1: $(SPLITTER_Q1_REPLICAS)"
 	@echo "  sorter_q1_v2: $(SORTER_Q1_V2_REPLICAS)"
+	@echo "  topper_q2: $(TOPPER_Q2_REPLICAS)"
+	@echo "  topper_q3: $(TOPPER_Q3_REPLICAS)"
+	@echo "  topper_q4: $(TOPPER_Q4_REPLICAS)"
+	@echo ""
+	@echo "Client/Gateway configuration:"
+	@echo "  CLIENT_REPLICAS:       $(CLIENT_REPLICAS)"
+	@echo "  REQUESTS_PER_CLIENT:   $(REQUESTS_PER_CLIENT)"
+	@echo "  GATEWAY_MAX_PROCESSES: $(GATEWAY_MAX_PROCESSES)"
 	@echo ""
 	@echo "Examples:"
 	@echo "  make up  # Start with defaults"
+	@echo "  CLIENT_REPLICAS=3 REQUESTS_PER_CLIENT=2 make up  # 3 clients, 2 requests each"
 	@echo "  CLEANER_TRANSACTIONS_REPLICAS=5 make up  # Only scale transactions cleaners"
 	@echo "  CLEANER_TRANSACTIONS_REPLICAS=3 CLEANER_USERS_REPLICAS=4 make up"
-	@echo "  make scale-cleaners CLEANER_TRANSACTIONS_REPLICAS=2 CLEANER_STORES_REPLICAS=5"
+
+# 📦 Generate docker-compose.yml
+.PHONY: generate
+generate:
+	@REQUESTS_PER_CLIENT=$(REQUESTS_PER_CLIENT) \
+	 GATEWAY_MAX_PROCESSES=$(GATEWAY_MAX_PROCESSES) \
+	 CLEANUP_ON_SUCCESS=$(CLEANUP_ON_SUCCESS) \
+	 ./generar-compose.sh
 
 # 🛠️ Build
 .PHONY: build
-build:
+build: generate
 	docker compose build
 
 # 🚀 Up
@@ -100,6 +123,9 @@ up: build
 		--scale joiner_v2_q2=$(JOINER_V2_Q2_REPLICAS) \
 		--scale joiner_v2_q3=$(JOINER_V2_Q3_REPLICAS) \
 		--scale joiner_v2_q4=$(JOINER_V2_Q4_REPLICAS) \
+		--scale topper_q2=$(TOPPER_Q2_REPLICAS) \
+		--scale topper_q3=$(TOPPER_Q3_REPLICAS) \
+		--scale topper_q4=$(TOPPER_Q4_REPLICAS) \
 
 
 
@@ -237,6 +263,9 @@ show-replicas:
 	@echo "  joiner_v2_q2: $(JOINER_V2_Q2_REPLICAS)"
 	@echo "  joiner_v2_q3: $(JOINER_V2_Q3_REPLICAS)"
 	@echo "  joiner_v2_q4: $(JOINER_V2_Q4_REPLICAS)"
+	@echo "  topper_q2: $(TOPPER_Q2_REPLICAS)"
+	@echo "  topper_q3: $(TOPPER_Q3_REPLICAS)"
+	@echo "  topper_q4: $(TOPPER_Q4_REPLICAS)"
 	@echo "  client: $(CLIENT_REPLICAS)"
 	@echo ""
 	@echo "Running containers:"

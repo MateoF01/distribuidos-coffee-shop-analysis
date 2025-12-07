@@ -1,0 +1,647 @@
+
+🦍🦍🦍  CHAOS GORILLA INICIADO  🦍🦍🦍
+Intervalo entre rondas: 30s
+Contenedores a matar por ronda: hasta 5
+Excluye: rabbitmq, clients
+Presiona Ctrl+C para detener
+
+
+��💥💥  RONDA 1  💥💥💥
+Matando 5 de 133 contenedores posibles:
+
+🧨 Eliminando:  coffee-shop-22-cleaner_transaction_items-4
+   ☠️  coffee-shop-22-cleaner_transaction_items-4 murió (kill)
+
+🧨 Eliminando:  coordinator_temporal_filter_transaction_items
+   ☠️  coordinator_temporal_filter_transaction_items murió (kill)
+
+🧨 Eliminando:  wsm_amount_filter_transactions_3
+   ☠️  wsm_amount_filter_transactions_3 murió (kill)
+
+🧨 Eliminando:  wsm_grouper_q2
+   ☠️  wsm_grouper_q2 murió (kill)
+
+🧨 Eliminando:  coffee-shop-22-splitter_q1-2
+   ☠️  coffee-shop-22-splitter_q1-2 murió (kill)
+
+✅ Ronda de caos completada.
+⏳ Esperando 30s hasta la próxima ronda... (Ctrl+C para detener)
+
+
+��💥💥  RONDA 2  💥💥💥
+Matando 5 de 133 contenedores posibles:
+
+🧨 Eliminando:  coffee-shop-22-reducer_q2-1
+   ☠️  coffee-shop-22-reducer_q2-1 murió (kill)
+
+🧨 Eliminando:  wsm_stores_2
+   ☠️  wsm_stores_2 murió (kill)
+
+🧨 Eliminando:  coordinator_cleaner_menu_items
+   ☠️  coordinator_cleaner_menu_items murió (kill)
+
+🧨 Eliminando:  wsm_temporal_filter_transactions_2
+   ☠️  wsm_temporal_filter_transactions_2 murió (kill)
+
+🧨 Eliminando:  wsm_splitter_q1_2
+   ☠️  wsm_splitter_q1_2 murió (kill)
+
+✅ Ronda de caos completada.
+⏳ Esperando 30s hasta la próxima ronda... (Ctrl+C para detener)
+
+
+��💥💥  RONDA 3  💥💥💥
+Matando 5 de 133 contenedores posibles:
+
+🧨 Eliminando:  coffee-shop-22-reducer_q2-2
+   ☠️  coffee-shop-22-reducer_q2-2 murió (kill)
+
+🧨 Eliminando:  wsm_users_2
+   ☠️  wsm_users_2 murió (kill)
+
+🧨 Eliminando:  wsm_grouper_q2_2
+   ☠️  wsm_grouper_q2_2 murió (kill)
+
+🧨 Eliminando:  coffee-shop-22-grouper_q3_v2-1
+   ☠️  coffee-shop-22-grouper_q3_v2-1 murió (kill)
+
+🧨 Eliminando:  coffee-shop-22-joiner_v2_q2-3
+   ☠️  coffee-shop-22-joiner_v2_q2-3 murió (kill)
+
+✅ Ronda de caos completada.
+⏳ Esperando 30s hasta la próxima ronda... (Ctrl+C para detener)
+
+
+��💥💥  RONDA 4  💥💥💥
+Matando 5 de 133 contenedores posibles:
+
+🧨 Eliminando:  coffee-shop-22-reducer_q2-1
+   ☠️  coffee-shop-22-reducer_q2-1 murió (kill)
+
+🧨 Eliminando:  wsm_amount_filter_transactions_3
+   ☠️  wsm_amount_filter_transactions_3 murió (kill)
+
+🧨 Eliminando:  coffee-shop-22-temporal_filter_transaction_items-2
+   ☠️  coffee-shop-22-temporal_filter_transaction_items-2 murió (kill)
+
+🧨 Eliminando:  wsm_grouper_q2_3
+   ☠️  wsm_grouper_q2_3 murió (kill)
+
+🧨 Eliminando:  coffee-shop-22-cleaner_users-3
+   ☠️  coffee-shop-22-cleaner_users-3 murió (kill)
+
+✅ Ronda de caos completada.
+⏳ Esperando 30s hasta la próxima ronda... (Ctrl+C para detener)
+
+
+��💥💥  RONDA 5  💥💥💥
+Matando 5 de 133 contenedores posibles:
+
+🧨 Eliminando:  wsm_temporal_filter_transactions_2
+   ☠️  wsm_temporal_filter_transactions_2 murió (kill)
+
+🧨 Eliminando:  coordinator_amount_filter_transactions
+   ☠️  coordinator_amount_filter_transactions murió (kill)
+
+🧨 Eliminando:  wsm_users
+   ☠️  wsm_users murió (kill)
+
+🧨 Eliminando:  wsm_transaction_items_2
+   ☠️  wsm_transaction_items_2 murió (kill)
+
+🧨 Eliminando:  coordinator_cleaner_transaction_items
+   ☠️  coordinator_cleaner_transaction_items murió (kill)
+
+✅ Ronda de caos completada.
+⏳ Esperando 30s hasta la próxima ronda... (Ctrl+C para detener)
+
+
+��💥💥  RONDA 6  💥💥💥
+Matando 5 de 133 contenedores posibles:
+
+🧨 Eliminando:  coffee-shop-22-grouper_q4_v2-2
+   ☠️  coffee-shop-22-grouper_q4_v2-2 murió (kill)
+
+🧨 Eliminando:  coffee-shop-22-temporal_filter_transactions-3
+   ☠️  coffee-shop-22-temporal_filter_transactions-3 murió (kill)
+
+🧨 Eliminando:  wsm_temporal_filter_transactions_2
+   ☠️  wsm_temporal_filter_transactions_2 murió (kill)
+
+🧨 Eliminando:  coordinator_temporal_filter_transactions_q3
+   ☠️  coordinator_temporal_filter_transactions_q3 murió (kill)
+
+🧨 Eliminando:  wsm_q2_3
+   ☠️  wsm_q2_3 murió (kill)
+
+✅ Ronda de caos completada.
+⏳ Esperando 30s hasta la próxima ronda... (Ctrl+C para detener)
+
+
+��💥💥  RONDA 7  💥💥💥
+Matando 5 de 133 contenedores posibles:
+
+🧨 Eliminando:  coffee-shop-22-temporal_filter_transactions-3
+   ☠️  coffee-shop-22-temporal_filter_transactions-3 murió (kill)
+
+🧨 Eliminando:  wsm_amount_filter_transactions_3
+   ☠️  wsm_amount_filter_transactions_3 murió (kill)
+
+🧨 Eliminando:  coffee-shop-22-joiner_v2_q4-2
+   ☠️  coffee-shop-22-joiner_v2_q4-2 murió (kill)
+
+🧨 Eliminando:  coffee-shop-22-reducer_q2-1
+   ☠️  coffee-shop-22-reducer_q2-1 murió (kill)
+
+🧨 Eliminando:  coffee-shop-22-grouper_q2_v2-1
+   ☠️  coffee-shop-22-grouper_q2_v2-1 murió (kill)
+
+✅ Ronda de caos completada.
+⏳ Esperando 30s hasta la próxima ronda... (Ctrl+C para detener)
+
+
+��💥💥  RONDA 8  💥💥💥
+Matando 5 de 133 contenedores posibles:
+
+🧨 Eliminando:  coordinator_cleaner_transactions_q4
+   ☠️  coordinator_cleaner_transactions_q4 murió (kill)
+
+🧨 Eliminando:  wsm_q4
+   ☠️  wsm_q4 murió (kill)
+
+🧨 Eliminando:  coffee-shop-22-reducer_q4-2
+   ☠️  coffee-shop-22-reducer_q4-2 murió (kill)
+
+🧨 Eliminando:  coffee-shop-22-joiner_v2_q3-3
+   ☠️  coffee-shop-22-joiner_v2_q3-3 murió (kill)
+
+🧨 Eliminando:  coffee-shop-22-cleaner_menu_items-2
+   ☠️  coffee-shop-22-cleaner_menu_items-2 murió (kill)
+
+✅ Ronda de caos completada.
+⏳ Esperando 30s hasta la próxima ronda... (Ctrl+C para detener)
+
+
+��💥💥  RONDA 9  💥💥💥
+Matando 5 de 133 contenedores posibles:
+
+🧨 Eliminando:  wsm_grouper_q2_2
+   ☠️  wsm_grouper_q2_2 murió (kill)
+
+🧨 Eliminando:  wsm_transactions
+   ☠️  wsm_transactions murió (kill)
+
+🧨 Eliminando:  coffee-shop-22-temporal_filter_transaction_items-3
+   ☠️  coffee-shop-22-temporal_filter_transaction_items-3 murió (kill)
+
+🧨 Eliminando:  wsm_transactions_q4_2
+   ☠️  wsm_transactions_q4_2 murió (kill)
+
+🧨 Eliminando:  coffee-shop-22-temporal_filter_transactions-1
+   ☠️  coffee-shop-22-temporal_filter_transactions-1 murió (kill)
+
+✅ Ronda de caos completada.
+⏳ Esperando 30s hasta la próxima ronda... (Ctrl+C para detener)
+
+
+��💥💥  RONDA 10  💥💥💥
+Matando 5 de 133 contenedores posibles:
+
+🧨 Eliminando:  wsm_q4
+   ☠️  wsm_q4 murió (kill)
+
+🧨 Eliminando:  wsm_stores_3
+   ☠️  wsm_stores_3 murió (kill)
+
+🧨 Eliminando:  coordinator_temporal_filter_transactions_q1
+   ☠️  coordinator_temporal_filter_transactions_q1 murió (kill)
+
+🧨 Eliminando:  coffee-shop-22-reducer_q2-1
+   ☠️  coffee-shop-22-reducer_q2-1 murió (kill)
+
+🧨 Eliminando:  wsm_grouper_q2
+   ☠️  wsm_grouper_q2 murió (kill)
+
+✅ Ronda de caos completada.
+⏳ Esperando 30s hasta la próxima ronda... (Ctrl+C para detener)
+
+
+��💥💥  RONDA 11  💥💥💥
+Matando 5 de 133 contenedores posibles:
+
+🧨 Eliminando:  wsm_splitter_q1_3
+   ☠️  wsm_splitter_q1_3 murió (kill)
+
+🧨 Eliminando:  coffee-shop-22-joiner_v2_q3-3
+   ☠️  coffee-shop-22-joiner_v2_q3-3 murió (kill)
+
+🧨 Eliminando:  coordinator_temporal_filter_transaction_items
+   ☠️  coordinator_temporal_filter_transaction_items murió (kill)
+
+🧨 Eliminando:  coffee-shop-22-cleaner_users-1
+   ☠️  coffee-shop-22-cleaner_users-1 murió (kill)
+
+🧨 Eliminando:  coffee-shop-22-reducer_q2-2
+   ☠️  coffee-shop-22-reducer_q2-2 murió (kill)
+
+✅ Ronda de caos completada.
+⏳ Esperando 30s hasta la próxima ronda... (Ctrl+C para detener)
+
+
+��💥💥  RONDA 12  💥💥💥
+Matando 5 de 133 contenedores posibles:
+
+🧨 Eliminando:  wsm_q3_2
+   ☠️  wsm_q3_2 murió (kill)
+
+🧨 Eliminando:  coffee-shop-22-reducer_q3-1
+   ☠️  coffee-shop-22-reducer_q3-1 murió (kill)
+
+🧨 Eliminando:  wsm_temporal_filter_transactions_2
+   ☠️  wsm_temporal_filter_transactions_2 murió (kill)
+
+🧨 Eliminando:  coffee-shop-22-cleaner_menu_items-1
+   ☠️  coffee-shop-22-cleaner_menu_items-1 murió (kill)
+
+🧨 Eliminando:  coffee-shop-22-amount_filter_transactions-2
+   ☠️  coffee-shop-22-amount_filter_transactions-2 murió (kill)
+
+✅ Ronda de caos completada.
+⏳ Esperando 30s hasta la próxima ronda... (Ctrl+C para detener)
+
+
+��💥💥  RONDA 13  💥💥💥
+Matando 5 de 133 contenedores posibles:
+
+🧨 Eliminando:  coordinator_cleaner_transactions
+   ☠️  coordinator_cleaner_transactions murió (kill)
+
+🧨 Eliminando:  wsm_menu_items
+   ☠️  wsm_menu_items murió (kill)
+
+🧨 Eliminando:  wsm_temporal_filter_transactions_3
+   ☠️  wsm_temporal_filter_transactions_3 murió (kill)
+
+🧨 Eliminando:  sorter_q4
+   ☠️  sorter_q4 murió (kill)
+
+🧨 Eliminando:  wsm_temporal_filter_transaction_items_2
+   ☠️  wsm_temporal_filter_transaction_items_2 murió (kill)
+
+✅ Ronda de caos completada.
+⏳ Esperando 30s hasta la próxima ronda... (Ctrl+C para detener)
+
+
+��💥💥  RONDA 14  💥💥💥
+Matando 5 de 133 contenedores posibles:
+
+🧨 Eliminando:  wsm_coordinators_2
+   ☠️  wsm_coordinators_2 murió (kill)
+
+🧨 Eliminando:  coordinator_cleaner_transaction_items
+   ☠️  coordinator_cleaner_transaction_items murió (kill)
+
+🧨 Eliminando:  wsm_transactions_2
+   ☠️  wsm_transactions_2 murió (kill)
+
+🧨 Eliminando:  wsm_grouper_q2
+   ☠️  wsm_grouper_q2 murió (kill)
+
+🧨 Eliminando:  coffee-shop-22-grouper_q2_v2-1
+   ☠️  coffee-shop-22-grouper_q2_v2-1 murió (kill)
+
+✅ Ronda de caos completada.
+⏳ Esperando 30s hasta la próxima ronda... (Ctrl+C para detener)
+
+
+��💥💥  RONDA 15  💥💥💥
+Matando 5 de 133 contenedores posibles:
+
+🧨 Eliminando:  coffee-shop-22-topper_q4-2
+   ☠️  coffee-shop-22-topper_q4-2 murió (kill)
+
+🧨 Eliminando:  wsm_transaction_items
+   ☠️  wsm_transaction_items murió (kill)
+
+🧨 Eliminando:  coordinator_amount_filter_transactions
+   ☠️  coordinator_amount_filter_transactions murió (kill)
+
+🧨 Eliminando:  wsm_coordinators_3
+   ☠️  wsm_coordinators_3 murió (kill)
+
+🧨 Eliminando:  coffee-shop-22-cleaner_transaction_items-1
+   ☠️  coffee-shop-22-cleaner_transaction_items-1 murió (kill)
+
+✅ Ronda de caos completada.
+⏳ Esperando 30s hasta la próxima ronda... (Ctrl+C para detener)
+
+
+��💥💥  RONDA 16  💥💥💥
+Matando 5 de 133 contenedores posibles:
+
+🧨 Eliminando:  coffee-shop-22-splitter_q1-3
+   ☠️  coffee-shop-22-splitter_q1-3 murió (kill)
+
+🧨 Eliminando:  wsm_temporal_filter_transaction_items_3
+   ☠️  wsm_temporal_filter_transaction_items_3 murió (kill)
+
+🧨 Eliminando:  wsm_grouper_q4_2
+   ☠️  wsm_grouper_q4_2 murió (kill)
+
+🧨 Eliminando:  coffee-shop-22-grouper_q3_v2-2
+   ☠️  coffee-shop-22-grouper_q3_v2-2 murió (kill)
+
+🧨 Eliminando:  sender_q2_a
+   ☠️  sender_q2_a murió (kill)
+
+✅ Ronda de caos completada.
+⏳ Esperando 30s hasta la próxima ronda... (Ctrl+C para detener)
+
+
+��💥💥  RONDA 17  💥💥💥
+Matando 5 de 133 contenedores posibles:
+
+🧨 Eliminando:  wsm_temporal_filter_transactions
+   ☠️  wsm_temporal_filter_transactions murió (kill)
+
+🧨 Eliminando:  wsm_grouper_q2_2
+   ☠️  wsm_grouper_q2_2 murió (kill)
+
+🧨 Eliminando:  coffee-shop-22-cleaner_menu_items-1
+   ☠️  coffee-shop-22-cleaner_menu_items-1 murió (kill)
+
+🧨 Eliminando:  wsm_stores
+   ☠️  wsm_stores murió (kill)
+
+🧨 Eliminando:  coffee-shop-22-joiner_v2_q3-2
+   ☠️  coffee-shop-22-joiner_v2_q3-2 murió (kill)
+
+✅ Ronda de caos completada.
+⏳ Esperando 30s hasta la próxima ronda... (Ctrl+C para detener)
+
+
+��💥💥  RONDA 18  💥💥💥
+Matando 5 de 133 contenedores posibles:
+
+🧨 Eliminando:  wsm_splitter_q1_3
+   ☠️  wsm_splitter_q1_3 murió (kill)
+
+🧨 Eliminando:  sender_q4
+   ☠️  sender_q4 murió (kill)
+
+🧨 Eliminando:  coffee-shop-22-topper_q3-1
+   ☠️  coffee-shop-22-topper_q3-1 murió (kill)
+
+🧨 Eliminando:  coffee-shop-22-topper_q2-2
+   ☠️  coffee-shop-22-topper_q2-2 murió (kill)
+
+🧨 Eliminando:  wsm_transactions_2
+   ☠️  wsm_transactions_2 murió (kill)
+
+✅ Ronda de caos completada.
+⏳ Esperando 30s hasta la próxima ronda... (Ctrl+C para detener)
+
+
+��💥💥  RONDA 19  💥💥💥
+Matando 5 de 133 contenedores posibles:
+
+🧨 Eliminando:  wsm_amount_filter_transactions_2
+   ☠️  wsm_amount_filter_transactions_2 murió (kill)
+
+🧨 Eliminando:  coffee-shop-22-topper_q4-1
+   ☠️  coffee-shop-22-topper_q4-1 murió (kill)
+
+🧨 Eliminando:  wsm_grouper_q4
+   ☠️  wsm_grouper_q4 murió (kill)
+
+🧨 Eliminando:  coffee-shop-22-joiner_v2_q2-1
+   ☠️  coffee-shop-22-joiner_v2_q2-1 murió (kill)
+
+🧨 Eliminando:  coffee-shop-22-amount_filter_transactions-2
+   ☠️  coffee-shop-22-amount_filter_transactions-2 murió (kill)
+
+✅ Ronda de caos completada.
+⏳ Esperando 30s hasta la próxima ronda... (Ctrl+C para detener)
+
+
+��💥💥  RONDA 20  💥💥💥
+Matando 5 de 133 contenedores posibles:
+
+🧨 Eliminando:  coffee-shop-22-grouper_q2_v2-1
+   ☠️  coffee-shop-22-grouper_q2_v2-1 murió (kill)
+
+🧨 Eliminando:  wsm_grouper_q2_2
+   ☠️  wsm_grouper_q2_2 murió (kill)
+
+🧨 Eliminando:  wsm_q3
+   ☠️  wsm_q3 murió (kill)
+
+🧨 Eliminando:  coffee-shop-22-topper_q2-1
+   ☠️  coffee-shop-22-topper_q2-1 murió (kill)
+
+🧨 Eliminando:  wsm_grouper_q4_2
+   ☠️  wsm_grouper_q4_2 murió (kill)
+
+✅ Ronda de caos completada.
+⏳ Esperando 30s hasta la próxima ronda... (Ctrl+C para detener)
+
+
+��💥💥  RONDA 21  💥💥💥
+Matando 5 de 133 contenedores posibles:
+
+🧨 Eliminando:  coffee-shop-22-splitter_q1-2
+   ☠️  coffee-shop-22-splitter_q1-2 murió (kill)
+
+🧨 Eliminando:  wsm_users_3
+   ☠️  wsm_users_3 murió (kill)
+
+🧨 Eliminando:  coffee-shop-22-amount_filter_transactions-2
+   ☠️  coffee-shop-22-amount_filter_transactions-2 murió (kill)
+
+🧨 Eliminando:  wsm_q3
+   ☠️  wsm_q3 murió (kill)
+
+🧨 Eliminando:  coffee-shop-22-cleaner_menu_items-2
+   ☠️  coffee-shop-22-cleaner_menu_items-2 murió (kill)
+
+✅ Ronda de caos completada.
+⏳ Esperando 30s hasta la próxima ronda... (Ctrl+C para detener)
+
+
+��💥💥  RONDA 22  💥💥💥
+Matando 5 de 133 contenedores posibles:
+
+🧨 Eliminando:  coffee-shop-22-amount_filter_transactions-2
+   ☠️  coffee-shop-22-amount_filter_transactions-2 murió (kill)
+
+🧨 Eliminando:  coffee-shop-22-topper_q4-2
+   ☠️  coffee-shop-22-topper_q4-2 murió (kill)
+
+🧨 Eliminando:  sender_grouper_q2
+   ☠️  sender_grouper_q2 murió (kill)
+
+🧨 Eliminando:  wsm_amount_filter_transactions
+   ☠️  wsm_amount_filter_transactions murió (kill)
+
+🧨 Eliminando:  wsm_coordinators_2
+   ☠️  wsm_coordinators_2 murió (kill)
+
+✅ Ronda de caos completada.
+⏳ Esperando 30s hasta la próxima ronda... (Ctrl+C para detener)
+
+
+��💥💥  RONDA 23  💥💥💥
+Matando 5 de 130 contenedores posibles:
+
+🧨 Eliminando:  wsm_grouper_q4_2
+   ☠️  wsm_grouper_q4_2 murió (kill)
+
+🧨 Eliminando:  coffee-shop-22-temporal_filter_transaction_items-3
+   ☠️  coffee-shop-22-temporal_filter_transaction_items-3 murió (kill)
+
+🧨 Eliminando:  wsm_amount_filter_transactions_3
+   ☠️  wsm_amount_filter_transactions_3 murió (kill)
+
+🧨 Eliminando:  coffee-shop-22-temporal_filter_transactions-1
+   ☠️  coffee-shop-22-temporal_filter_transactions-1 murió (kill)
+
+🧨 Eliminando:  coffee-shop-22-joiner_v2_q4-1
+   ☠️  coffee-shop-22-joiner_v2_q4-1 murió (kill)
+
+✅ Ronda de caos completada.
+⏳ Esperando 30s hasta la próxima ronda... (Ctrl+C para detener)
+
+
+��💥💥  RONDA 24  💥💥💥
+Matando 5 de 131 contenedores posibles:
+
+🧨 Eliminando:  wsm_grouper_q4_2
+   ☠️  wsm_grouper_q4_2 murió (kill)
+
+🧨 Eliminando:  coffee-shop-22-joiner_v2_q2-1
+   ☠️  coffee-shop-22-joiner_v2_q2-1 murió (kill)
+
+🧨 Eliminando:  coffee-shop-22-cleaner_menu_items-2
+   ☠️  coffee-shop-22-cleaner_menu_items-2 murió (kill)
+
+🧨 Eliminando:  coordinator_temporal_filter_transaction_items
+   ☠️  coordinator_temporal_filter_transaction_items murió (kill)
+
+🧨 Eliminando:  coffee-shop-22-temporal_filter_transaction_items-1
+   ☠️  coffee-shop-22-temporal_filter_transaction_items-1 murió (kill)
+
+✅ Ronda de caos completada.
+⏳ Esperando 30s hasta la próxima ronda... (Ctrl+C para detener)
+
+
+��💥💥  RONDA 25  💥💥💥
+Matando 5 de 133 contenedores posibles:
+
+🧨 Eliminando:  coordinator_cleaner_users
+   ☠️  coordinator_cleaner_users murió (kill)
+
+🧨 Eliminando:  coordinator_temporal_filter_transactions_q4
+   ☠️  coordinator_temporal_filter_transactions_q4 murió (kill)
+
+🧨 Eliminando:  wsm_q4_3
+   ☠️  wsm_q4_3 murió (kill)
+
+🧨 Eliminando:  wsm_transaction_items
+   ☠️  wsm_transaction_items murió (kill)
+
+🧨 Eliminando:  wsm_amount_filter_transactions
+   ☠️  wsm_amount_filter_transactions murió (kill)
+
+✅ Ronda de caos completada.
+⏳ Esperando 30s hasta la próxima ronda... (Ctrl+C para detener)
+
+
+��💥💥  RONDA 26  💥💥💥
+Matando 5 de 133 contenedores posibles:
+
+🧨 Eliminando:  wsm_transactions
+   ☠️  wsm_transactions murió (kill)
+
+🧨 Eliminando:  coffee-shop-22-temporal_filter_transactions-3
+   ☠️  coffee-shop-22-temporal_filter_transactions-3 murió (kill)
+
+🧨 Eliminando:  coffee-shop-22-temporal_filter_transaction_items-1
+   ☠️  coffee-shop-22-temporal_filter_transaction_items-1 murió (kill)
+
+🧨 Eliminando:  wsm_temporal_filter_transaction_items_2
+   ☠️  wsm_temporal_filter_transaction_items_2 murió (kill)
+
+🧨 Eliminando:  coffee-shop-22-joiner_v2_q2-2
+   ☠️  coffee-shop-22-joiner_v2_q2-2 murió (kill)
+
+✅ Ronda de caos completada.
+⏳ Esperando 30s hasta la próxima ronda... (Ctrl+C para detener)
+
+
+��💥💥  RONDA 27  💥💥💥
+Matando 5 de 133 contenedores posibles:
+
+🧨 Eliminando:  coffee-shop-22-splitter_q1-3
+   ☠️  coffee-shop-22-splitter_q1-3 murió (kill)
+
+🧨 Eliminando:  wsm_coordinators
+   ☠️  wsm_coordinators murió (kill)
+
+🧨 Eliminando:  coordinator_cleaner_menu_items
+   ☠️  coordinator_cleaner_menu_items murió (kill)
+
+🧨 Eliminando:  sender_q2_a
+   ☠️  sender_q2_a murió (kill)
+
+🧨 Eliminando:  sender_q1
+   ☠️  sender_q1 murió (kill)
+
+✅ Ronda de caos completada.
+⏳ Esperando 30s hasta la próxima ronda... (Ctrl+C para detener)
+
+
+��💥💥  RONDA 28  💥💥💥
+Matando 5 de 133 contenedores posibles:
+
+🧨 Eliminando:  sender_q3
+   ☠️  sender_q3 murió (kill)
+
+🧨 Eliminando:  coffee-shop-22-temporal_filter_transaction_items-2
+   ☠️  coffee-shop-22-temporal_filter_transaction_items-2 murió (kill)
+
+🧨 Eliminando:  coffee-shop-22-joiner_v2_q3-2
+   ☠️  coffee-shop-22-joiner_v2_q3-2 murió (kill)
+
+🧨 Eliminando:  coffee-shop-22-cleaner_users-2
+   ☠️  coffee-shop-22-cleaner_users-2 murió (kill)
+
+🧨 Eliminando:  coffee-shop-22-amount_filter_transactions-3
+   ☠️  coffee-shop-22-amount_filter_transactions-3 murió (kill)
+
+✅ Ronda de caos completada.
+⏳ Esperando 30s hasta la próxima ronda... (Ctrl+C para detener)
+
+
+��💥💥  RONDA 29  💥💥💥
+Matando 5 de 133 contenedores posibles:
+
+🧨 Eliminando:  coffee-shop-22-cleaner_transaction_items-1
+   ☠️  coffee-shop-22-cleaner_transaction_items-1 murió (kill)
+
+🧨 Eliminando:  wsm_grouper_q2
+   ☠️  wsm_grouper_q2 murió (kill)
+
+🧨 Eliminando:  wsm_temporal_filter_transaction_items
+   ☠️  wsm_temporal_filter_transaction_items murió (kill)
+
+🧨 Eliminando:  coffee-shop-22-amount_filter_transactions-2
+   ☠️  coffee-shop-22-amount_filter_transactions-2 murió (kill)
+
+🧨 Eliminando:  coordinator_temporal_filter_transactions_q3
+   ☠️  coordinator_temporal_filter_transactions_q3 murió (kill)
+
+✅ Ronda de caos completada.
+⏳ Esperando 30s hasta la próxima ronda... (Ctrl+C para detener)
+
+
+🛑 Chaos Gorilla detenido.

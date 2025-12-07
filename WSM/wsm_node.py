@@ -6,6 +6,7 @@ import time
 import logging
 
 from wsm_server import WSMServer
+import docker 
 
 
 class WSMNode:
@@ -77,6 +78,15 @@ class WSMNode:
         self.udp.bind(("0.0.0.0", self.control_port))
         self.udp.settimeout(0.2)
 
+        # --- NEW: tracking de heartbeats de otros WSM y Docker client ---
+        self.peer_heartbeats = {}  # {peer_id: last_timestamp}
+        self.docker_client = None
+        try:
+            self.docker_client = docker.from_env()
+            logging.info("[WSM NODE] Docker client initialized successfully")
+        except Exception as e:
+            logging.error(f"[WSM NODE] Failed to initialize Docker client: {e}")
+
     # ======================================================================
     # STARTUP
     # ======================================================================
@@ -116,6 +126,9 @@ class WSMNode:
 
         # 5) Start heartbeat monitoring (BACKUP nodes only)
         threading.Thread(target=self.heartbeat_loop, daemon=True).start()
+
+        # Start peer monitor (LEADER vigila a los demás WSM)
+        threading.Thread(target=self.peer_monitor_loop, daemon=True).start()
 
         # 6) Block forever
         threading.Event().wait()
@@ -176,6 +189,8 @@ class WSMNode:
             - HEARTBEAT / HEARTBEAT_OK
         """
         t = msg.get("type")
+
+        #print(f"RECIBO MENSAJE: {t}, desde {addr}. MSG: {msg}")
 
         # ------------------------------------------------------------------
         # READY handshake (always processed)
@@ -249,7 +264,13 @@ class WSMNode:
         # HEARTBEAT / HEARTBEAT_OK
         # ------------------------------------------------------------------
         if t == "HEARTBEAT":
-            # Leader replies with HEARTBEAT_OK to the backup
+            sender = msg["from"]
+
+            # --- NEW: si soy LEADER, registro el heartbeat del backup ---
+            if self.role == "LEADER":
+                self.peer_heartbeats[sender] = time.time()
+
+            # Leader responde con HEARTBEAT_OK al backup
             resp = {"type": "HEARTBEAT_OK", "from": self.id}
             self.udp.sendto(json.dumps(resp).encode(), addr)
             return
@@ -290,8 +311,6 @@ class WSMNode:
     def become_leader(self, initial=False):
         """
         Promote this node to LEADER role.
-
-        If not initial, broadcasts COORDINATOR to peers.
         """
         with self.leader_lock:
             if self.role == "LEADER":
@@ -301,11 +320,17 @@ class WSMNode:
             self.role = "LEADER"
             logging.info("👑 This node is now the LEADER")
 
+            # --- NEW: inicializo marca de tiempo para todos los peers ---
+            now = time.time()
+            for p in self.peers:
+                self.peer_heartbeats[p["id"]] = now
+
             if self.wsm_server:
                 self.wsm_server.promote_to_leader()
 
             if not initial:
                 self.broadcast({"type": "COORDINATOR", "leader_id": self.id})
+
 
     # ======================================================================
     # BULLY ELECTION
@@ -395,6 +420,59 @@ class WSMNode:
                 self.udp.sendto(payload, (p["host"], p["port"]))
             except:
                 pass
+
+    # ======================================================================
+    # RESTART DE OTROS WSM (solo el LEADER lo hace)
+    # ======================================================================
+    def restart_wsm_node(self, node_id: int):
+
+        if not self.docker_client:
+            logging.error("[WSM NODE] Cannot restart WSM node: Docker client not initialized")
+            return
+
+        if node_id == 1:
+            container_name = self.wsm_name
+        else:
+            container_name = f"{self.wsm_name}_{node_id}"
+
+        try:
+            container = self.docker_client.containers.get(container_name)
+            container.restart()
+            logging.info(f"[WSM NODE] Successfully restarted WSM container: {container_name}")
+        except docker.errors.NotFound:
+            logging.error(f"[WSM NODE] WSM container not found for restart: {container_name}")
+        except Exception as e:
+            logging.error(f"[WSM NODE] Failed to restart WSM container {container_name}: {e}")
+
+    def peer_monitor_loop(self):
+
+        CHECK_INTERVAL = 2.0
+        HEARTBEAT_TIMEOUT = 20.0  # segundos sin HEARTBEAT desde ese peer
+
+        while True:
+            time.sleep(CHECK_INTERVAL)
+
+            if self.role != "LEADER":
+                continue
+
+            now = time.time()
+            # Solo monitoreo peers que conozco (están en self.peers)
+            for p in self.peers:
+                peer_id = p["id"]
+                last = self.peer_heartbeats.get(peer_id)
+
+                if last is None:
+                    # Todavía no recibimos ningún HEARTBEAT de este peer → esperamos
+                    continue
+
+                if now - last > HEARTBEAT_TIMEOUT:
+                    logging.warning(
+                        f"[WSM NODE] Peer WSM {peer_id} DEAD by TIMEOUT. "
+                        f"now={now:.2f}, last={last:.2f}, delta={now-last:.2f} > {HEARTBEAT_TIMEOUT}"
+                    )
+                    self.restart_wsm_node(peer_id)
+                    self.peer_heartbeats[peer_id] = now
+
 
 
 if __name__ == "__main__":

@@ -3,6 +3,12 @@ import csv
 from shared import protocol
 from shared.worker import FileProcessingWorker
 
+from WSM.wsm_client import WSMClient
+from wsm_config import WSM_NODES
+import socket
+import logging
+
+
 class Sender(FileProcessingWorker):
     """
     File-to-queue sender for final query results.
@@ -51,6 +57,31 @@ class Sender(FileProcessingWorker):
             include_headers (bool, optional): Include CSV header. Defaults to False.
         """
         super().__init__(queue_in, queue_out, rabbitmq_host, input_file=input_file)
+
+
+        # --- WSM Heartbeat Integration ----
+        self.replica_id = socket.gethostname()
+
+        worker_type_key = "coordinator"
+
+        # Read WSM host/port (OPTIONAL for single-node; required if you specify wsm host in compose)
+        wsm_host = os.environ.get("WSM_HOST", None)
+        wsm_port = int(os.environ.get("WSM_PORT", "0")) if os.environ.get("WSM_PORT") else None
+
+        # Load multi-node config if exists
+        wsm_nodes = WSM_NODES.get(worker_type_key)
+
+        # Create client in heartbeat-only mode
+        self.wsm_client = WSMClient(
+            worker_type=worker_type_key,
+            replica_id=self.replica_id,
+            host=wsm_host,
+            port=wsm_port,
+            nodes=wsm_nodes
+        )
+
+        logging.info(f"[Coordinator] Heartbeat WSM client ready for {worker_type_key}, replica={self.replica_id}")
+
         self.batch_size = batch_size
         self.query_type = query_type
         self.include_headers = include_headers
@@ -106,6 +137,13 @@ class Sender(FileProcessingWorker):
             queue_name (str, optional): Source queue name.
         """
         if msg_type == protocol.MSG_TYPE_NOTI:
+            if data_type == protocol.DATA_END:
+                print(f"[INFO] DATA_END received for request_id {request_id}, cleaning up files and forwarding")
+                message = protocol.create_end_message(protocol.DATA_END, request_id)
+                self.out_queues[0].send(message)
+                print(f"[INFO] Forwarded DATA_END for request_id {request_id}")
+                return
+            
             self.current_request_id = request_id
             
             self._initialize_request_paths(request_id)
@@ -192,6 +230,7 @@ class Sender(FileProcessingWorker):
             payload = "\n".join(batch).encode('utf-8')
             data_type_map = {
                 'q1': protocol.Q1_RESULT,
+                'q2': protocol.Q2_RESULT_a,
                 'q2_a': protocol.Q2_RESULT_a,
                 'q2_b': protocol.Q2_RESULT_b,
                 'q3': protocol.Q3_RESULT,
@@ -219,6 +258,7 @@ class Sender(FileProcessingWorker):
         try:
             data_type_map = {
                 'q1': protocol.Q1_RESULT,
+                'q2': protocol.Q2_RESULT_a,
                 'q2_a': protocol.Q2_RESULT_a,
                 'q2_b': protocol.Q2_RESULT_b,
                 'q3': protocol.Q3_RESULT,
@@ -229,7 +269,7 @@ class Sender(FileProcessingWorker):
             self.out_queues[0].send(message1)
             print(f"[INFO] Sent MSG_TYPE_END with {self.query_type.upper()}_RESULT ({query_result_type}) and position {position_counter} to results queue: request_id={self.current_request_id}")
             
-            message2 = protocol.create_end_message(protocol.DATA_END, self.current_request_id)
+            message2 = protocol.create_end_message(protocol.DATA_END, self.current_request_id, position_counter+1)
             self.out_queues[0].send(message2)
             print(f"[INFO] Sent MSG_TYPE_END with DATA_END to results queue: request_id={self.current_request_id}")
             

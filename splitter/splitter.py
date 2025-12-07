@@ -3,6 +3,7 @@ import socket
 import time
 import logging
 import configparser
+import glob
 from collections import defaultdict
 from shared import protocol
 from shared.worker import StreamProcessingWorker
@@ -50,7 +51,7 @@ class SplitterQ1(StreamProcessingWorker):
         - Downstream sorter receives single notification
     """
 
-    def __init__(self, queue_in, queue_out, rabbitmq_host, chunk_size, replica_id, backoff_start=0.1, backoff_max=3.0, wsm_nodes = None):
+    def __init__(self, queue_in, queue_out, rabbitmq_host, chunk_size, replica_id, backoff_start=0.1, backoff_max=3.0, wsm_nodes=None, service_name=None):
         """
         Initialize splitter with chunk configuration and WSM coordination.
         
@@ -63,6 +64,7 @@ class SplitterQ1(StreamProcessingWorker):
             backoff_start (float, optional): Initial backoff seconds. Defaults to 0.1.
             backoff_max (float, optional): Maximum backoff seconds. Defaults to 3.0.
             wsm_nodes (list, optional): WSM node endpoints.
+            service_name (str, optional): Service name for crash detection.
         
         Example:
             >>> splitter = SplitterQ1(
@@ -71,10 +73,11 @@ class SplitterQ1(StreamProcessingWorker):
             ...     rabbitmq_host='rabbitmq',
             ...     chunk_size=10000,
             ...     replica_id='splitter-q1-1',
-            ...     wsm_nodes=['wsm:9000', 'wsm:9001', 'wsm:9002']
+            ...     wsm_nodes=['wsm:9000', 'wsm:9001', 'wsm:9002'],
+            ...     service_name='splitter_q1'
             ... )
         """
-        super().__init__(queue_in, queue_out, rabbitmq_host)
+        super().__init__(queue_in, queue_out, rabbitmq_host, service_name=service_name)
         self.replica_id = replica_id
         self.chunk_size = int(chunk_size)
         self.backoff_start = backoff_start
@@ -125,7 +128,22 @@ class SplitterQ1(StreamProcessingWorker):
         req_dir = os.path.join(self.base_temp_root, str(request_id), self.replica_id)
         os.makedirs(req_dir, exist_ok=True)
         buf["dir"] = req_dir
-        logging.info(f"[SplitterQ1:{self.replica_id}] dir ready for request {request_id}: {req_dir}")
+        
+        # Recover correct chunk_idx from disk
+        existing_chunks = glob.glob(os.path.join(req_dir, "chunk_*.csv"))
+        max_idx = 0
+        if existing_chunks:
+            for c in existing_chunks:
+                try:
+                    # chunk_5.csv -> 5
+                    idx = int(os.path.basename(c).replace("chunk_", "").replace(".csv", ""))
+                    if idx > max_idx:
+                        max_idx = idx
+                except ValueError:
+                    pass
+        
+        buf["chunk_idx"] = max_idx
+        logging.info(f"[SplitterQ1:{self.replica_id}] dir ready & recovered for request {request_id}: {req_dir} (start_chunk={max_idx})")
         return req_dir
 
     def _write_chunk(self, request_id, new_rows=None):
@@ -163,18 +181,21 @@ class SplitterQ1(StreamProcessingWorker):
         if new_rows:
             existing_rows.extend(new_rows)
 
+        # Deduplicate based on GUID (first column) to ensure idempotency
+        # If crash happens after write but before ACK, redelivery will bring duplicates.
+        unique_rows = {}
+        for row in existing_rows:
+            parts = row.split(',')
+            if len(parts) > 0:
+                guid = parts[0]
+                unique_rows[guid] = row
+        
+        # Convert back to list
+        existing_rows = list(unique_rows.values())
+
         if len(existing_rows) > self.chunk_size:
             to_write = existing_rows[:self.chunk_size]
             remaining = existing_rows[self.chunk_size:]
-
-            to_write.sort(key=lambda ln: ln.split(",")[0])
-            
-            def write_chunk_func(temp_path):
-                with open(temp_path, "w", encoding="utf-8", newline="") as f:
-                    for ln in to_write:
-                        f.write(ln + "\n")
-            
-            StreamProcessingWorker.atomic_write(path, write_chunk_func)
 
             buf["chunk_idx"] += 1
             new_filename = f"chunk_{buf['chunk_idx']}.csv"
@@ -188,6 +209,15 @@ class SplitterQ1(StreamProcessingWorker):
                         f.write(ln + "\n")
             
             StreamProcessingWorker.atomic_write(new_path, write_remaining_func)
+
+            to_write.sort(key=lambda ln: ln.split(",")[0])
+            
+            def write_chunk_func(temp_path):
+                with open(temp_path, "w", encoding="utf-8", newline="") as f:
+                    for ln in to_write:
+                        f.write(ln + "\n")
+            
+            StreamProcessingWorker.atomic_write(path, write_chunk_func)
 
         else:
             existing_rows.sort(key=lambda ln: ln.split(",")[0])
@@ -237,6 +267,9 @@ class SplitterQ1(StreamProcessingWorker):
 
         super()._process_message(message, msg_type, data_type, request_id, position, payload, queue_name)
 
+        # TEST-CASE: If it dies here, it will write the message to disk twice.
+        self.simulate_crash(queue_name, request_id)
+
         self.wsm_client.update_state("WAITING", request_id, position)
 
     def _process_rows(self, rows, queue_name=None):
@@ -277,7 +310,7 @@ class SplitterQ1(StreamProcessingWorker):
         Handle END signal with WSM coordination for exactly-once notification.
         
         Flushes final chunk, marks END in WSM, waits for all replicas to reach END,
-        then sends single notification downstream.
+        then sends single notification downstream. Handles DATA_END for cleanup.
         
         Args:
             message (bytes): Raw message.
@@ -294,9 +327,20 @@ class SplitterQ1(StreamProcessingWorker):
             - Replica 3: Reaches END, marks in WSM
             - WSM authorizes one replica to send notification
             - Single notification sent to sorter
+            
+            DATA_END handling:
+            - Cleans up WSM state for request
+            - Removes chunk files for request
+            - Forwards DATA_END to downstream
         """
-        if(data_type == 6):
-            logging.info(f"[Splitter:{self.replica_id}] Ignorando END END para request {request_id}. ")
+        if data_type == protocol.DATA_END:
+            logging.info(f"[SplitterQ1:{self.replica_id}] Manejo de DATA_END para request {request_id}")
+            self.wsm_client.cleanup_request(request_id)
+            self._cleanup_request_files(request_id)
+            cleanup_message = protocol.create_notification_message(protocol.DATA_END, b"", request_id)
+            for q in self.out_queues:
+                q.send(cleanup_message)
+            logging.info(f"[SplitterQ1:{self.replica_id}] Sent cleanup notification for request {request_id}")
             return
 
         self._write_chunk(request_id)
@@ -332,6 +376,43 @@ class SplitterQ1(StreamProcessingWorker):
 
         if request_id in self.buffers:
             del self.buffers[request_id]
+
+    def _cleanup_request_files(self, request_id):
+        """
+        Clean up entire request directory including all replica subdirectories.
+        
+        Removes complete request directory tree containing all replica chunk files
+        when request is aborted. Called during DATA_END handling.
+        
+        Args:
+            request_id (str): Request identifier to clean up.
+        
+        Example:
+            >>> splitter._cleanup_request_files('req-123')
+            # Removes entire directory tree:
+            #   /app/temp/splitter_q1/req-123/
+            #     splitter-q1-1/chunk_0.csv
+            #     splitter-q1-1/chunk_1.csv
+            #     splitter-q1-2/chunk_0.csv
+            #     splitter-q1-3/chunk_0.csv
+        """
+        import shutil
+        
+        request_dir = os.path.join(self.base_temp_root, str(request_id))
+        
+        if os.path.exists(request_dir):
+            try:
+                shutil.rmtree(request_dir)
+                logging.info(f"[SplitterQ1:{self.replica_id}] Cleaned up entire request directory for request_id={request_id} at {request_dir}")
+            except Exception as e:
+                logging.error(f"[SplitterQ1:{self.replica_id}] Error removing directory for request_id={request_id} at {request_dir}: {e}")
+        else:
+            logging.debug(f"[SplitterQ1:{self.replica_id}] Request directory already removed for request_id={request_id} at {request_dir}")
+        
+        # Clean up buffer tracking
+        if request_id in self.buffers:
+            del self.buffers[request_id]
+            logging.debug(f"[SplitterQ1:{self.replica_id}] Cleared buffer for request_id={request_id}")
 
 
 if __name__ == '__main__':
@@ -370,6 +451,6 @@ if __name__ == '__main__':
         wsm_nodes = WSM_NODES[key]
         print("WSM NODES: ", wsm_nodes)
 
-        return SplitterQ1(queue_in, queue_out, rabbitmq_host, chunk_size, replica_id, backoff_start, backoff_max, wsm_nodes)
+        return SplitterQ1(queue_in, queue_out, rabbitmq_host, chunk_size, replica_id, backoff_start, backoff_max, wsm_nodes, service_name="splitter_q1")
 
     SplitterQ1.run_worker_main(create_splitter)

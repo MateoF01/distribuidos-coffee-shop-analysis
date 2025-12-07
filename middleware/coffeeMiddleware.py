@@ -67,7 +67,6 @@ TIMEOUTS = {
   "consumer_graceful_shutdown": read_timeout_config("TIMEOUTS", "consumer-graceful-shutdown", 5.0),
   "consumer_thread_join": read_timeout_config("TIMEOUTS", "consumer-thread-join", 2.0),
   "consumer_force_stop": read_timeout_config("TIMEOUTS", "consumer-force-stop", 2.0),
-  "data_events_time_limit": read_timeout_config("TIMEOUTS", "data-events-time-limit", 0.1)
 }
 
 CONSUMER_CONFIG = {
@@ -300,25 +299,12 @@ class CoffeeMessageMiddlewareQueue(MessageMiddlewareQueue):
       
       self._consumer_ready_event.set()
       
-      while not self._consumer_stop_event.is_set():
-        try:
-          if not self._consumer_connection or self._consumer_connection.is_closed:
-            break
-          self._consumer_connection.process_data_events(time_limit=TIMEOUTS["data_events_time_limit"])
-        except Exception as e:
-          if not self._consumer_stop_event.is_set():
-            raise MessageMiddlewareDisconnectedError(str(e))
-          break
+      self._consumer_channel.start_consuming()
             
     except Exception as e:
       if not self._consumer_stop_event.is_set():
         print(f"Consumer loop error: {e}")
     finally:
-      try:
-        if self._consumer_channel and not self._consumer_channel.is_closed:
-          self._consumer_channel.stop_consuming()
-      except:
-        pass
       self._consumer_ready_event.clear()
       self._consumer_finished_event.set()
 
@@ -352,6 +338,12 @@ class CoffeeMessageMiddlewareQueue(MessageMiddlewareQueue):
     try:
       self._consumer_stop_event.set()
       
+      try:
+        if self._consumer_channel and not self._consumer_channel.is_closed:
+          self._consumer_connection.add_callback_threadsafe(self._consumer_channel.stop_consuming)
+      except Exception:
+        pass
+      
       if not self._consumer_finished_event.wait(timeout=TIMEOUTS["consumer_graceful_shutdown"]):
         print("Warning: Consumer thread did not finish within timeout")
       
@@ -379,11 +371,80 @@ class CoffeeMessageMiddlewareQueue(MessageMiddlewareQueue):
         [Consumer thread stopped immediately]
     """
     self._consumer_stop_event.set()
+    try:
+      if self._consumer_channel and not self._consumer_channel.is_closed:
+        self._consumer_connection.add_callback_threadsafe(self._consumer_channel.stop_consuming)
+    except Exception:
+      pass
     if self._consumer_thread and self._consumer_thread.is_alive():
       self._consumer_thread.join(timeout=TIMEOUTS["consumer_force_stop"])
     self._consumer_thread = None
     with self._state_lock:
       self._state = ConnectionState.CONNECTED
+
+  def _ensure_publisher_channel(self):
+    """
+    Ensure the publisher channel is available, reconnecting if necessary.
+    
+    This method checks if the publisher channel is closed and attempts to
+    reconnect transparently. Called internally by send() to handle transient
+    connection issues.
+    
+    Returns:
+        bool: True if channel is available, False otherwise.
+    """
+    if self._publisher_channel and not self._publisher_channel.is_closed:
+      return True
+    
+    # Try to reconnect
+    print(f"Publisher channel closed, attempting to reconnect to {self.queue_name}...")
+    
+    # Clean up existing connections first
+    try:
+      if self._publisher_channel:
+        self._publisher_channel.close()
+    except Exception:
+      pass
+    
+    try:
+      if self._publisher_connection:
+        self._publisher_connection.close()
+    except Exception:
+      pass
+    
+    # Attempt full reconnection
+    try:
+      import time
+      credentials = pika.PlainCredentials(
+        RABBITMQ_CREDENTIALS["username"], 
+        RABBITMQ_CREDENTIALS["password"]
+      )
+      params = pika.ConnectionParameters(
+          host=self.host, 
+          credentials=credentials,
+          heartbeat=RABBITMQ_CREDENTIALS["heartbeat"]
+      )
+      
+      max_retries = 3
+      for attempt in range(max_retries):
+        try:
+          self._publisher_connection = pika.BlockingConnection(params)
+          self._publisher_channel = self._publisher_connection.channel()
+          self._publisher_channel.confirm_delivery()
+          self._publisher_channel.queue_declare(queue=self.queue_name, durable=True)
+          print(f"Successfully reconnected publisher channel to {self.queue_name}")
+          return True
+        except pika.exceptions.AMQPConnectionError as e:
+          print(f"Reconnection attempt {attempt+1}/{max_retries} failed: {e}")
+          if attempt < max_retries - 1:
+            time.sleep(1 * (attempt + 1))  # Exponential backoff
+      
+      print(f"Failed to reconnect publisher channel after {max_retries} attempts")
+      return False
+      
+    except Exception as e:
+      print(f"Failed to reconnect publisher channel: {e}")
+      return False
 
   def send(self, message):
     """
@@ -391,13 +452,14 @@ class CoffeeMessageMiddlewareQueue(MessageMiddlewareQueue):
     
     The message is sent using the dedicated publisher channel with confirm_delivery
     enabled, ensuring the message is successfully stored by RabbitMQ before returning.
-    Messages are persisted to disk (delivery_mode=2).
+    Messages are persisted to disk (delivery_mode=2). Auto-reconnects if channel
+    is unavailable.
     
     Args:
         message (bytes|str): Message to send. Strings are automatically encoded to UTF-8.
     
     Raises:
-        MessageMiddlewareDisconnectedError: If not connected or channel unavailable.
+        MessageMiddlewareDisconnectedError: If not connected or channel unavailable after retry.
         MessageMiddlewareMessageError: If message cannot be routed or is rejected.
     
     Example:
@@ -415,33 +477,64 @@ class CoffeeMessageMiddlewareQueue(MessageMiddlewareQueue):
         ... except MessageMiddlewareMessageError:
         ...     print("Message was not confirmed by broker")
     """
-    with self._state_lock:
-      if self._state == ConnectionState.DISCONNECTED:
-        raise MessageMiddlewareDisconnectedError("Not connected")
-      
-      if not self._publisher_channel or self._publisher_channel.is_closed:
-        raise MessageMiddlewareDisconnectedError("Publisher channel not available")
+    max_retries = 3
+    retry_count = 0
     
-    try:
-      if isinstance(message, bytes):
-        body = message
-      elif isinstance(message, str):
-        body = message.encode('utf-8')
-      else:
-        body = str(message).encode('utf-8')
+    while retry_count < max_retries:
+      with self._state_lock:
+        if self._state == ConnectionState.DISCONNECTED:
+          raise MessageMiddlewareDisconnectedError("Not connected")
         
-      self._publisher_channel.basic_publish(
-        exchange='',
-        routing_key=self.queue_name,
-        body=body,
-        properties=pika.BasicProperties(delivery_mode=2)
-      )
-    except pika.exceptions.UnroutableError as e:
-      raise MessageMiddlewareMessageError(f"Message could not be routed to queue: {str(e)}")
-    except pika.exceptions.NackError as e:
-      raise MessageMiddlewareMessageError(f"Message was rejected by broker: {str(e)}")
-    except Exception as e:
-      raise MessageMiddlewareMessageError(str(e))
+        if not self._publisher_channel or self._publisher_channel.is_closed:
+          # Try to reconnect before failing
+          if not self._ensure_publisher_channel():
+            raise MessageMiddlewareDisconnectedError("Publisher channel not available")
+      
+      try:
+        if isinstance(message, bytes):
+          body = message
+        elif isinstance(message, str):
+          body = message.encode('utf-8')
+        else:
+          body = str(message).encode('utf-8')
+          
+        self._publisher_channel.basic_publish(
+          exchange='',
+          routing_key=self.queue_name,
+          body=body,
+          properties=pika.BasicProperties(delivery_mode=2)
+        )
+        # Success - exit loop
+        return
+        
+      except pika.exceptions.UnroutableError as e:
+        raise MessageMiddlewareMessageError(f"Message could not be routed to queue: {str(e)}")
+      except pika.exceptions.NackError as e:
+        raise MessageMiddlewareMessageError(f"Message was rejected by broker: {str(e)}")
+      except (pika.exceptions.ConnectionClosedByBroker, 
+              pika.exceptions.AMQPConnectionError,
+              pika.exceptions.StreamLostError,
+              ConnectionResetError,
+              BrokenPipeError) as e:
+        # Connection error - try to reconnect
+        retry_count += 1
+        print(f"Connection error during send (attempt {retry_count}/{max_retries}): {e}")
+        if retry_count >= max_retries:
+          raise MessageMiddlewareDisconnectedError(f"Failed to send after {max_retries} retries: {str(e)}")
+        
+        # Force reconnection
+        try:
+          self._ensure_publisher_channel()
+        except Exception as reconnect_error:
+          print(f"Reconnection attempt failed: {reconnect_error}")
+          if retry_count >= max_retries:
+            raise MessageMiddlewareDisconnectedError(f"Failed to reconnect: {str(reconnect_error)}")
+        
+        import time
+        time.sleep(0.5 * retry_count)  # Exponential backoff
+        
+      except Exception as e:
+        raise MessageMiddlewareMessageError(str(e))
 
   def close(self):
     """Graceful connection closure"""
@@ -777,25 +870,12 @@ class CoffeeMessageMiddlewareExchange(MessageMiddlewareExchange):
       
       self._consumer_ready_event.set()
       
-      while not self._consumer_stop_event.is_set():
-        try:
-          if not self._consumer_connection or self._consumer_connection.is_closed:
-            break
-          self._consumer_connection.process_data_events(time_limit=TIMEOUTS["data_events_time_limit"])
-        except Exception as e:
-          if not self._consumer_stop_event.is_set():
-            raise MessageMiddlewareDisconnectedError(str(e))
-          break
+      self._consumer_channel.start_consuming()
             
     except Exception as e:
       if not self._consumer_stop_event.is_set():
         print(f"Consumer loop error: {e}")
     finally:
-      try:
-        if self._consumer_channel and not self._consumer_channel.is_closed:
-          self._consumer_channel.stop_consuming()
-      except:
-        pass
       self._consumer_ready_event.clear()
       self._consumer_finished_event.set()
 
@@ -827,6 +907,12 @@ class CoffeeMessageMiddlewareExchange(MessageMiddlewareExchange):
     try:
       self._consumer_stop_event.set()
       
+      try:
+        if self._consumer_channel and not self._consumer_channel.is_closed:
+          self._consumer_connection.add_callback_threadsafe(self._consumer_channel.stop_consuming)
+      except Exception:
+        pass
+      
       if not self._consumer_finished_event.wait(timeout=TIMEOUTS["consumer_graceful_shutdown"]):
         print("Warning: Consumer thread did not finish within timeout")
       
@@ -854,6 +940,11 @@ class CoffeeMessageMiddlewareExchange(MessageMiddlewareExchange):
         [Consumer thread stopped immediately]
     """
     self._consumer_stop_event.set()
+    try:
+      if self._consumer_channel and not self._consumer_channel.is_closed:
+        self._consumer_connection.add_callback_threadsafe(self._consumer_channel.stop_consuming)
+    except Exception:
+      pass
     if self._consumer_thread and self._consumer_thread.is_alive():
       self._consumer_thread.join(timeout=TIMEOUTS["consumer_force_stop"])
     self._consumer_thread = None
