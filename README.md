@@ -1,3 +1,16 @@
+# Arreglos tolerancia a fallos.
+
+Se agregó la capacidad de revivir contenedores caídos. Para todos los grupos de contenedores que estaban conectados a un WSM, incorporamos un mecanismo de heartbeats mediante el cual los workers notifican periódicamente que siguen vivos. Si un WSM detecta un timeout, ejecuta un docker stop seguido de un reinicio del contenedor para que se reincorpore al sistema.
+
+En el caso de los contenedores que originalmente no tenían WSM —ya que no requerían control de estados— se agregó un WSM dedicado que también mantiene el intercambio de heartbeats y garantiza la recuperación de workers caídos.
+
+Además, en el conjunto de WSM Líder y Backups incorporamos un heartbeat bidireccional, que permite al líder detectar si alguno de los backups se cae y reiniciarlo automáticamente. A su vez, si el líder falla y un backup toma su lugar, este nuevo líder también se encargará de revivir cualquier réplica caída.
+
+Una vez resueltos estos problemas, comenzamos a testear exhaustivamente usando una política al estilo Chaos Monkey. A lo largo de múltiples ejecuciones fuimos detectando y corrigiendo errores, reforzando la importancia de probar el sistema en un entorno altamente exigente. Muchos de estos fixes pueden verse reflejados en los commits, en varios casos junto con una descripción del problema solucionado.
+
+Para correr el sistema se puede realizar make up, y paralelamente correr el script ./chaos_gorilla.sh
+
+
 # Coffee Shop Analysis - Sistema Distribuido
 
 Un **sistema distribuido de procesamiento de datos tolerante a fallas** construido con Python, RabbitMQ y Docker que analiza datos transaccionales de cafeterías usando una arquitectura de pipeline estilo MapReduce.
