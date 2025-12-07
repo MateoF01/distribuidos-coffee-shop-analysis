@@ -53,7 +53,7 @@ class ReducerV2(SignalProcessingWorker):
             2024-02.csv: item1,8,40.0
     """
 
-    def __init__(self, queue_in, queue_out, rabbitmq_host, input_dir, output_dir, reducer_mode="q2"):
+    def __init__(self, queue_in, queue_out, rabbitmq_host, input_dir, output_dir, reducer_mode="q2", service_name=None):
         """
         Initialize reducer with directories and query mode.
         
@@ -75,7 +75,7 @@ class ReducerV2(SignalProcessingWorker):
             ...     reducer_mode='q2'
             ... )
         """
-        super().__init__(queue_in, queue_out, rabbitmq_host)
+        super().__init__(queue_in, queue_out, rabbitmq_host, service_name=service_name)
 
         # --- WSM Heartbeat Integration ----
         self.replica_id = socket.gethostname()
@@ -206,6 +206,9 @@ class ReducerV2(SignalProcessingWorker):
 
         gc.collect()
         logging.info(f"[Reducer {self.reducer_mode.upper()}] Reducción completa para request_id={request_id}.")
+        
+        self.simulate_crash(None, request_id)
+
         self._notify_completion(data_type, request_id)
 
     def _reduce_q2(self, filepaths):
@@ -402,7 +405,9 @@ if __name__ == "__main__":
 
         input_dir = os.environ.get("INPUT_DIR", f"/app/temp/grouper_{reducer_mode}")
         output_dir = os.environ.get("OUTPUT_DIR", f"/app/temp/reduced_{reducer_mode}")
+        
+        service_name = f"reducer_{reducer_mode}"
 
-        return ReducerV2(queue_in, queue_out, rabbitmq_host, input_dir, output_dir, reducer_mode)
+        return ReducerV2(queue_in, queue_out, rabbitmq_host, input_dir, output_dir, reducer_mode, service_name=service_name)
 
     ReducerV2.run_worker_main(create_reducer_v2)

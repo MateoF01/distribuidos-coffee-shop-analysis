@@ -45,7 +45,7 @@ class SorterV2(SignalProcessingWorker):
         Sends: Completion notification to downstream worker
     """
 
-    def __init__(self, queue_in, queue_out, rabbitmq_host, base_temp_root, sort_columns="0"):
+    def __init__(self, queue_in, queue_out, rabbitmq_host, base_temp_root, sort_columns="0", service_name=None, is_singleton=False):
         """
         Initialize sorter with directories and sort configuration.
         
@@ -55,6 +55,8 @@ class SorterV2(SignalProcessingWorker):
             rabbitmq_host (str): RabbitMQ server hostname.
             base_temp_root (str): Base directory for temporary files.
             sort_columns (str, optional): Comma-separated column indices. Defaults to "0".
+            service_name (str, optional): Service name for crash simulation.
+            is_singleton (bool, optional): Whether this worker runs as a singleton container (default: False).
         
         Example:
             >>> sorter = SorterV2(
@@ -65,7 +67,7 @@ class SorterV2(SignalProcessingWorker):
             ...     sort_columns='0,1'
             ... )
         """
-        super().__init__(queue_in, queue_out, rabbitmq_host)
+        super().__init__(queue_in, queue_out, rabbitmq_host, service_name=service_name, is_singleton=is_singleton)
 
         # --- WSM Heartbeat Integration ----
         self.replica_id = socket.gethostname()
@@ -192,6 +194,9 @@ class SorterV2(SignalProcessingWorker):
                 f.close()
 
         logging.info(f"[SorterV2] ✅ Orden completado para request {request_id}")
+        
+        self.simulate_crash(None, request_id)
+        
         self._notify_completion(protocol.DATA_TRANSACTIONS, request_id)
 
     def _cleanup_request_files(self, request_id):
@@ -251,6 +256,12 @@ if __name__ == "__main__":
         if not queue_in or not queue_out:
             raise ValueError("QUEUE_IN y COMPLETION_QUEUE son requeridos")
 
-        return SorterV2(queue_in, queue_out, rabbitmq_host, base_temp_root, sort_columns)
+        # Derive service name from queue name (e.g. sorter_q1_v2_signal -> sorter_q1_v2)
+        service_name = queue_in.replace("_signal", "")
+        
+        # Derive service name from queue name (e.g. sorter_q1_v2_signal -> sorter_q1_v2)
+        service_name = queue_in.replace("_signal", "")
+        
+        return SorterV2(queue_in, queue_out, rabbitmq_host, base_temp_root, sort_columns, service_name=service_name)
 
     SorterV2.run_worker_main(create_sorter_v2)

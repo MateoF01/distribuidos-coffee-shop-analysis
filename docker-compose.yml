@@ -830,6 +830,7 @@ services:
       INPUT_FILE: /app/topper_temp/topper_q2_signal/q2_top.csv
       BATCH_SIZE: 5000
       QUERY_TYPE: q2
+      SERVICE_NAME: sender_grouper_q2
       WSM_HOST: wsm_coordinator
       WSM_PORT: 7015
     volumes:
@@ -955,6 +956,7 @@ services:
       INPUT_FILE: /app/topper_temp/topper_q3_signal/q3_top.csv
       BATCH_SIZE: 5000
       QUERY_TYPE: q3
+      SERVICE_NAME: sender_grouper_q3
       WSM_HOST: wsm_coordinator
       WSM_PORT: 7016
     volumes:
@@ -1080,6 +1082,7 @@ services:
       INPUT_FILE: /app/topper_temp/topper_q4_signal/q4_top.csv
       BATCH_SIZE: 5000
       QUERY_TYPE: q4
+      SERVICE_NAME: sender_grouper_q4
       WSM_HOST: wsm_coordinator
       WSM_PORT: 7017
     volumes:

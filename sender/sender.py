@@ -43,7 +43,7 @@ class Sender(FileProcessingWorker):
         Reads: /app/output/q2_a/req-123/sorted.csv
         Sends batches with Q2_RESULT_a data type
     """
-    def __init__(self, queue_in, queue_out, input_file, rabbitmq_host, batch_size=5000, query_type='q1', include_headers=False):
+    def __init__(self, queue_in, queue_out, rabbitmq_host, input_file, batch_size=5000, query_type='q1', include_headers=False, service_name=None, is_singleton=False):
         """
         Initialize sender with file path and transmission settings.
         
@@ -55,8 +55,10 @@ class Sender(FileProcessingWorker):
             batch_size (int, optional): Rows per batch. Defaults to 5000.
             query_type (str, optional): Query identifier. Defaults to 'q1'.
             include_headers (bool, optional): Include CSV header. Defaults to False.
+            service_name (str, optional): Service name for crash simulation.
+            is_singleton (bool, optional): Whether this worker runs as a singleton container (default: False).
         """
-        super().__init__(queue_in, queue_out, rabbitmq_host, input_file=input_file)
+        super().__init__(queue_in, queue_out, rabbitmq_host, input_file=input_file, service_name=service_name, is_singleton=is_singleton)
 
 
         # --- WSM Heartbeat Integration ----
@@ -149,12 +151,13 @@ class Sender(FileProcessingWorker):
             self._initialize_request_paths(request_id)
             
             print(f'[INFO] Completion signal received with request_id {request_id}. Starting file processing: {self.input_file}')
-            self._process_file()
+            self._process_file(queue_name, request_id)
+
             print('[INFO] File processing complete')
         else:
             print(f"[WARNING] Received unexpected message type: {msg_type}/{data_type}")
 
-    def _process_file(self):
+    def _process_file(self, queue_name, request_id):
         """
         Read CSV file and transmit in batches.
         
@@ -175,6 +178,21 @@ class Sender(FileProcessingWorker):
             return
         
         try:
+            # Recovery Logic: Check for completion marker
+            marker_file = self.input_file + ".sent_marker"
+            if os.path.exists(marker_file):
+                try:
+                    with open(marker_file, 'r') as f:
+                        saved_pos = int(f.read().strip())
+                    print(f"[INFO] Recovery: found marker {marker_file} with pos {saved_pos}. Sending END signals and skipping data transmission.")
+                    self._send_end_signal(saved_pos)
+                    # Cleanup marker after successful recovery
+                    if os.path.exists(marker_file):
+                        os.remove(marker_file)
+                    return
+                except Exception as e:
+                    print(f"[WARNING] Failed to read recovery marker, re-processing file: {e}")
+
             rows_sent = 0
             batch = []
             position_counter = 1
@@ -212,8 +230,23 @@ class Sender(FileProcessingWorker):
                     rows_sent += len(batch)
                     print(f"[INFO] Sent final batch, total rows sent: {rows_sent}")
             
+            # Save state before potential crash
+            try:
+                with open(marker_file, 'w') as f:
+                    f.write(str(position_counter))
+                    f.flush()
+                    os.fsync(f.fileno()) # Ensure write to disk
+            except Exception as e:
+                print(f"[WARNING] Could not write crash recovery marker: {e}")
+
+            self.simulate_crash(queue_name, request_id)
+
             self._send_end_signal(position_counter)
             print(f"[INFO] Sent END signal. Total rows transmitted: {rows_sent}")
+
+            # Cleanup marker
+            if os.path.exists(marker_file):
+                os.remove(marker_file)
             
         except Exception as e:
             print(f"[ERROR] Error sending CSV file: {e}")
@@ -291,6 +324,7 @@ if __name__ == '__main__':
             BATCH_SIZE: Rows per batch (default: 5000).
             QUERY_TYPE: Query ID ('q1', 'q2_a', 'q2_b', 'q3', 'q4', default: 'q1').
             INCLUDE_HEADERS: Include CSV header ('true'/'false', default: 'false').
+            SERVICE_NAME: Explicit service name override (optional).
         
         Returns:
             Sender: Configured sender instance.
@@ -308,7 +342,9 @@ if __name__ == '__main__':
 
         print(f"[INFO] Using batch_size: {batch_size}, query_type: {query_type}, include_headers: {include_headers}")
         
-        return Sender(queue_in, queue_out, input_file, rabbitmq_host, batch_size, query_type, include_headers)
+        # Prefer explicit SERVICE_NAME if set (e.g. sender_grouper_q2), else fallback to heuristic
+        service_name = os.environ.get('SERVICE_NAME', f"sender_{query_type}")
+        return Sender(queue_in, queue_out, rabbitmq_host, input_file, batch_size, query_type, include_headers, service_name=service_name, is_singleton=True)
     
     config_path = os.path.join(os.path.dirname(__file__), 'config.ini')
     Sender.run_worker_main(create_sender, config_path)

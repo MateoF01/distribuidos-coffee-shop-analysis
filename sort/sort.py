@@ -153,7 +153,7 @@ class Sorter(FileProcessingWorker):
         Writes: /app/output/q2_a/req-123/sorted.csv
         Sends: Completion notification
     """
-    def __init__(self, queue_in, input_file, output_file, rabbitmq_host, config: SorterConfig, completion_queue=None):
+    def __init__(self, queue_in, input_file, output_file, rabbitmq_host, config: SorterConfig, completion_queue=None, service_name=None, is_singleton=False):
         """
         Initialize sorter with file paths and configuration.
         
@@ -164,9 +164,11 @@ class Sorter(FileProcessingWorker):
             rabbitmq_host (str): RabbitMQ server hostname.
             config (SorterConfig): Configuration object.
             completion_queue (str, optional): Queue for completion notifications.
+            service_name (str, optional): Service name for crash simulation.
+            is_singleton (bool, optional): Whether this worker runs as a singleton container (default: False).
         """
         queue_out = completion_queue if completion_queue else None
-        super().__init__(queue_in, queue_out, rabbitmq_host, input_file=input_file, output_file=output_file)
+        super().__init__(queue_in, queue_out, rabbitmq_host, input_file=input_file, output_file=output_file, service_name=service_name, is_singleton=is_singleton)
         
         # --- WSM Heartbeat Integration ----
         self.replica_id = socket.gethostname()
@@ -389,6 +391,11 @@ class Sorter(FileProcessingWorker):
                 print(f"Input file {self.input_file} does not exist (empty stream). Sending completion signal.")
                 self._send_completion_signal()
                 return
+
+            if os.path.exists(self.output_file):
+                print(f"Output file {self.output_file} already exists. Recovering from previous crash.")
+                self._send_completion_signal()
+                return
             
             current_chunk = []
             header = None
@@ -414,6 +421,8 @@ class Sorter(FileProcessingWorker):
             else:
                 print(f"Successfully sorted {self.input_file} by column {self.sort_column_index} and saved to {self.output_file}")
             
+            self.simulate_crash(None, self.current_request_id)
+
             self._send_completion_signal()
             
         except Exception as e:
@@ -542,9 +551,10 @@ if __name__ == '__main__':
         config_parser.read(config_path)
         
         config = SorterConfig(config_parser, data_type)
-        print(f"Loaded configuration: {config}")
+        # Heuristic for service name: sorter_{data_type} (e.g. sorter_q3, sorter_q4)
+        service_name = f"sorter_{data_type}"
         
-        return Sorter(queue_in, input_file, output_file, rabbitmq_host, config, completion_queue)
+        return Sorter(queue_in, input_file, output_file, rabbitmq_host, config, completion_queue, service_name=service_name, is_singleton=True)
     
     config_path = os.path.join(os.path.dirname(__file__), 'config.ini')
     Sorter.run_worker_main(create_sorter, config_path)

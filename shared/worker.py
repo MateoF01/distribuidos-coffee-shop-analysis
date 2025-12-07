@@ -68,7 +68,7 @@ class Worker(ABC):
         MyWorker started - multiple input queues: ['queue_a', 'queue_b'], output queues: ['joined_output']
     """
     
-    def __init__(self, queue_in, queue_out, rabbitmq_host, multiple_input_queues=None, service_name=None, **kwargs):
+    def __init__(self, queue_in, queue_out, rabbitmq_host, multiple_input_queues=None, service_name=None, is_singleton=False, **kwargs):
         """
         Initialize the worker with queue configuration and setup connections.
         
@@ -78,6 +78,7 @@ class Worker(ABC):
             rabbitmq_host (str): RabbitMQ server hostname or IP address.
             multiple_input_queues (list, optional): List of input queue names.
             service_name (str, optional): Service name for crash replica identification (e.g. 'joiner_v2_q2').
+            is_singleton (bool, optional): Whether this worker runs as a singleton container (default: False).
             **kwargs: Additional worker-specific parameters.
         """
         self.rabbitmq_host = rabbitmq_host
@@ -120,8 +121,11 @@ class Worker(ABC):
                         f"{project_name}-{service_name}-{target_replica}",
                         f"{project_name}_{service_name}_{target_replica}",
                         f"{service_name}-{target_replica}",
-                        f"{service_name}_{target_replica}"
+                        f"{service_name}_{target_replica}",
                     ]
+                    
+                    if is_singleton:
+                         candidates.append(service_name) # Support for singleton containers (e.g. sender_q1)
                     
                     for candidate in candidates:
                         try:

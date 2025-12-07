@@ -9,7 +9,7 @@ from WSM.wsm_client import WSMClient
 from wsm_config import WSM_NODES
 
 class Filter(StreamProcessingWorker):
-    def __init__(self, queue_in, queue_out, rabbitmq_host, backoff_start=0.1, backoff_max=3.0, wsm_nodes = None):
+    def __init__(self, queue_in, queue_out, rabbitmq_host, backoff_start=0.1, backoff_max=3.0, wsm_nodes = None, service_name=None):
         """
         Initialize the Filter worker with WSM coordination.
         
@@ -30,7 +30,7 @@ class Filter(StreamProcessingWorker):
             ...     backoff_max=5.0
             ... )
         """
-        super().__init__(queue_in, queue_out, rabbitmq_host)
+        super().__init__(queue_in, queue_out, rabbitmq_host, service_name=service_name)
         self.backoff_start = backoff_start
         self.backoff_max = backoff_max
 
@@ -88,6 +88,8 @@ class Filter(StreamProcessingWorker):
         dic_queue_row = self._process_rows(rows, queue_name)
 
         self._send_complex_results(dic_queue_row, msg_type, data_type, request_id, position)
+
+        self.simulate_crash(queue_name, request_id)
 
         self.wsm_client.update_state("WAITING", request_id, position)
 
@@ -287,8 +289,8 @@ class TemporalFilter(Filter):
         ...     'HOUR_END': '17'
         ... }
     """
-    def __init__(self, queue_in, queue_out, rabbitmq_host, data_type, col_index, config, backoff_start=0.1, backoff_max=3.0, wsm_nodes = None):
-        super().__init__(queue_in, queue_out, rabbitmq_host, backoff_start, backoff_max, wsm_nodes)
+    def __init__(self, queue_in, queue_out, rabbitmq_host, data_type, col_index, config, backoff_start=0.1, backoff_max=3.0, wsm_nodes = None, service_name=None):
+        super().__init__(queue_in, queue_out, rabbitmq_host, backoff_start, backoff_max, wsm_nodes, service_name)
         self.data_type = data_type
         self.col_index = col_index
         self.rules = []
@@ -400,8 +402,8 @@ class AmountFilter(Filter):
         >>> filter._filter_row('124|Jane|2024-03-15|50.00')
         None
     """
-    def __init__(self, queue_in, queue_out, rabbitmq_host, min_amount, col_index, backoff_start=0.1, backoff_max=3.0, wsm_nodes = None):
-        super().__init__(queue_in, queue_out, rabbitmq_host, backoff_start, backoff_max, wsm_nodes)
+    def __init__(self, queue_in, queue_out, rabbitmq_host, min_amount, col_index, backoff_start=0.1, backoff_max=3.0, wsm_nodes = None, service_name=None):
+        super().__init__(queue_in, queue_out, rabbitmq_host, backoff_start, backoff_max, wsm_nodes, service_name)
         self.min_amount = float(min_amount)
         self.col_index = col_index
 
@@ -510,11 +512,13 @@ if __name__ == '__main__':
             temporal_config_path = os.path.join(os.path.dirname(__file__), 'temporal_filter_config.ini')
             temporal_config = configparser.ConfigParser()
             temporal_config.read(temporal_config_path)
-            return TemporalFilter(queue_in, queue_out, rabbitmq_host, data_type, col_index, temporal_config, backoff_start, backoff_max, wsm_nodes)
+            service_name = f"{filter_type}_filter_{data_type}"
+            return TemporalFilter(queue_in, queue_out, rabbitmq_host, data_type, col_index, temporal_config, backoff_start, backoff_max, wsm_nodes, service_name=service_name)
 
         elif filter_type == 'amount':
             min_amount = os.environ.get('MIN_AMOUNT')
-            return AmountFilter(queue_in, queue_out, rabbitmq_host, min_amount, col_index, backoff_start, backoff_max, wsm_nodes)
+            service_name = f"{filter_type}_filter_{data_type}"
+            return AmountFilter(queue_in, queue_out, rabbitmq_host, min_amount, col_index, backoff_start, backoff_max, wsm_nodes, service_name=service_name)
 
         else:
             raise ValueError(f"Unknown FILTER_TYPE: {filter_type}")
