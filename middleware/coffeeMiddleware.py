@@ -397,16 +397,51 @@ class CoffeeMessageMiddlewareQueue(MessageMiddlewareQueue):
       return True
     
     # Try to reconnect
+    print(f"Publisher channel closed, attempting to reconnect to {self.queue_name}...")
+    
+    # Clean up existing connections first
     try:
-      if self._publisher_connection and not self._publisher_connection.is_closed:
-        self._publisher_channel = self._publisher_connection.channel()
-        self._publisher_channel.confirm_delivery()
-        self._publisher_channel.queue_declare(queue=self.queue_name, durable=True)
-        return True
-      else:
-        # Full reconnect needed - reinitialize connections
-        self._initialize_connections()
-        return self._publisher_channel and not self._publisher_channel.is_closed
+      if self._publisher_channel:
+        self._publisher_channel.close()
+    except Exception:
+      pass
+    
+    try:
+      if self._publisher_connection:
+        self._publisher_connection.close()
+    except Exception:
+      pass
+    
+    # Attempt full reconnection
+    try:
+      import time
+      credentials = pika.PlainCredentials(
+        RABBITMQ_CREDENTIALS["username"], 
+        RABBITMQ_CREDENTIALS["password"]
+      )
+      params = pika.ConnectionParameters(
+          host=self.host, 
+          credentials=credentials,
+          heartbeat=RABBITMQ_CREDENTIALS["heartbeat"]
+      )
+      
+      max_retries = 3
+      for attempt in range(max_retries):
+        try:
+          self._publisher_connection = pika.BlockingConnection(params)
+          self._publisher_channel = self._publisher_connection.channel()
+          self._publisher_channel.confirm_delivery()
+          self._publisher_channel.queue_declare(queue=self.queue_name, durable=True)
+          print(f"Successfully reconnected publisher channel to {self.queue_name}")
+          return True
+        except pika.exceptions.AMQPConnectionError as e:
+          print(f"Reconnection attempt {attempt+1}/{max_retries} failed: {e}")
+          if attempt < max_retries - 1:
+            time.sleep(1 * (attempt + 1))  # Exponential backoff
+      
+      print(f"Failed to reconnect publisher channel after {max_retries} attempts")
+      return False
+      
     except Exception as e:
       print(f"Failed to reconnect publisher channel: {e}")
       return False
@@ -442,35 +477,64 @@ class CoffeeMessageMiddlewareQueue(MessageMiddlewareQueue):
         ... except MessageMiddlewareMessageError:
         ...     print("Message was not confirmed by broker")
     """
-    with self._state_lock:
-      if self._state == ConnectionState.DISCONNECTED:
-        raise MessageMiddlewareDisconnectedError("Not connected")
-      
-      if not self._publisher_channel or self._publisher_channel.is_closed:
-        # Try to reconnect before failing
-        if not self._ensure_publisher_channel():
-          raise MessageMiddlewareDisconnectedError("Publisher channel not available")
+    max_retries = 3
+    retry_count = 0
     
-    try:
-      if isinstance(message, bytes):
-        body = message
-      elif isinstance(message, str):
-        body = message.encode('utf-8')
-      else:
-        body = str(message).encode('utf-8')
+    while retry_count < max_retries:
+      with self._state_lock:
+        if self._state == ConnectionState.DISCONNECTED:
+          raise MessageMiddlewareDisconnectedError("Not connected")
         
-      self._publisher_channel.basic_publish(
-        exchange='',
-        routing_key=self.queue_name,
-        body=body,
-        properties=pika.BasicProperties(delivery_mode=2)
-      )
-    except pika.exceptions.UnroutableError as e:
-      raise MessageMiddlewareMessageError(f"Message could not be routed to queue: {str(e)}")
-    except pika.exceptions.NackError as e:
-      raise MessageMiddlewareMessageError(f"Message was rejected by broker: {str(e)}")
-    except Exception as e:
-      raise MessageMiddlewareMessageError(str(e))
+        if not self._publisher_channel or self._publisher_channel.is_closed:
+          # Try to reconnect before failing
+          if not self._ensure_publisher_channel():
+            raise MessageMiddlewareDisconnectedError("Publisher channel not available")
+      
+      try:
+        if isinstance(message, bytes):
+          body = message
+        elif isinstance(message, str):
+          body = message.encode('utf-8')
+        else:
+          body = str(message).encode('utf-8')
+          
+        self._publisher_channel.basic_publish(
+          exchange='',
+          routing_key=self.queue_name,
+          body=body,
+          properties=pika.BasicProperties(delivery_mode=2)
+        )
+        # Success - exit loop
+        return
+        
+      except pika.exceptions.UnroutableError as e:
+        raise MessageMiddlewareMessageError(f"Message could not be routed to queue: {str(e)}")
+      except pika.exceptions.NackError as e:
+        raise MessageMiddlewareMessageError(f"Message was rejected by broker: {str(e)}")
+      except (pika.exceptions.ConnectionClosedByBroker, 
+              pika.exceptions.AMQPConnectionError,
+              pika.exceptions.StreamLostError,
+              ConnectionResetError,
+              BrokenPipeError) as e:
+        # Connection error - try to reconnect
+        retry_count += 1
+        print(f"Connection error during send (attempt {retry_count}/{max_retries}): {e}")
+        if retry_count >= max_retries:
+          raise MessageMiddlewareDisconnectedError(f"Failed to send after {max_retries} retries: {str(e)}")
+        
+        # Force reconnection
+        try:
+          self._ensure_publisher_channel()
+        except Exception as reconnect_error:
+          print(f"Reconnection attempt failed: {reconnect_error}")
+          if retry_count >= max_retries:
+            raise MessageMiddlewareDisconnectedError(f"Failed to reconnect: {str(reconnect_error)}")
+        
+        import time
+        time.sleep(0.5 * retry_count)  # Exponential backoff
+        
+      except Exception as e:
+        raise MessageMiddlewareMessageError(str(e))
 
   def close(self):
     """Graceful connection closure"""

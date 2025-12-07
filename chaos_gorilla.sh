@@ -10,7 +10,7 @@
 # ───────────────────────────────────────────────────────────
 
 CHAOTIC=true          # true → docker kill, false → docker stop --time 0
-KILL_COUNT=1          # cantidad de contenedores a matar por ronda
+KILL_COUNT=5          # cantidad de contenedores a matar por ronda
 INTERVAL=${1:-30}     # intervalo entre matanzas (default 30s)
 
 # Trap Ctrl+C and Ctrl+D to exit gracefully
@@ -21,7 +21,7 @@ trap 'echo ""; echo "🛑 Chaos Gorilla detenido."; exit 0' INT TERM
 # puedan revivir a los workers muertos)
 # ───────────────────────────────────────────────────────────
 
-INCLUDE_WSM=false  # Cambiar a true para matar WSMs también
+INCLUDE_WSM=true  # Cambiar a true para matar WSMs también
 
 echo ""
 echo "🦍🦍🦍  CHAOS GORILLA INICIADO  🦍🦍🦍"
